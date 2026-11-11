@@ -1,0 +1,18 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<div class="layout layout--stack">
+  <div class="layout__main">
+    <h1 class="sr-only">{{ frame.heading_label(p.credit()) }}</h1>
+    <nav class="section-tabs" aria-label="{{ frame.section_title }}">
+      {%- for tab in frame.tabs %}
+      <a class="section-tabs__item" href="{{ crate::site::href(tab.href) }}"{% if tab.current %} aria-current="page"{% endif %}>{{ tab.label(p.credit()) }}</a>
+      {%- endfor %}
+    </nav>
+    {% block panel %}{% endblock %}
+  </div>
+  <aside class="layout__aside" aria-label="{{ p.t.frame_my_sidebar() }}">
+    {%- include "partials/my_card.html" %}
+    {%- include "partials/sidebar.html" %}
+  </aside>
+</div>
+{% endblock %}

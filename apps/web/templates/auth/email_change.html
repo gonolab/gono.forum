@@ -1,0 +1,23 @@
+{% extends "layout/base.html" %}
+{% block content %}
+{# Opening the link only shows the address; the change happens on the POST below. #}
+<div class="narrow-page" hx-boost="false">
+  <section class="panel panel--auth">
+    <h1 class="panel__title">{{ p.t.account_email_change_title() }}</h1>
+    {%- if !message.is_empty() %}
+    <p class="form-feedback" role="alert">{{ message }}</p>
+    {%- endif %}
+    {%- if !email.is_empty() %}
+    <p class="intro">{{ p.t.account_email_change_lead(crate::i18n::Markup::tag("strong", email), ttl)|safe }}</p>
+    <form class="fields" method="post" action="{{ crate::site::base() }}/confirm-email-change">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <input type="hidden" name="token" value="{{ token }}">
+      <p class="form-note" id="email-change-submit-hint">{{ p.t.account_email_change_note() }}</p>
+      <button class="button button--block" type="submit" aria-describedby="email-change-submit-hint">{{ p.t.account_email_change_submit() }}</button>
+    </form>
+    {%- else %}
+    <a class="button button--secondary button--block" href="{{ crate::site::base() }}/my/profile">{{ p.t.account_email_change_again() }}</a>
+    {%- endif %}
+  </section>
+</div>
+{% endblock %}

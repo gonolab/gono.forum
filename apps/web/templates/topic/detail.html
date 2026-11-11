@@ -1,0 +1,305 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<div class="layout topic">
+  <div class="layout__main topic__main">
+    <nav class="crumbs" aria-label="{{ p.t.common_breadcrumb() }}">
+      {%- for (name, href) in breadcrumb %}{% if !loop.first %}<span aria-hidden="true">›</span>{% endif %}<a href="{{ crate::site::href(href) }}">{{ name }}</a>{% endfor %}
+    </nav>
+
+    <article class="thread" aria-labelledby="thread-title">
+      <header class="thread-head">
+        <p class="thread-head__tags">
+          {%- if thread.pinned %}
+          <span class="tag tag--pinned">{{ p.t.common_pinned() }}</span>
+          {%- endif %}
+          <span class="tag">{{ thread.category_label() }}</span>
+          {%- if thread.members_only %}
+          <span class="tag">{{ p.t.topic_members_only() }}</span>
+          {%- endif %}
+        </p>
+        <h1 class="thread-head__title" id="thread-title">{{ thread.title }}</h1>
+        <div class="thread-stats">
+          <span class="thread-stats__count" id="topic-reply-count">{{ p.t.topic_reply_count(thread.reply_count) }}</span>
+          <div class="thread-stats__tools">
+            {%- let control = follow %}
+            {% include "social/control.html" %}
+            {%- if opening_controls.can_edit_manage %}
+            <a class="button button--small button--secondary" href="{{ crate::site::base() }}/manage/threads/{{ thread.id }}/organization">{{ p.t.topic_move() }}</a>
+            {%- endif %}
+          </div>
+        </div>
+      </header>
+
+      {# The opening post. It sits outside #topic-replies, so the reading-position tracker ignores it. #}
+      <div class="floor floor--opening" id="floor-1">
+        <span class="row-avatar">{% let avatar = opening_avatar %}{% include "partials/avatar.html" %}</span>
+        <div class="row-body">
+          <div class="floor__head">
+            <span class="floor__byline">
+              {%- if thread.author_deleted %}
+              <span class="row-author">{{ p.t.common_deleted_user() }}</span>
+              {%- else %}
+              <a class="row-author" href="{{ crate::site::href(opening_avatar.profile_href) }}" translate="no">{{ thread.author }}</a>
+              {%- endif %}
+              {%- if let Some(level) = opening_level %}
+              <span class="tag tag--level" title="{{ level.name }}" data-level="{{ level.number }}">Lv{{ level.number }}</span>
+              {%- endif %}
+              {%- if let Some(badge) = opening_badge %}
+              <span class="tag tag--verified" title="{{ badge.title }}" data-verified-badge="{{ badge.category.slug() }}">{{ badge.label() }}</span>
+              {%- endif %}
+              {%- for honor in opening_honors %}
+              <span class="tag tag--honor" title="{{ honor.description }}" data-honor-badge>{{ honor.name }}</span>
+              {%- endfor %}
+              <span class="tag floor__op">{{ p.t.topic_author() }}</span>
+            </span>
+            <span class="row-time">{{ thread.created_time }}</span>
+            {%- if thread.edited_at > 0 %}
+            <span class="floor__edited">{{ p.t.topic_edited() }}</span>
+            {%- endif %}
+            <span class="floor__tools">
+              <a class="floor__number" href="{{ crate::site::base() }}/thread-{{ thread.id }}#floor-1" aria-label="{{ p.t.topic_opening_permalink() }}">#1</a>
+            </span>
+          </div>
+          {%- if thread.blocked %}
+          <details class="blocked-content">
+            <summary class="blocked-content__summary">{{ p.t.topic_blocked_content() }}</summary>
+            <div class="prose">{{ opening_html|safe }}</div>
+          </details>
+          {%- else %}
+          <div class="prose">{{ opening_html|safe }}</div>
+          {%- endif %}
+          {{ activity_html|safe }}
+          <div class="actions-bar">
+            {% include "partials/favorite.html" %}
+            {%- let reaction = opening_reaction %}
+            {% include "partials/reaction.html" %}
+            {%- let downvote = opening_downvote %}
+            {% include "partials/downvote.html" %}
+            {% include "partials/tip.html" %}
+            {%- if can_quote_opening %}
+            <a class="floor__action" href="{{ crate::site::href(opening_quote_href) }}" hx-boost="false">{{ p.t.topic_quote() }}</a>
+            {%- endif %}
+            {%- let controls = opening_controls %}
+            {% include "partials/content_controls.html" %}
+          </div>
+          {% include "partials/tip_summary.html" %}
+        </div>
+      </div>
+    </article>
+
+    {# Re-rendered alone after an HTMX reply; the reply form swaps #topic-replies (outerHTML). #}
+    {%- block reply_fragment %}
+    <section class="replies" id="topic-replies" aria-labelledby="replies-heading">
+      {% include "partials/highlights.html" %}
+      <div class="replies-pane">
+        <div class="replies-head">
+          <h2 class="replies-head__title" id="replies-heading">{{ p.t.common_reply_count(thread.reply_count) }}</h2>
+          <nav class="tabs tabs--switch" aria-label="{{ p.t.topic_reply_view() }}">
+            {%- for tab in tabs %}
+            {%- if tab.active %}
+            <a class="tabs__item" href="{{ crate::site::href(tab.href) }}" aria-current="page">{{ tab.label }}</a>
+            {%- else %}
+            <a class="tabs__item" href="{{ crate::site::href(tab.href) }}" data-view-switch hx-boost="false">{{ tab.label }}</a>
+            {%- endif %}
+            {%- endfor %}
+          </nav>
+        </div>
+        <ol class="rows rows--posts">
+          {%- for row in rows %}
+          <li class="floor floor-card" id="floor-{{ row.post.position }}" data-alternate-href="{{ crate::site::href(row.alternate_href) }}">
+            <span class="row-avatar">{% let avatar = row.avatar %}{% include "partials/avatar.html" %}</span>
+            <div class="row-body">
+              <div class="floor__head">
+                <span class="floor__byline">
+                  {%- if row.post.author_deleted %}
+                  <span class="row-author">{{ p.t.common_deleted_user() }}</span>
+                  {%- else %}
+                  <a class="row-author" href="{{ crate::site::href(row.avatar.profile_href) }}" translate="no">{{ row.post.author }}</a>
+                  {%- endif %}
+                  {%- if let Some(level) = row.level %}
+                  <span class="tag tag--level" title="{{ level.name }}" data-level="{{ level.number }}">Lv{{ level.number }}</span>
+                  {%- endif %}
+                  {%- if let Some(badge) = row.badge %}
+                  <span class="tag tag--verified" title="{{ badge.title }}" data-verified-badge="{{ badge.category.slug() }}">{{ badge.label() }}</span>
+                  {%- endif %}
+                  {%- for honor in row.honors %}
+                  <span class="tag tag--honor" title="{{ honor.description }}" data-honor-badge>{{ honor.name }}</span>
+                  {%- endfor %}
+                </span>
+                <span class="row-time">{{ row.post.time }}</span>
+                {%- if row.post.edited_at > 0 && !row.post.hidden && !row.post.withdrawn %}
+                <span class="floor__edited">{{ p.t.topic_edited() }}</span>
+                {%- endif %}
+                <span class="floor__tools">
+                  <a class="floor__switch" href="{{ crate::site::href(row.alternate_href) }}" aria-label="{{ p.t.topic_switch_view_label(row.post.position) }}">{{ p.t.topic_switch_view() }}</a>
+                  <a class="floor__number" href="{{ crate::site::href(row.href) }}" aria-label="{{ p.t.topic_floor_permalink(row.post.position) }}">#{{ row.post.position }}</a>
+                </span>
+              </div>
+              {%- if !row.parent_label.is_empty() %}
+              <p class="floor__context">
+                <svg class="meta-glyph meta-glyph--mirror" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 4v7a4 4 0 0 0 4 4h9"/><path d="m15 11 4 4-4 4"/></svg>
+                <a href="{{ crate::site::href(row.parent_href) }}">{{ row.parent_label }}</a>
+                <a href="{{ crate::site::href(row.root_href) }}">{{ p.t.topic_root_floor(row.root_position) }}</a>
+              </p>
+              {%- endif %}
+              {%- if row.post.blocked %}
+              <details class="blocked-content">
+                <summary class="blocked-content__summary">{{ p.t.topic_blocked_content() }}</summary>
+                <div class="prose">{{ row.html|safe }}</div>
+              </details>
+              {%- else %}
+              <div class="prose">{{ row.html|safe }}</div>
+              {%- endif %}
+              <div class="actions-bar">
+                {%- let reaction = row.reaction %}
+                {% include "partials/reaction.html" %}
+                {%- if row.can_reply %}
+                <a class="floor__action" href="{{ crate::site::href(row.reply_href) }}" hx-boost="false">{{ p.t.topic_reply() }}</a>
+                {%- endif %}
+                {%- if row.can_quote %}
+                <a class="floor__action" href="{{ crate::site::href(row.quote_href) }}" hx-boost="false">{{ p.t.topic_quote() }}</a>
+                {%- endif %}
+                {%- if row.can_accept %}
+                <form class="floor__accept" method="post" action="{{ crate::site::base() }}/api/thread-{{ thread.id }}/accept" hx-boost="false">
+                  <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+                  <input type="hidden" name="request_key" value="{{ row.controls.request_key }}">
+                  <input type="hidden" name="pid" value="{{ row.post.pid }}">
+                  <button class="button button--small" type="submit">{{ p.t.topic_accept() }}</button>
+                </form>
+                {%- endif %}
+                {%- let controls = row.controls %}
+                {% include "partials/content_controls.html" %}
+              </div>
+              {%- if !row.children.is_empty() %}
+              <ol class="sub-replies" aria-label="{{ p.t.topic_sub_replies(row.post.position) }}">
+                {%- for child in row.children %}
+                <li class="floor floor--sub" id="floor-{{ child.post.position }}" data-alternate-href="{{ crate::site::href(child.alternate_href) }}">
+                  <span class="row-avatar">{% let avatar = child.avatar %}{% include "partials/avatar.html" %}</span>
+                  <div class="row-body">
+                    <div class="floor__head">
+                      <span class="floor__byline">
+                        {%- if child.post.author_deleted %}
+                        <span class="row-author">{{ p.t.common_deleted_user() }}</span>
+                        {%- else %}
+                        <a class="row-author" href="{{ crate::site::href(child.avatar.profile_href) }}" translate="no">{{ child.post.author }}</a>
+                        {%- endif %}
+                        {%- if let Some(level) = child.level %}
+                        <span class="tag tag--level" title="{{ level.name }}" data-level="{{ level.number }}">Lv{{ level.number }}</span>
+                        {%- endif %}
+                        {%- if let Some(badge) = child.badge %}
+                        <span class="tag tag--verified" title="{{ badge.title }}" data-verified-badge="{{ badge.category.slug() }}">{{ badge.label() }}</span>
+                        {%- endif %}
+                        {%- for honor in child.honors %}
+                        <span class="tag tag--honor" title="{{ honor.description }}" data-honor-badge>{{ honor.name }}</span>
+                        {%- endfor %}
+                      </span>
+                      <span class="row-time">{{ child.post.time }}</span>
+                      {%- if child.post.edited_at > 0 && !child.post.hidden && !child.post.withdrawn %}
+                      <span class="floor__edited">{{ p.t.topic_edited() }}</span>
+                      {%- endif %}
+                      <span class="floor__tools">
+                        <a class="floor__switch" href="{{ crate::site::href(child.alternate_href) }}" aria-label="{{ p.t.topic_switch_view_label(child.post.position) }}">{{ p.t.topic_switch_view() }}</a>
+                        <a class="floor__number" href="{{ crate::site::href(child.href) }}" aria-label="{{ p.t.topic_floor_permalink(child.post.position) }}">#{{ child.post.position }}</a>
+                      </span>
+                    </div>
+                    <p class="floor__context">
+                      <svg class="meta-glyph meta-glyph--mirror" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 4v7a4 4 0 0 0 4 4h9"/><path d="m15 11 4 4-4 4"/></svg>
+                      <a href="{{ crate::site::href(child.parent_href) }}">{{ child.parent_label }}</a>
+                    </p>
+                    {%- if child.post.blocked %}
+                    <details class="blocked-content">
+                      <summary class="blocked-content__summary">{{ p.t.topic_blocked_content() }}</summary>
+                      <div class="prose">{{ child.html|safe }}</div>
+                    </details>
+                    {%- else %}
+                    <div class="prose">{{ child.html|safe }}</div>
+                    {%- endif %}
+                    <div class="actions-bar">
+                      {%- let reaction = child.reaction %}
+                      {% include "partials/reaction.html" %}
+                      {%- if child.can_reply %}
+                      <a class="floor__action" href="{{ crate::site::href(child.reply_href) }}" hx-boost="false">{{ p.t.topic_reply() }}</a>
+                      {%- endif %}
+                      {%- if child.can_quote %}
+                      <a class="floor__action" href="{{ crate::site::href(child.quote_href) }}" hx-boost="false">{{ p.t.topic_quote() }}</a>
+                      {%- endif %}
+                      {%- if child.can_accept %}
+                      <form class="floor__accept" method="post" action="{{ crate::site::base() }}/api/thread-{{ thread.id }}/accept" hx-boost="false">
+                        <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+                        <input type="hidden" name="request_key" value="{{ child.controls.request_key }}">
+                        <input type="hidden" name="pid" value="{{ child.post.pid }}">
+                        <button class="button button--small" type="submit">{{ p.t.topic_accept() }}</button>
+                      </form>
+                      {%- endif %}
+                      {%- let controls = child.controls %}
+                      {% include "partials/content_controls.html" %}
+                    </div>
+                  </div>
+                </li>
+                {%- endfor %}
+              </ol>
+              {%- endif %}
+              {%- if row.pages.len() > 1 %}
+              <nav class="pager pager--compact" aria-label="{{ p.t.topic_sub_pagination() }}">
+                {%- for subpage in row.pages %}
+                {%- if !loop.first && subpage.number > row.pages[loop.index0 - 1].number + 1 %}
+                <span class="pager__gap" aria-hidden="true"></span>
+                {%- endif %}
+                {%- if subpage.active %}
+                <a class="pager__item" href="{{ crate::site::href(subpage.href) }}" aria-current="page">{{ subpage.number }}</a>
+                {%- else %}
+                <a class="pager__item" href="{{ crate::site::href(subpage.href) }}">{{ subpage.number }}</a>
+                {%- endif %}
+                {%- endfor %}
+              </nav>
+              {%- endif %}
+            </div>
+          </li>
+          {%- else %}
+          <li class="empty">{{ p.t.topic_no_replies() }}</li>
+          {%- endfor %}
+        </ol>
+        <div class="replies-pane__pager">
+          {%- include "partials/pagination.html" %}
+        </div>
+      </div>
+
+      <section class="reply-box" id="reply-editor" aria-labelledby="reply-editor-title">
+        <h3 class="reply-box__title" id="reply-editor-title">{{ p.t.topic_post_reply() }}</h3>
+        {%- if thread.closed %}
+        <p class="reply-gate">{{ p.t.topic_locked() }}</p>
+        {%- else if p.authenticated && !p.needs_verification %}
+        {# Keep this condition in step with p.with_composer() in router.rs, which loads composer.js. #}
+        {% include "editor/form.html" %}
+        {%- else %}
+        <div class="reply-gate">
+          <p class="reply-gate__text">{{ p.t.topic_login_to_reply() }}</p>
+          <div class="reply-gate__actions">
+            {%- if p.authenticated %}
+            <a class="button button--small" href="{{ crate::site::base() }}/verify-email?{{ e.return_query() }}" hx-boost="false">{{ p.t.frame_verify_email() }}</a>
+            <a class="button button--small button--secondary" href="{{ crate::site::base() }}/login?{{ e.return_query() }}" hx-boost="false">{{ p.t.frame_log_in() }}</a>
+            {%- else %}
+            <a class="button button--small" href="{{ crate::site::base() }}/login?{{ e.return_query() }}" hx-boost="false">{{ p.t.frame_log_in() }}</a>
+            {%- endif %}
+            {%- if p.registration_open() %}
+            <a class="button button--small button--secondary" href="{{ crate::site::base() }}/register?{{ e.return_query() }}" hx-boost="false">{{ p.t.frame_register() }}</a>
+            {%- endif %}
+          </div>
+        </div>
+        {%- endif %}
+      </section>
+      {%- if is_fragment %}
+      {# Out-of-band copy for the count in the thread header; only in the fragment, so ids stay unique on the full page. #}
+      <span class="thread-stats__count" id="topic-reply-count" hx-swap-oob="true">{{ p.t.topic_reply_count(thread.reply_count) }}</span>
+      {%- endif %}
+    </section>
+    {%- endblock %}
+  </div>
+
+  <aside class="layout__aside" aria-label="{{ p.t.topic_sidebar() }}">
+    {% include "partials/user_card.html" %}
+  </aside>
+</div>
+{# The server does not record views: site.js reads this marker and keeps the reader's recent threads in local storage. #}
+<div hidden data-recent-thread="{{ thread.id }}" data-recent-title="{{ thread.title }}" data-recent-owner="{{ p.uid }}"></div>
+{% endblock %}

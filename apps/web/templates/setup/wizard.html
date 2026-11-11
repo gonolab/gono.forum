@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="{{ t.tag() }}"{% if !t.dir().is_empty() %} dir="{{ t.dir() }}"{% endif %}>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+{% if finished %}<meta http-equiv="refresh" content="3;url={{ login_url }}">{% endif %}
+<title>{{ t.setup_title() }}</title>
+{# Inline styles only: the wizard runs before the forum URL and its path prefix are known, and serves no assets. #}
+<style>
+:root { color-scheme: light dark; --bg: #f6f7f9; --card: #fff; --text: #1f2328; --muted: #59636e; --line: #d8dde3; --accent: #4f46e5; --danger: #b42318; --danger-bg: #fef3f2; }
+@media (prefers-color-scheme: dark) { :root { --bg: #0f1115; --card: #181b21; --text: #e6e8eb; --muted: #9aa4af; --line: #2c313a; --accent: #818cf8; --danger: #fda29b; --danger-bg: #2a1614; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.6 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+main { max-width: 640px; margin: 40px auto; padding: 0 16px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 24px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+h2 { font-size: 16px; margin: 24px 0 8px; padding-top: 16px; border-top: 1px solid var(--line); }
+p { margin: 8px 0; }
+.lead, .hint { color: var(--muted); }
+.hint { font-size: 13px; margin: 4px 0 0; }
+label { display: block; font-weight: 600; margin: 12px 0 4px; }
+input[type=text], input[type=password], input[type=email], input[type=url], select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: inherit; font: inherit; }
+input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.choice { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
+.choice > label:first-child { margin: 0; display: flex; gap: 8px; align-items: center; }
+.choice:not(:has(input[type=radio]:checked)):has(input[type=radio]) .detail { opacity: .55; }
+.check { display: flex; gap: 8px; align-items: center; font-weight: 600; margin: 8px 0; }
+button { margin-top: 24px; padding: 10px 20px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+.error { background: var(--danger-bg); color: var(--danger); border-radius: 6px; padding: 10px 12px; margin: 12px 0; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; word-break: break-all; }
+</style>
+</head>
+<body>
+<main>
+<div class="card">
+<h1>{{ t.setup_title() }}</h1>
+{% if finished %}
+<p class="lead">{{ t.setup_finished() }}</p>
+<p>{{ t.setup_finished_manual(crate::i18n::Markup::tag("code", login_url))|safe }}</p>
+{% else if !authorized %}
+<p class="lead">{{ t.setup_token_lead(crate::i18n::Markup::tag("code", token_path))|safe }}</p>
+{% if token_rejected %}<p class="error">{{ t.setup_token_rejected(crate::i18n::Markup::tag("code", token_path))|safe }}</p>{% endif %}
+<form method="get">
+<label for="token">{{ t.setup_token() }}</label>
+<input type="text" id="token" name="token" autocomplete="off" required>
+<button type="submit">{{ t.setup_continue() }}</button>
+</form>
+{% else %}
+{% if configure %}
+<p class="lead">{{ t.setup_configure_lead(crate::i18n::Markup::tag("code", config_path))|safe }}</p>
+{% else %}
+<p class="lead">{{ t.setup_admin_lead() }}</p>
+{% endif %}
+{% if !error.is_empty() %}<p class="error">{{ error }}</p>{% endif %}
+<form method="post">
+<input type="hidden" name="token" value="{{ form.token }}">
+{% if configure %}
+<h2>{{ t.setup_database() }}</h2>
+<div class="choice">
+<label><input type="radio" name="backend" value="sqlite"{% if sqlite %} checked{% endif %}> {{ t.setup_sqlite() }}</label>
+<div class="detail">
+<label for="sqlite_path">{{ t.setup_sqlite_path() }}</label>
+<input type="text" id="sqlite_path" name="sqlite_path" value="{{ form.sqlite_path }}">
+<p class="hint">{{ t.setup_sqlite_hint() }}</p>
+</div>
+</div>
+<div class="choice">
+<label><input type="radio" name="backend" value="mysql"{% if !sqlite %} checked{% endif %}> {{ t.setup_mysql() }}</label>
+<div class="detail">
+<label for="mysql_url">{{ t.setup_url() }}</label>
+<input type="text" id="mysql_url" name="mysql_url" value="{{ form.mysql_url }}" placeholder="{{ t.setup_mysql_placeholder() }}" autocomplete="off">
+<p class="hint">{{ t.setup_mysql_hint() }}</p>
+</div>
+</div>
+<h2>{{ t.setup_redis() }}</h2>
+<label class="check"><input type="checkbox" name="redis_enabled" value="1"{% if redis %} checked{% endif %}> {{ t.setup_redis_enable() }}</label>
+<p class="hint">{{ t.setup_redis_hint() }}</p>
+<label for="redis_url">{{ t.setup_url() }}</label>
+<input type="text" id="redis_url" name="redis_url" value="{{ form.redis_url }}" placeholder="redis://127.0.0.1:6379/0" autocomplete="off">
+<label for="redis_namespace">{{ t.setup_redis_namespace() }}</label>
+<input type="text" id="redis_namespace" name="redis_namespace" value="{{ form.redis_namespace }}">
+<p class="hint">{{ t.setup_redis_namespace_hint() }}</p>
+<h2>{{ t.setup_site_url_heading() }}</h2>
+<label for="site_url">{{ t.setup_site_url() }}</label>
+<input type="text" id="site_url" name="site_url" value="{{ form.site_url }}" placeholder="https://forum.example.com">
+<p class="hint">{{ t.setup_site_url_hint(crate::i18n::Markup::trusted("<code>https://example.com/bbs</code>"))|safe }}</p>
+{% endif %}
+<h2>{{ t.setup_admin() }}</h2>
+<label for="username">{{ t.setup_username() }}</label>
+<input type="text" id="username" name="username" value="{{ form.username }}" autocomplete="username" required>
+<label for="email">{{ t.setup_email() }}</label>
+<input type="email" id="email" name="email" value="{{ form.email }}" autocomplete="email">
+<p class="hint">{{ t.setup_email_hint() }}</p>
+<label for="password">{{ t.setup_password() }}</label>
+<input type="password" id="password" name="password" autocomplete="new-password" required>
+<label for="password_confirm">{{ t.setup_password_confirm() }}</label>
+<input type="password" id="password_confirm" name="password_confirm" autocomplete="new-password" required>
+<p class="hint">{{ t.setup_password_hint() }}</p>
+<h2>{{ t.setup_time_zone_heading() }}</h2>
+<label for="offset_minutes">{{ t.setup_time_zone() }}</label>
+<select id="offset_minutes" name="offset_minutes"{% if browser_zone %} data-browser-zone{% endif %}>{% for zone in zones %}<option value="{{ zone.offset_minutes }}"{% if zone.offset_minutes == offset %} selected{% endif %}>{{ zone.label }}</option>{% endfor %}</select>
+<p class="hint">{{ t.setup_time_zone_hint() }}</p>
+<h2>{{ t.setup_sample_heading() }}</h2>
+<label class="check"><input type="checkbox" name="sample_content" value="1"{% if sample %} checked{% endif %}> {{ t.setup_sample() }}</label>
+<p class="hint">{{ t.setup_sample_hint(crate::content::sample::MEMBERS, crate::content::sample::FORUMS, crate::content::sample::THREADS, crate::content::sample::REPLIES) }}</p>
+<button type="submit">{% if configure %}{{ t.setup_install() }}{% else %}{{ t.setup_create_admin() }}{% endif %}</button>
+</form>
+{% if browser_zone %}<script>{{ zone_script|safe }}</script>{% endif %}
+{% endif %}
+</div>
+</main>
+</body>
+</html>

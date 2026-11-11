@@ -1,0 +1,38 @@
+{% extends "layout/manage.html" %}{% block panel %}
+<section class="panel"><h1 class="panel__title">{{ p.t.profile_manage_honors() }} · <span translate="no">{{ username }}</span></h1>
+{% if !notice.is_empty() %}<p class="form-feedback form-feedback--success" role="status">{{ notice }}</p>{% endif %}
+{% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+<p>UID {{ uid }} · {{ p.t.profile_manage_account_state(member_state) }} · <a href="{{ crate::site::base() }}/space/{{ uid }}">{{ p.t.profile_manage_profile_link() }}</a></p>
+{% for grant in grants %}<article class="admin-row" data-member-honor="{{ grant.honor_id }}"><h2>{{ grant.name }}</h2><p>{{ p.t.profile_manage_granted(grant.granted) }} · {{ p.t.profile_manage_expires(grant.expires) }} · {{ grant.state }}</p>
+<form class="fields fields--inline" method="post" action="{{ crate::site::base() }}/manage/honors/members/{{ uid }}"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="honor_id" value="{{ grant.honor_id }}">
+<div class="field">
+  <label class="field__label" for="renew-{{ grant.honor_id }}-expires">{{ p.t.profile_manage_valid_until() }}</label>
+  <input type="date" id="renew-{{ grant.honor_id }}-expires" name="expires" value="{{ grant.expires_value }}">
+</div>
+<div class="form-actions"><button class="button" type="submit">{{ p.t.profile_manage_renew() }}</button></div>
+</form>
+<form class="fields fields--inline" method="post" action="{{ crate::site::base() }}/manage/honors/members/{{ uid }}/revoke"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="honor_id" value="{{ grant.honor_id }}">
+<div class="field">
+  <label class="field__label" for="revoke-{{ grant.honor_id }}-reason">{{ p.t.profile_manage_revoke_reason() }}</label>
+  <input id="revoke-{{ grant.honor_id }}-reason" name="reason" maxlength="500" required>
+</div>
+<div class="form-actions"><button class="button button--danger" type="submit">{{ p.t.profile_manage_revoke() }}</button></div>
+</form></article>{% else %}<p>{{ p.t.profile_manage_member_empty() }}</p>{% endfor %}
+</section>
+<section class="panel"><h2 class="panel__title">{{ p.t.profile_manage_grant_heading() }}</h2>
+{% if choices.is_empty() %}<p>{{ p.t.profile_manage_no_choices(p.link("/manage/honors", p.t.profile_manage_honors()))|safe }}</p>{% else %}
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/honors/members/{{ uid }}" data-honor-grant>
+<input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<div class="field">
+  <label class="field__label" for="grant-honor_id">{{ p.t.profile_manage_honors() }}</label>
+  <select id="grant-honor_id" name="honor_id" required><option value="">{{ p.t.common_choose() }}</option>{% for choice in choices %}<option value="{{ choice.id }}"{% if choice.selected %} selected{% endif %}>{{ choice.name }}</option>{% endfor %}</select>
+</div>
+<div class="field">
+  <label class="field__label" for="grant-expires">{{ p.t.profile_manage_valid_until() }}</label>
+  <input type="date" id="grant-expires" aria-describedby="grant-expires-hint" name="expires" value="{{ form.expires }}">
+  <p class="field__hint" id="grant-expires-hint">{{ p.t.profile_manage_expires_help() }}</p>
+</div>
+<div class="form-actions"><button class="button" type="submit">{{ p.t.profile_manage_grant() }}</button></div>
+</form>{% endif %}
+<p class="form-actions"><a href="{{ crate::site::base() }}/manage/honors">{{ p.t.profile_manage_back() }}</a></p>
+</section>{% endblock %}

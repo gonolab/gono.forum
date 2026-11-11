@@ -1,0 +1,35 @@
+{#- Member center card: the first level of the member center's navigation (three icons, four text links). aria-current="page" marks the page itself, "true" only its section. #}
+<div class="panel panel--aside panel--keep person-card">
+  <div class="person">
+    <a class="person__avatar" href="{{ crate::site::base() }}/my" aria-label="{{ p.t.frame_my_center() }}">{% let avatar = p.avatar %}{% include "partials/avatar.html" %}</a>
+    <div class="person__ident">
+      <a class="person__name" href="{{ crate::site::base() }}/my" translate="no">{{ p.username }}</a>
+      <p class="person__role"><span>{{ p.role_label }}</span>
+        {%- if p.needs_verification %}
+        {%- if p.participation.email %}<a href="{{ crate::site::base() }}/verify-email">{{ p.t.home_card_verify_email() }}</a>{% else %}<a href="{{ crate::site::base() }}/my/account#mobile">{{ p.t.home_card_bind_mobile() }}</a>{% endif %}
+        {%- endif -%}
+      </p>
+    </div>
+    <nav class="person__shortcuts" aria-label="{{ p.t.home_card_shortcuts() }}">
+      {%- for link in frame.icons %}
+      {%- if !link.staff || p.is_staff %}
+      <a class="person__shortcut" href="{{ crate::site::href(link.href) }}" title="{{ link.title }}" aria-label="{{ link.title }}"{% if link.current_page %} aria-current="page"{% else if link.current_section %} aria-current="true"{% endif %} hx-boost="false">
+        {%- if link.icon == "flag" %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 21V4"/><path d="M5 4h12l-2.5 4.5L17 13H5"/></svg>
+        {%- else if link.icon == "settings" %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>
+        {%- else %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6l-7-3Z"/></svg>
+        {%- endif -%}
+      </a>
+      {%- endif %}
+      {%- endfor %}
+    </nav>
+  </div>
+  <nav class="person-card__nav" aria-label="{{ p.t.my_card_nav() }}">
+    {%- for link in frame.links %}
+    <a class="person-card__link" href="{{ crate::site::href(link.href) }}"{% if link.current_page %} aria-current="page"{% else if link.current_section %} aria-current="true"{% endif %}>{{ link.title }}
+      {%- if link.icon == "bell" %}{% let fragment = false %}{% include "partials/notification_dot.html" %}
+      {%- else if link.icon == "message" && p.has_unread_messages %}<span class="person-card__dot" role="img" aria-label="{{ p.t.my_card_unread() }}"></span>
+      {%- endif -%}
+    </a>
+    {%- endfor %}
+  </nav>
+</div>

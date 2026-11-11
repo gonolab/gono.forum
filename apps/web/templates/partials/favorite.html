@@ -1,0 +1,24 @@
+{# One root element in every branch: it is also the HTMX response that replaces #favorite-{tid}. #}
+{%- if favorite.can_change %}
+<form class="interaction-form favorite-control" id="favorite-{{ favorite.tid }}" method="post" action="{{ crate::site::base() }}/api/thread-{{ favorite.tid }}/star" hx-post="{{ crate::site::base() }}/api/thread-{{ favorite.tid }}/star" hx-target="this" hx-swap="outerHTML" hx-boost="false" hx-disabled-elt="find button">
+  <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+  <input type="hidden" name="request_key" value="{{ favorite.request_key }}">
+  <input type="hidden" name="desired" value="{% if favorite.active %}false{% else %}true{% endif %}">
+  <input type="hidden" name="location" value="{{ favorite.location }}">
+  <button class="icon-button" type="submit" aria-pressed="{{ favorite.active }}" aria-label="{% if favorite.active %}{{ p.t.topic_unfavorite() }}{% else %}{{ p.t.topic_favorite() }}{% endif %}" title="{% if favorite.active %}{{ p.t.topic_unfavorite() }}{% else %}{{ p.t.topic_favorite() }}{% endif %}{% if let Some(count) = favorite.count %} · {{ p.t.topic_favorite_count(count) }}{% endif %}">
+    {%- include "partials/favorite_icon.html" %}
+    <span class="actions-bar__label">{% if favorite.active %}{{ p.t.topic_unfavorite() }}{% else %}{{ p.t.topic_favorite() }}{% endif %}</span>
+    {%- if let Some(count) = favorite.count %}
+    <span class="actions-bar__count" data-favorite-count>{{ count }}</span>
+    {%- endif %}
+  </button>
+</form>
+{%- else %}
+<button class="icon-button interaction-disabled favorite-control" id="favorite-{{ favorite.tid }}" type="button" data-active="{{ favorite.active }}" aria-label="{% if favorite.active %}{{ p.t.topic_favorited() }}{% else %}{{ p.t.topic_favorite() }}{% endif %}{{ p.t.topic_favorite_locked_note() }}" title="{{ p.t.topic_favorite_locked() }}{% if let Some(count) = favorite.count %} · {{ p.t.topic_favorite_count(count) }}{% endif %}" disabled>
+  {%- include "partials/favorite_icon.html" %}
+  <span class="actions-bar__label">{% if favorite.active %}{{ p.t.topic_favorited() }}{% else %}{{ p.t.topic_favorite() }}{% endif %}</span>
+  {%- if let Some(count) = favorite.count %}
+  <span class="actions-bar__count" data-favorite-count>{{ count }}</span>
+  {%- endif %}
+</button>
+{%- endif %}

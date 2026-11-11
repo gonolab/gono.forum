@@ -1,0 +1,46 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<div class="narrow-page" hx-boost="false" data-mobile-register>
+  <section class="panel panel--auth">
+    <h1 class="panel__title">{{ p.t.account_finish_signup() }}</h1>
+    <p class="form-feedback form-feedback--success" role="status">{{ p.t.account_mobile_verified(mobile) }}</p>
+    {%- if !message.is_empty() %}
+    <p class="form-feedback" role="alert">{{ message }}</p>
+    {%- endif %}
+    <form class="fields" method="post" action="{{ crate::site::base() }}/register/mobile">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <input type="hidden" name="return_to" value="{{ form.return_to }}">
+      <div class="field">
+        <label class="field__label" for="register-invite">{{ p.t.account_invite() }}</label>
+        <input type="text" id="register-invite" aria-describedby="register-invite-hint" name="invite" value="{{ form.invite }}" autocomplete="off" maxlength="64"{% if invitation_required %} required{% endif %}>
+        <p class="field__hint" id="register-invite-hint">{% if invitation_required %}{{ p.t.account_invite_required() }}{% else %}{{ p.t.account_invite_optional() }}{% endif %}</p>
+      </div>
+      <div class="field">
+        <label class="field__label" for="register-username">{{ p.t.account_username() }}</label>
+        <input type="text" id="register-username" aria-describedby="register-username-hint" name="username" value="{{ form.username }}" autocomplete="username" maxlength="50" required autofocus>
+        <p class="field__hint" id="register-username-hint">{{ p.t.account_username_hint() }}</p>
+      </div>
+      <div class="field">
+        <label class="field__label" for="register-email">{{ p.t.account_email() }}</label>
+        <input type="email" id="register-email" aria-describedby="register-email-hint" name="email" value="{{ form.email }}" autocomplete="email" maxlength="255">
+        <p class="field__hint" id="register-email-hint">{{ p.t.account_mobile_email_hint() }}</p>
+      </div>
+      <div class="checkline">
+        <label class="checkline__label">
+          <input type="checkbox" name="accept_terms" value="1"{% if form.accept_terms == "1" %} checked{% endif %} required>
+          <span>{{ p.t.account_consent(p.link_with("/terms", "", " target=\"_blank\" rel=\"noopener\"", p.t.account_consent_terms()), p.link_with("/privacy", "", " target=\"_blank\" rel=\"noopener\"", p.t.account_consent_privacy()))|safe }}</span>
+        </label>
+      </div>
+      <button class="button button--block" type="submit">{{ p.t.account_finish_signup() }}</button>
+    </form>
+  </section>
+  <section class="callout">
+    <h2 class="callout__title">{{ p.t.account_register_notes() }}</h2>
+    <ul class="callout__list">
+      <li>{{ p.t.account_mobile_note_password() }}</li>
+      <li>{{ p.t.account_mobile_note_time() }}</li>
+      <li>{{ p.t.account_note_read(p.link_with("/rules", "", " target=\"_blank\" rel=\"noopener\"", p.t.account_link_rules()), p.link_with("/terms", "", " target=\"_blank\" rel=\"noopener\"", p.t.account_link_terms()), p.link_with("/privacy", "", " target=\"_blank\" rel=\"noopener\"", p.t.account_link_privacy()))|safe }}</li>
+    </ul>
+  </section>
+</div>
+{% endblock %}

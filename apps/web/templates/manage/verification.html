@@ -1,0 +1,37 @@
+{% extends "layout/manage.html" %}{% block panel %}
+<section class="panel"><h1 class="panel__title">{{ p.t.site_manage_verified() }} · <span translate="no">{{ username }}</span></h1>
+{% if !notice.is_empty() %}<p class="form-feedback form-feedback--success" role="status">{{ notice }}</p>{% endif %}
+{% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+<p>UID {{ uid }} · {{ p.t.site_manage_account_state(member_state) }} · {{ shown }}{% if exists %} · {{ p.t.site_manage_granted(granted) }} · {{ p.t.site_manage_reviewed(reviewed) }}{% endif %} · <a href="{{ crate::site::base() }}/space/{{ uid }}">{{ p.t.site_manage_profile_link() }}</a></p>
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/verifications/{{ uid }}" data-verification-form>
+<input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<div class="field">
+  <label class="field__label" for="verification-category">{{ p.t.site_manage_category() }}</label>
+  <select id="verification-category" name="category" required><option value="">{{ p.t.common_choose() }}</option>{% for item in categories %}<option value="{{ item.slug }}"{% if item.selected %} selected{% endif %}>{{ item.label }}</option>{% endfor %}</select>
+</div>
+<div class="field">
+  <label class="field__label" for="verification-title">{{ p.t.site_manage_title() }}</label>
+  <input id="verification-title" aria-describedby="verification-title-hint" name="title" value="{{ form.title }}" maxlength="60" required>
+  <p class="field__hint" id="verification-title-hint">{{ p.t.site_manage_title_help() }}</p>
+</div>
+<div class="field">
+  <label class="field__label" for="verification-site_url">{{ p.t.site_manage_site() }}</label>
+  <input type="url" id="verification-site_url" aria-describedby="verification-site_url-hint" name="site_url" value="{{ form.site_url }}" placeholder="https://" maxlength="500">
+  <p class="field__hint" id="verification-site_url-hint">{{ p.t.site_manage_site_help() }}</p>
+</div>
+<div class="field">
+  <label class="field__label" for="verification-expires">{{ p.t.site_manage_valid_until() }}</label>
+  <input type="date" id="verification-expires" aria-describedby="verification-expires-hint" name="expires" value="{{ form.expires }}">
+  <p class="field__hint" id="verification-expires-hint">{{ p.t.site_manage_expires_help() }}</p>
+</div>
+<div class="form-actions"><button class="button" type="submit">{% if exists %}{{ p.t.site_manage_save() }}{% else %}{{ p.t.site_manage_grant() }}{% endif %}</button></div>
+</form>
+{% if exists %}<form class="fields" method="post" action="{{ crate::site::base() }}/manage/verifications/{{ uid }}/revoke" data-verification-revoke><input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<div class="field">
+  <label class="field__label" for="verification-revoke-reason">{{ p.t.site_manage_revoke_reason() }}</label>
+  <input id="verification-revoke-reason" name="reason" maxlength="500" required>
+</div>
+<div class="form-actions"><button class="button button--danger" type="submit">{{ p.t.site_manage_revoke() }}</button></div>
+</form>{% endif %}
+<p class="form-actions"><a href="{{ crate::site::base() }}/manage/verifications">{{ p.t.site_manage_back() }}</a></p>
+</section>{% endblock %}

@@ -1,0 +1,20 @@
+{% extends "layout/manage.html" %}{% block panel %}
+<section class="panel"><h1 class="panel__title">{{ p.t.maintenance_tasks_title() }}</h1>{% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+<form class="fields fields--inline" method="get" action="{{ crate::site::base() }}/manage/tasks">
+<div class="field">
+  <label class="field__label" for="tasks-q">{{ p.t.maintenance_tasks_kind_prefix() }}</label>
+  <input id="tasks-q" name="q" value="{{ q.q }}" maxlength="100">
+</div>
+<div class="field">
+  <label class="field__label" for="tasks-status">{{ p.t.maintenance_tasks_status() }}</label>
+  <select id="tasks-status" name="status"><option value="">{{ p.t.maintenance_tasks_all() }}</option>{% for value in ["pending","processing","sent","failed"] %}<option value="{{ value }}"{% if q.status.as_str() == *value %} selected{% endif %}>{% if *value == "pending" %}{{ p.t.maintenance_tasks_status_pending() }}{% else if *value == "processing" %}{{ p.t.maintenance_tasks_status_processing() }}{% else if *value == "sent" %}{{ p.t.maintenance_tasks_status_sent() }}{% else %}{{ p.t.maintenance_tasks_status_failed() }}{% endif %}</option>{% endfor %}</select>
+</div>
+<div class="form-actions"><button class="button" type="submit">{{ p.t.maintenance_tasks_filter() }}</button></div>
+</form><p>{{ p.t.maintenance_tasks_summary(total) }}</p>
+{% for row in rows %}<article class="admin-row"><h2><a href="{{ crate::site::base() }}/manage/tasks/{{ row.id }}">#{{ row.id }} · {{ row.kind_label() }} <small>{{ row.kind }}</small></a></h2><p>{{ row.target }} · {{ row.status_label() }} · {{ p.t.maintenance_tasks_attempts(row.attempts) }}</p><p>{{ p.t.maintenance_tasks_next(row.available()) }} · {{ p.t.maintenance_tasks_lease(row.lease()) }}</p>{% if !row.error.is_empty() %}<p>{{ row.error }}</p>{% endif %}{% if row.can_retry() %}<form class="fields fields--inline" method="post" action="{{ crate::site::base() }}/manage/tasks/{{ row.id }}/retry"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="expected" value="{{ row.status }}"><input type="hidden" name="attempts" value="{{ row.attempts }}"><input type="hidden" name="available_at" value="{{ row.available_at }}"><input type="hidden" name="lease_until" value="{{ row.lease_until }}">
+<div class="field">
+  <label class="field__label" for="retry-{{ row.id }}-reason">{{ p.t.maintenance_tasks_retry_reason() }}</label>
+  <input id="retry-{{ row.id }}-reason" name="reason" value="{{ reason }}" maxlength="500" required>
+</div>
+<div class="form-actions"><button class="button" type="submit">{{ p.t.maintenance_tasks_retry() }}</button></div>
+</form>{% endif %}</article>{% else %}<p>{{ p.t.maintenance_tasks_empty() }}</p>{% endfor %}<nav class="form-actions" aria-label="{{ p.t.maintenance_tasks_pagination() }}">{% if !previous.is_empty() %}<a href="{{ crate::site::href(previous) }}">{{ p.t.maintenance_previous() }}</a>{% endif %}{% if !next.is_empty() %}<a href="{{ crate::site::href(next) }}">{{ p.t.maintenance_next() }}</a>{% endif %}</nav></section>{% endblock %}

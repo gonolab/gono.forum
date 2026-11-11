@@ -1,0 +1,23 @@
+{% extends "layout/manage.html" %}
+{% block panel %}
+<section class="panel">
+  <h1 class="panel__title">{{ p.t.forum_move_heading(title) }}</h1>
+  {% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+  <p>{{ p.t.forum_move_lead() }}</p>
+  <form class="fields" method="post" action="{{ crate::site::base() }}/manage/threads/{{ tid }}/move">
+    <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+    <input type="hidden" name="version" value="{{ version }}">
+    <input type="hidden" name="request_key" value="{{ key }}">
+    <div class="field">
+      <label class="field__label" for="move-target_fid">{{ p.t.forum_move_target() }}</label>
+      <select id="move-target_fid" name="target_fid" required>{% for (target, label) in forums %}<option value="{{ target }}"{% if *target == fid %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    </div>
+    <div class="field">
+      <label class="field__label" for="move-reason">{{ p.t.forum_move_reason() }}</label>
+      <textarea id="move-reason" name="reason" maxlength="500" required></textarea>
+    </div>
+    <div class="form-actions"><button class="button button--primary" type="submit">{{ p.t.forum_move_submit() }}</button></div>
+  </form>
+</section>
+<a class="button button--secondary" href="{{ crate::site::base() }}/thread-{{ tid }}">{{ p.t.forum_move_back() }}</a>
+{% endblock %}

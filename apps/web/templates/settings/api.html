@@ -1,0 +1,69 @@
+{% extends "layout/my.html" %}
+{% block panel %}
+<div class="narrow-page narrow-page--embedded" hx-boost="false">
+  <section class="panel">
+    <p class="intro">{{ p.t.settings_api_lead() }}</p>
+    {%- if !message.is_empty() %}
+    <p class="form-feedback{% if success %} form-feedback--success{% endif %}" role="{% if success %}status{% else %}alert{% endif %}">{{ message }}</p>
+    {%- endif %}
+    <p class="intro">{{ p.t.settings_api_endpoint() }}<code data-api-endpoint>{{ endpoint }}</code></p>
+    {% if !secret.is_empty() %}
+    <p class="intro">{{ p.t.settings_api_secret() }}</p>
+    <p><code data-api-secret>{{ secret }}</code></p>
+    <p class="intro">{{ p.t.settings_api_example() }}</p>
+    <pre><code>curl -X POST {{ endpoint }}/threads \
+  -H "Authorization: Bearer {{ secret }}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: {{ p.t.settings_api_example_key() }}" \
+  -d '{"forum":"daily","title":"{{ p.t.settings_api_example_title() }}","body":"{{ p.t.settings_api_example_body() }} **Markdown**"}'</code></pre>
+    {% endif %}
+    {% if let Some(key) = key %}
+    <p class="intro" data-api-status>{% if key.expired %}{{ p.t.settings_api_expired() }}{% else %}{{ p.t.settings_api_on() }}{% endif %}</p>
+    <p class="intro">{{ p.t.settings_token() }}<code>{{ key.hint }}…</code> · {{ p.t.settings_created(key.created.as_str()) }} · {{ p.t.settings_api_expires(key.expires.as_str()) }} · {{ p.t.settings_api_last_used(key.last_used.as_str()) }}{% if !key.last_used_ip.is_empty() %}{{ p.t.common_parenthesized(key.last_used_ip.as_str()) }}{% endif %}</p>
+    {% else %}
+    <p class="intro" data-api-status>{{ p.t.settings_api_off() }}</p>
+    {% endif %}
+  </section>
+  {%- if !site_enabled %}
+  <section class="panel"><p class="form-feedback form-feedback--info" role="status">{{ p.t.settings_api_site_disabled() }}</p></section>
+  {%- else if !can_enable %}
+  <section class="panel"><p class="intro">{{ p.t.settings_api_need_email(p.link("/verify-email", p.t.frame_verify_email()))|safe }}</p></section>
+  {%- else if key.is_some() %}
+  <section class="panel">
+    <h2 class="panel__title">{{ p.t.settings_api_rotate() }}</h2>
+    <p class="intro">{{ p.t.settings_api_rotate_lead(ttl_days) }}</p>
+    <form class="fields" method="post" action="{{ crate::site::base() }}/my/api/rotate">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <div class="field">
+        <label class="field__label" for="api-current_password">{{ p.t.settings_current_password() }}</label>
+        <input type="password" id="api-current_password" name="current_password" autocomplete="current-password" maxlength="128" required>
+      </div>
+      <button class="button button--block" type="submit">{{ p.t.settings_api_rotate() }}</button>
+    </form>
+  </section>
+  {%- else %}
+  <section class="panel">
+    <h2 class="panel__title">{{ p.t.settings_api_enable() }}</h2>
+    <p class="intro">{{ p.t.settings_api_enable_lead(ttl_days) }}</p>
+    <form class="fields" method="post" action="{{ crate::site::base() }}/my/api/enable">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <div class="field">
+        <label class="field__label" for="api-current_password">{{ p.t.settings_current_password() }}</label>
+        <input type="password" id="api-current_password" name="current_password" autocomplete="current-password" maxlength="128" required>
+      </div>
+      <button class="button button--block" type="submit">{{ p.t.settings_api_enable_submit() }}</button>
+    </form>
+  </section>
+  {%- endif %}
+  {%- if key.is_some() %}
+  <section class="panel">
+    <h2 class="panel__title">{{ p.t.settings_api_disable() }}</h2>
+    <p class="intro">{{ p.t.settings_api_disable_lead() }}</p>
+    <form class="fields" method="post" action="{{ crate::site::base() }}/my/api/disable">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <button class="button button--block" type="submit">{{ p.t.settings_api_disable() }}</button>
+    </form>
+  </section>
+  {%- endif %}
+</div>
+{% endblock %}

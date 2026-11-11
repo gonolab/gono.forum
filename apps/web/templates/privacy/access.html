@@ -1,0 +1,35 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<div class="narrow-page" hx-boost="false">
+  <section class="panel panel--auth">
+    <h1 class="panel__title">{{ p.t.governance_data_access() }}</h1>
+    {%- if !message.is_empty() %}
+    <p class="form-feedback form-feedback--info" role="status">{{ message }}</p>
+    {%- endif %}
+    {%- if token.is_empty() %}
+    <p class="intro">{{ p.t.governance_data_access_lead() }}</p>
+    <p class="form-note">{{ p.t.governance_data_access_passwordless() }}</p>
+    {% include "partials/mail_paused.html" %}
+    <form class="fields" method="post" action="{{ crate::site::base() }}/data/access">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <div class="field">
+        <label class="field__label" for="data-access-email">{{ p.t.governance_data_access_email() }}</label>
+        <input type="email" id="data-access-email" name="email" autocomplete="email" maxlength="255" required>
+      </div>
+      <button class="button button--block" type="submit">{{ p.t.governance_data_access_send() }}</button>
+    </form>
+    {%- else %}
+    <p class="intro">{{ p.t.governance_data_access_confirm_lead() }}</p>
+    <form class="fields" method="post" action="{{ crate::site::base() }}/data/access">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button class="button button--block" type="submit">{{ p.t.governance_data_access_confirm() }}</button>
+    </form>
+    {%- endif %}
+    <ul class="panel__links panel__links--center">
+      <li><a href="{{ crate::site::base() }}/my/data">{{ p.t.governance_data_back() }}</a></li>
+      <li><a href="{{ crate::site::base() }}/login">{{ p.t.frame_log_in() }}</a></li>
+    </ul>
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "layout/my.html" %}
+{% block panel %}
+<div class="narrow-page narrow-page--embedded" hx-boost="false">
+  <section class="panel">
+    <h2 class="panel__title">{{ p.t.settings_two_factor_enable() }}</h2>
+    {%- if !message.is_empty() %}
+    <p class="form-feedback" role="alert">{{ message }}</p>
+    {%- endif %}
+    <p class="intro">{{ p.t.settings_two_factor_step_scan() }}</p>
+    <div class="totp-qr" data-two-factor-qr>{{ setup.qr_svg|safe }}</div>
+    <p class="intro">{{ self.manual_entry()|safe }}</p>
+    <p><code class="totp-secret" data-two-factor-secret>{{ setup.secret }}</code></p>
+    <p class="intro">{{ p.t.settings_two_factor_step_code() }}</p>
+    <form class="fields" method="post" action="{{ crate::site::base() }}/my/account/two-factor/enable">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <input type="hidden" name="token" value="{{ setup.token }}">
+      <div class="field">
+        <label class="field__label" for="two-factor-code">{{ p.t.account_code() }}</label>
+        <input type="text" id="two-factor-code" name="code" autocomplete="one-time-code" inputmode="numeric" maxlength="8" required>
+      </div>
+      <button class="button button--block" type="submit">{{ p.t.settings_two_factor_confirm() }}</button>
+    </form>
+    <ul class="panel__links panel__links--center">
+      <li><a href="{{ crate::site::base() }}/my/account">{{ p.t.settings_cancel() }}</a></li>
+    </ul>
+  </section>
+</div>
+{% endblock %}

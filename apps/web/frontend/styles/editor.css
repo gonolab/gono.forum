@@ -1,0 +1,439 @@
+/* Editor templates: editor-page, editor (the form's own parts), conflict-note, guide-box, upload-plain, upload-item, poll-setup, deadline-setup, prize-setup, upload-status. The parts composer.js builds (composer-shell, write-*, tool-*, emoji-menu, mention-menu) stay in composer.css. */
+
+/* ------------------------------------------------------------------ */
+/* Page                                                                */
+/* ------------------------------------------------------------------ */
+
+.editor-page > .editor-page__title {
+  font-size: 19px;
+  line-height: 1.4;
+}
+
+/* The server and the scripts toggle many parts here with the hidden attribute; it must win over any display rule. */
+.editor [hidden],
+.upload-status [hidden] {
+  display: none !important;
+}
+
+/* ------------------------------------------------------------------ */
+/* Form parts                                                          */
+/* ------------------------------------------------------------------ */
+
+/* "Replying to …" / "Quoting …" with its links. */
+.editor__context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+  margin: 0;
+  padding-block: 8px;
+  padding-inline: 12px;
+  border-radius: var(--r-input);
+  background: var(--panel-alt);
+  color: var(--text-muted);
+  font-size: 13.5px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.editor__context a {
+  color: var(--link);
+  text-decoration: none;
+}
+
+.editor__context a:hover {
+  color: var(--link-hover);
+  text-decoration: underline;
+}
+
+/* The body: label, textarea, preview, status line, attachments and the no-script upload. composer.js moves the
+   textarea and the preview into .composer-shell and puts the status and attachments after it, inside this block. */
+.editor__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  min-inline-size: 0;
+}
+
+.editor__label {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+/* Only matches before the script runs (or without it): once moved, the textarea is no longer a direct child. */
+.editor__body > textarea {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-block-size: 240px;
+  margin: 0;
+  padding-block: 10px;
+  padding-inline: 12px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--r-input);
+  background-color: var(--editor-bg);
+  color: var(--editor-text);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.7;
+  resize: vertical;
+}
+
+.editor__body > textarea::placeholder {
+  color: var(--input-placeholder);
+  opacity: 1;
+}
+
+.editor__body > textarea:focus-visible {
+  border-color: var(--input-focus);
+}
+
+/* Without the script the preview area only shows after a server-side preview. */
+.editor:not([data-composer-ready]) [data-editor-preview]:empty {
+  display: none;
+}
+
+.editor__attachments {
+  display: grid;
+  gap: 6px;
+  min-inline-size: 0;
+}
+
+.editor__attachments:empty {
+  display: none;
+}
+
+/* Settings for the chosen thread type, set off from the type radios above them. */
+.editor__activity {
+  padding-inline-start: 14px;
+  border-inline-start: 2px solid var(--line);
+}
+
+/* Plain discussions have no settings: drop the empty block and the gap it would leave. */
+.editor__activity:not(:has(> :not([hidden]))) {
+  display: none;
+}
+
+.editor__context a:focus-visible,
+.conflict-note__summary:focus-visible,
+.conflict-note__link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+
+/* ------------------------------------------------------------------ */
+/* Saved version after an edit conflict                                */
+/* ------------------------------------------------------------------ */
+
+/* composer.js inserts a `conflict-note conflict-note--draft` of its own for local drafts; that modifier stays in
+   composer.css. */
+.conflict-note {
+  min-inline-size: 0;
+  padding-block: 10px;
+  padding-inline: 12px;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--r-input);
+  background: var(--warning-soft);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.conflict-note__summary {
+  inline-size: fit-content;
+  color: var(--warning-soft-text);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.conflict-note[open] > .conflict-note__summary {
+  margin-block-end: 10px;
+}
+
+.conflict-note__title {
+  margin: 0;
+  margin-block-end: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.conflict-note__text {
+  max-block-size: 320px;
+  margin: 0;
+  margin-block-end: 10px;
+  padding-block: 10px;
+  padding-inline: 12px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.conflict-note__link {
+  color: var(--link);
+}
+
+.conflict-note__link:hover {
+  color: var(--link-hover);
+}
+
+/* ------------------------------------------------------------------ */
+/* Posting guide of the chosen forum                                   */
+/* ------------------------------------------------------------------ */
+
+/* The heading and the text carry no classes (the markup is asserted as written), hence the child selectors. */
+.guide-box {
+  min-inline-size: 0;
+  padding-block: 12px;
+  padding-inline: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-input);
+  background: var(--panel-alt);
+}
+
+.guide-box > h2 {
+  margin: 0;
+  margin-block-end: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.guide-box > p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------------ */
+/* Upload without the script                                           */
+/* ------------------------------------------------------------------ */
+
+.upload-plain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+  padding: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-input);
+}
+
+.upload-plain > .field {
+  flex: 1 1 220px;
+}
+
+/* ------------------------------------------------------------------ */
+/* One attachment (editor list, attachment check page)                 */
+/* ------------------------------------------------------------------ */
+
+.upload-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-inline-size: 0;
+  padding-block: 8px;
+  padding-inline: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-input);
+  background: var(--panel);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.upload-item__name {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  color: var(--text);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+/* A dot in the state colour, so the state is not carried by the text colour alone. */
+.upload-item__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.upload-item__status::before {
+  content: "";
+  flex: none;
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.upload-item[data-state="ready"] .upload-item__status {
+  color: var(--success);
+}
+
+.upload-item[data-state="rejected"] .upload-item__status {
+  color: var(--danger-text);
+}
+
+.upload-item:is([data-state="purging"], [data-state="purged"]) .upload-item__status {
+  color: var(--text-disabled);
+}
+
+.upload-item__detail {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+/* "Insert into post" only works through composer.js, which redraws these rows itself; without the script the
+   server has already appended the reference to the body. */
+.editor:not([data-composer-ready]) .upload-item__insert,
+.upload-status .upload-item__insert {
+  display: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Poll options                                                        */
+/* ------------------------------------------------------------------ */
+
+.poll-setup {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  min-inline-size: 0;
+}
+
+.poll-setup__limit {
+  max-inline-size: 280px;
+}
+
+.poll-setup__list {
+  display: grid;
+  gap: 8px;
+  min-inline-size: 0;
+}
+
+.poll-setup__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-inline-size: 0;
+}
+
+.poll-setup__field {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  gap: 8px;
+  min-inline-size: 0;
+}
+
+/* "Option N", written by the script. */
+.poll-setup__label {
+  flex: none;
+  min-inline-size: 4.5em;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.poll-setup__field > .control {
+  flex: 1 1 auto;
+  inline-size: auto;
+  min-inline-size: 0;
+}
+
+.poll-setup__add,
+.prize-setup__add {
+  justify-self: start;
+}
+
+.poll-setup__status {
+  margin: 0;
+  color: var(--warning);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+/* ------------------------------------------------------------------ */
+/* Activity deadline                                                   */
+/* ------------------------------------------------------------------ */
+
+.deadline-setup__field {
+  max-inline-size: 280px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Custom lottery prizes (the rows themselves are styled by lottery-prizes.css) */
+/* ------------------------------------------------------------------ */
+
+.prize-setup,
+.prize-setup__fallback,
+.prize-setup__editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  min-inline-size: 0;
+}
+
+.prize-setup__editor {
+  gap: 10px;
+}
+
+.prize-setup__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.prize-setup__rows {
+  display: grid;
+  gap: 12px;
+  min-inline-size: 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Breakpoints (docs/styles.md, "Breakpoints")                         */
+/* ------------------------------------------------------------------ */
+
+@media (max-width: 760px) {
+  .editor__activity {
+    padding-inline-start: 10px;
+  }
+
+  .editor__body > textarea {
+    min-block-size: 200px;
+  }
+}
+
+@media (max-width: 420px) {
+  /* 16px stops phones from zooming in when the body gets focus. */
+  .editor__body > textarea {
+    font-size: 16px;
+  }
+
+  .upload-plain > .button {
+    flex: 1 1 100%;
+  }
+}

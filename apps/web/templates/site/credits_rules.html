@@ -1,0 +1,40 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<div class="layout reader-layout"><div class="layout__main"><div class="pane">
+  <article class="reader">
+    <header class="reader__head"><h1>{{ p.t.site_credits_title() }}</h1><p class="reader__lede">{{ p.t.site_credits_lede(p.credit()) }}</p></header>
+    <div class="reader__body"><div class="reader__prose"><div class="reader__section prose">
+      <h2 id="credits">{{ p.credit() }}</h2>
+      <p>{{ p.t.site_credits_body(p.credit(), p.link("/my/credits", p.t.common_my_credits(p.credit()).as_str()))|safe }}</p>
+      <table class="data-table"><thead><tr><th scope="col">{{ p.t.site_credits_reward() }}</th><th scope="col">{{ p.t.site_credits_state() }}</th><th scope="col">{{ p.t.site_credits_each() }}</th><th scope="col">{{ p.t.site_credits_daily() }}</th></tr></thead>
+      <tbody>{% for rule in credit_rules %}<tr><th scope="row">{{ rule.label }}</th><td>{% if rule.enabled %}{{ p.t.site_credits_on() }}{% else %}{{ p.t.site_credits_off() }}{% endif %}</td><td>{% if rule.enabled %}{{ p.t.number(*rule.amount) }}{% else %}—{% endif %}</td><td>{% if rule.enabled %}{{ p.t.number(*rule.daily_limit) }}{% else %}—{% endif %}</td></tr>{% endfor %}</tbody></table>
+      <p>{{ p.t.site_credits_daily_note(p.site_zone()) }}</p>
+      <h2 id="growth">{{ p.t.profile_growth() }}</h2>
+      <p>{{ p.t.site_credits_growth_lede(p.credit()) }}</p>
+      <table class="data-table"><thead><tr><th scope="col">{{ p.t.site_credits_action() }}</th><th scope="col">{{ p.t.profile_growth() }}</th></tr></thead><tbody>
+        <tr><th scope="row">{{ p.t.site_credits_growth_thread() }}</th><td>{{ p.t.number(*growth.thread) }}</td></tr>
+        <tr><th scope="row">{{ p.t.site_credits_growth_reply() }}</th><td>{{ p.t.number(*growth.reply) }}</td></tr>
+        <tr><th scope="row">{{ p.t.site_credits_growth_like() }}</th><td>{{ p.t.number(*growth.like) }}</td></tr>
+        <tr><th scope="row">{{ p.t.site_credits_growth_digest() }}</th><td>{{ p.t.number(*growth.digest) }}</td></tr>
+        <tr><th scope="row">{{ p.t.site_credits_growth_accept() }}</th><td>{{ p.t.number(*growth.accept) }}</td></tr>
+      </tbody></table>
+      <ul>
+        <li>{{ p.t.site_credits_growth_no_signin() }}</li>
+        <li>{{ p.t.site_credits_growth_fixed() }}</li>
+        <li>{{ p.t.site_credits_growth_no_cap(daily_threads, daily_replies) }}</li>
+        <li>{{ p.t.site_credits_growth_revoked() }}</li>
+        <li>{{ p.t.site_credits_growth_ledger(p.link("/my/credits/growth", p.t.site_credits_growth_ledger_link()))|safe }}</li>
+      </ul>
+      <h2 id="levels">{{ p.t.site_credits_levels() }}</h2>
+      <p>{{ p.t.site_credits_levels_lede() }}</p>
+      <table class="data-table"><thead><tr><th scope="col">{{ p.t.site_credits_level() }}</th><th scope="col">{{ p.t.site_credits_level_name() }}</th><th scope="col">{{ p.t.site_credits_level_floor() }}</th></tr></thead><tbody>{% for level in levels %}<tr><th scope="row">Lv{{ level.number }}</th><td>{{ level.name }}</td><td>{{ p.t.number(*level.floor) }}</td></tr>{% endfor %}</tbody></table>
+      <h2 id="ranks">{{ p.t.site_ranks() }}</h2>
+      <ul>
+        <li>{{ p.t.site_credits_ranks_boards(p.link("/ranks", p.t.site_ranks()), refresh_seconds, ranks_shown)|safe }}</li>
+        <li>{{ p.t.site_credits_ranks_public() }}</li>
+        <li>{{ p.t.site_credits_ranks_hidden() }}</li>
+      </ul>
+    </div></div></div>
+  </article>
+</div></div></div>
+{% endblock %}

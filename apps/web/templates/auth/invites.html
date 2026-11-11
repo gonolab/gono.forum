@@ -1,0 +1,23 @@
+{% extends "layout/my.html" %}
+{% block panel %}
+<section class="invite-shell" hx-boost="false">
+  <div class="panel">
+    <p class="intro">{{ p.t.account_invites_lead(ttl) }}</p>
+    <p class="invites__quota">{{ p.t.account_invites_quota(crate::i18n::Markup::tag("strong", daily_remaining), crate::i18n::Markup::tag("strong", active_remaining))|safe }}</p>
+    {% if !level_hint.is_empty() %}<p class="invites__quota" data-invite-level>{{ level_hint }}</p>{% endif %}
+    {% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+    <form method="post" action="{{ crate::site::base() }}/my/invites"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="request_key" value="{{ request_key }}"><button class="button" type="submit"{% if !can_generate %} disabled{% endif %}>{{ p.t.account_invites_create() }}</button></form>
+  </div>
+  <div class="invites" aria-label="{{ p.t.account_invites_list() }}">
+    {% for row in rows %}
+    <article class="invites__item" data-invite-id="{{ row.id }}">
+      <div class="invite-item-head"><strong>{{ p.t.account_invites_item(row.id.to_string()) }}</strong><span class="invites__status">{{ row.status }}</span></div>
+      {% if !row.code.is_empty() %}<div class="invite-code-row"><code class="invites__code" data-invite-code>{{ row.code }}</code><button class="button button--secondary" type="button" data-invite-copy hidden>{{ p.t.account_invites_copy() }}</button><span class="invite-copy-status" data-invite-copy-status role="status"></span></div>{% endif %}
+      <div class="invite-item-foot"><span>{{ p.t.account_invites_expires(row.expires) }}{% if !row.consumer.is_empty() %} · {{ row.consumer }}{% endif %}</span>
+      {% if row.revocable %}<form method="post" action="{{ crate::site::base() }}/my/invites/{{ row.id }}/revoke"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><button class="button button--secondary" type="submit">{{ p.t.account_invites_revoke() }}</button></form>{% endif %}</div>
+    </article>
+    {% else %}<p class="empty">{{ p.t.account_invites_empty() }}</p>{% endfor %}
+  </div>
+  {% if !previous.is_empty() || !next.is_empty() %}<nav class="pager" aria-label="{{ p.t.account_invites_pages() }}">{% if !previous.is_empty() %}<a href="{{ crate::site::href(previous) }}">{{ p.t.common_previous_page() }}</a>{% endif %}{% if !next.is_empty() %}<a href="{{ crate::site::href(next) }}">{{ p.t.common_next_page() }}</a>{% endif %}</nav>{% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,46 @@
+{#- Field table renderer: outputs the fields only; the caller wraps them in `fields fields--two`. -#}
+{%- for f in section.fields %}
+{%- if f.kind == "flag" %}
+<div class="checkline">
+  <label class="checkline__label">
+    <input type="checkbox"{% if !f.help.is_empty() %} aria-describedby="{{ section.id }}-{{ f.name }}-hint"{% endif %} name="{{ f.name }}" value="true"{% if f.checked %} checked{% endif %}>
+    <span>{{ f.label }}</span>
+  </label>
+  {%- if !f.help.is_empty() %}
+  <p class="checkline__hint" id="{{ section.id }}-{{ f.name }}-hint">{{ f.help }}</p>
+  {%- endif %}
+</div>
+{%- else if f.kind == "choice" %}
+<div class="field">
+  <label class="field__label" for="{{ section.id }}-{{ f.name }}">{{ f.label }}</label>
+  <select id="{{ section.id }}-{{ f.name }}"{% if !f.help.is_empty() %} aria-describedby="{{ section.id }}-{{ f.name }}-hint"{% endif %} name="{{ f.name }}">
+    {%- for o in f.options %}
+    <option value="{{ o.value }}"{% if o.selected %} selected{% endif %}>{{ o.label }}</option>
+    {%- endfor %}
+  </select>
+  {%- if !f.help.is_empty() %}
+  <p class="field__hint" id="{{ section.id }}-{{ f.name }}-hint">{{ f.help }}</p>
+  {%- endif %}
+</div>
+{%- else if f.kind == "text" %}
+<div class="field field--wide">
+  <label class="field__label" for="{{ section.id }}-{{ f.name }}">{{ f.label }}</label>
+  {%- if f.rows > 1 %}
+  <textarea id="{{ section.id }}-{{ f.name }}"{% if !f.help.is_empty() %} aria-describedby="{{ section.id }}-{{ f.name }}-hint"{% endif %} name="{{ f.name }}" rows="{{ f.rows }}" maxlength="{{ f.maxlength }}">{{ f.value }}</textarea>
+  {%- else %}
+  <input id="{{ section.id }}-{{ f.name }}"{% if !f.help.is_empty() %} aria-describedby="{{ section.id }}-{{ f.name }}-hint"{% endif %} name="{{ f.name }}" value="{{ f.value }}" maxlength="{{ f.maxlength }}" required>
+  {%- endif %}
+  {%- if !f.help.is_empty() %}
+  <p class="field__hint" id="{{ section.id }}-{{ f.name }}-hint">{{ f.help }}</p>
+  {%- endif %}
+</div>
+{%- else %}
+<div class="field">
+  <label class="field__label" for="{{ section.id }}-{{ f.name }}">{{ f.label }}</label>
+  <input type="number" id="{{ section.id }}-{{ f.name }}"{% if !f.help.is_empty() %} aria-describedby="{{ section.id }}-{{ f.name }}-hint"{% endif %} name="{{ f.name }}" value="{{ f.value }}" min="{{ f.min }}" max="{{ f.max }}" required>
+  {%- if !f.help.is_empty() %}
+  <p class="field__hint" id="{{ section.id }}-{{ f.name }}-hint">{{ f.help }}</p>
+  {%- endif %}
+</div>
+{%- endif %}
+{%- endfor %}

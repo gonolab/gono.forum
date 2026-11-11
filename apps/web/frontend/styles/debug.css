@@ -1,0 +1,340 @@
+.gonof-debug {
+  box-sizing: border-box;
+  width: calc(100% - 32px);
+  max-width: calc(var(--container) - 32px);
+  min-width: 0;
+  /* Keep spacing from the footer and adjacent panels; adjacent margins collapse, so panels are also 32px apart. */
+  margin: 32px auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.65;
+  box-shadow: var(--shadow-base);
+  overflow-wrap: anywhere;
+}
+.gonof-debug *, .gonof-debug *::before, .gonof-debug *::after {
+  box-sizing: border-box;
+}
+.gonof-debug-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 14px 16px;
+  border-radius: var(--r);
+  cursor: pointer;
+  list-style: none;
+}
+.gonof-debug-heading::-webkit-details-marker {
+  display: none;
+}
+.gonof-debug-heading::before {
+  content: "▸";
+  color: var(--text-subtle);
+}
+.gonof-debug[open] > .gonof-debug-heading::before {
+  content: "▾";
+}
+.gonof-debug[open] > .gonof-debug-heading {
+  border-bottom: 1px solid var(--line);
+  border-radius: var(--r) var(--r) 0 0;
+}
+.gonof-debug-brand {
+  padding: 2px 8px;
+  border-radius: var(--r-xs);
+  background: var(--brand-bg);
+  color: var(--brand-text);
+  font-weight: 600;
+}
+.gonof-debug-summary {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.gonof-debug-switch {
+  margin-left: auto;
+  color: var(--text-subtle);
+  font-size: 12px;
+}
+.gonof-debug-body {
+  padding: 0 16px 16px;
+  min-width: 0;
+}
+.gonof-debug-request {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 14px 0;
+}
+.gonof-debug-request code {
+  min-width: 0;
+  color: var(--text-strong);
+  font-size: 12px;
+}
+.gonof-debug-method {
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+}
+.gonof-debug-response {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.gonof-debug-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  background: var(--line-soft);
+  overflow: hidden;
+}
+.gonof-debug-metrics > div {
+  min-width: 0;
+  padding: 12px;
+  background: var(--panel-alt);
+}
+.gonof-debug-metrics dt {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.gonof-debug-metrics dd {
+  margin: 4px 0;
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 17px;
+  font-weight: 600;
+}
+.gonof-debug-metrics dd span {
+  font-size: 12px;
+  font-weight: 400;
+}
+.gonof-debug-metrics p {
+  margin: 4px 0 0;
+  color: var(--text-subtle);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 400;
+}
+.gonof-debug-note {
+  margin: 12px 0 20px;
+  color: var(--text-subtle);
+  font-size: 12px;
+}
+.gonof-debug-section-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  /* Space it from the previous section: the adjacent command/SQL list has margin 0, so without a top margin they
+     would touch. Next to the description paragraph (margin-bottom 20px) the margins collapse, still giving 24px. */
+  margin: 24px 0 10px;
+}
+.gonof-debug-section-heading h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 14px;
+  font-weight: 600;
+}
+.gonof-debug-section-heading h2 span {
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: var(--r-xs);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+}
+.gonof-debug-section-heading p {
+  margin: 0;
+  color: var(--text-subtle);
+  font-size: 11px;
+}
+.gonof-debug-queries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.gonof-debug-query {
+  min-width: 0;
+  margin: 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.gonof-debug-query-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 10px;
+  min-width: 0;
+  margin-bottom: 8px;
+}
+.gonof-debug-sequence {
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.gonof-debug-database {
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.gonof-debug-query-time {
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.gonof-debug-query-state {
+  color: var(--success);
+  font-size: 11px;
+}
+.gonof-debug-query-failed {
+  color: var(--danger);
+}
+.gonof-debug-query-cancelled {
+  color: var(--warning);
+}
+.gonof-debug-row-count {
+  color: var(--text-subtle);
+  font-size: 11px;
+}
+.gonof-debug-copy {
+  margin-left: auto;
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  background: var(--panel);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.gonof-debug-copy:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.gonof-debug-copy[hidden] {
+  display: none;
+}
+.gonof-debug-copy:disabled {
+  cursor: wait;
+  opacity: .6;
+}
+.gonof-debug-copy-status {
+  color: var(--success);
+  font-size: 11px;
+}
+.gonof-debug-query pre {
+  max-width: 100%;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  background: var(--panel-alt);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.gonof-debug-query code {
+  font-size: 11px;
+  line-height: 1.75;
+  white-space: inherit;
+}
+.gonof-debug-index {
+  max-width: 100%;
+  margin: 7px 0 0;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.gonof-debug-index > span {
+  font-family: var(--font-sans);
+  color: var(--text-subtle);
+}
+.gonof-debug-index[data-debug-index-status="indexed"] {
+  color: var(--success);
+}
+.gonof-debug-index[data-debug-index-status="scan"], .gonof-debug-index[data-debug-index-status="mixed"] {
+  color: var(--warning);
+}
+.gonof-debug-driver-note {
+  margin: 6px 0 0;
+  color: var(--text-subtle);
+  font-size: 11px;
+}
+.gonof-debug-error {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--r-xs);
+  background: var(--danger-soft);
+  color: var(--danger-soft-text);
+  white-space: pre-wrap;
+  font-size: 12px;
+}
+.gonof-debug-expansion {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--r-xs);
+  background: var(--warning-soft);
+  color: var(--warning-soft-text);
+  font-size: 12px;
+}
+.gonof-debug-expansion p {
+  margin: 0 0 6px;
+}
+.gonof-debug-empty {
+  margin: 0;
+  padding: 18px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  background: var(--panel-alt);
+  color: var(--text-subtle);
+  text-align: center;
+}
+@media (max-width: 900px) {
+.gonof-debug-metrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+}
+@media (max-width: 420px) {
+.gonof-debug-heading {
+  gap: 8px;
+  padding: 12px;
+}
+.gonof-debug-body {
+  padding: 0 12px 12px;
+}
+.gonof-debug-summary {
+  flex-basis: 100%;
+  order: 1;
+  padding-left: 16px;
+}
+.gonof-debug-switch {
+  font-size: 11px;
+}
+.gonof-debug-metrics {
+  grid-template-columns: minmax(0, 1fr);
+}
+.gonof-debug-metrics > div {
+  padding: 10px;
+}
+.gonof-debug-metrics dd {
+  font-size: 16px;
+}
+.gonof-debug-query pre {
+  padding: 10px;
+}
+}

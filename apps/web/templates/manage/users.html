@@ -1,0 +1,25 @@
+{% extends "layout/manage.html" %}{% block panel %}
+<section class="panel"><h1 class="panel__title">{{ p.t.account_manage_users() }}</h1>
+<form class="fields fields--inline" method="get" action="{{ crate::site::base() }}/manage/users">
+<div class="field">
+  <label class="field__label" for="users-q">{{ p.t.account_manage_users_query() }}</label>
+  <input id="users-q" name="q" value="{{ q.q }}" maxlength="100">
+</div>
+<div class="field">
+  <label class="field__label" for="users-status">{{ p.t.account_manage_status() }}</label>
+  <select id="users-status" name="status"><option value="">{{ p.t.account_manage_all() }}</option><option value="active"{% if q.status == "active" %} selected{% endif %}>{{ p.t.account_manage_status_active() }}</option><option value="frozen"{% if q.status == "frozen" %} selected{% endif %}>{{ p.t.account_manage_status_frozen() }}</option><option value="unverified"{% if q.status == "unverified" %} selected{% endif %}>{{ p.t.account_manage_status_unverified() }}</option><option value="deleting"{% if q.status == "deleting" %} selected{% endif %}>{{ p.t.account_manage_state_deleting() }}</option><option value="deleted"{% if q.status == "deleted" %} selected{% endif %}>{{ p.t.account_manage_state_deleted() }}</option></select>
+</div>
+<div class="field">
+  <label class="field__label" for="users-role">{{ p.t.account_manage_role() }}</label>
+  <select id="users-role" name="role"><option value="">{{ p.t.account_manage_all() }}</option><option value="0"{% if q.role.unwrap_or(-1) == 0 %} selected{% endif %}>{{ p.t.common_role_member() }}</option><option value="1"{% if q.role.unwrap_or(-1) == 1 %} selected{% endif %}>{{ p.t.common_role_admin() }}</option><option value="2"{% if q.role.unwrap_or(-1) == 2 %} selected{% endif %}>{{ p.t.common_role_super_moderator() }}</option><option value="3"{% if q.role.unwrap_or(-1) == 3 %} selected{% endif %}>{{ p.t.common_role_moderator() }}</option><option value="4"{% if q.role.unwrap_or(-1) == 4 %} selected{% endif %}>{{ p.t.common_role_intern() }}</option><option value="5"{% if q.role.unwrap_or(-1) == 5 %} selected{% endif %}>{{ p.t.common_role_reviewer() }}</option></select>
+</div>
+<div class="form-actions"><button class="button" type="submit">{{ p.t.account_manage_filter() }}</button></div>
+</form>
+<p>{{ p.t.account_manage_users_total(total) }}</p>{% for row in rows %}<article class="admin-row"><h2><a href="{{ crate::site::base() }}/manage/users/{{ row.uid }}" translate="no">{{ row.username }}</a> <small>UID {{ row.uid }}</small></h2><p>{% if !row.email.is_empty() %}{{ row.email }} · {% endif %}{% if row.verified %}{{ p.t.account_manage_email_verified() }}{% else %}{{ p.t.account_manage_email_unverified() }}{% endif %} · {% if let Some(mobile) = row.mobile %}{{ p.t.account_manage_mobile(mobile) }}{% else %}{{ p.t.account_manage_no_mobile() }}{% endif %}{% if !row.external.is_empty() %} · {{ p.t.account_manage_external(row.external) }}{% endif %} · {{ crate::identity::role_label(*row.role) }} · {{ row.state_label() }} · {{ p.t.account_manage_joined(row.joined()) }}</p><div class="form-actions"><a href="{{ crate::site::base() }}/manage/sanctions?uid={{ row.uid }}">{{ p.t.account_manage_sanctions_link() }}</a><a href="{{ crate::site::base() }}/manage/moderators?uid={{ row.uid }}">{{ p.t.account_manage_roles_link() }}</a><a href="{{ crate::site::base() }}/manage/invites?uid={{ row.uid }}">{{ p.t.account_manage_invites_link() }}</a><a href="{{ crate::site::base() }}/manage/honors/members/{{ row.uid }}">{{ p.t.account_manage_honors_link() }}</a></div>{% if q.uid.is_some() %}<section class="panel" data-api-key><h3>{{ p.t.account_manage_api() }}</h3>{% if let Some(key) = api_key %}<p>{% if key.active %}{{ p.t.account_manage_api_active() }}{% else %}{{ p.t.account_manage_api_expired() }}{% endif %} · {{ key.hint }}… · {{ p.t.account_manage_api_created(key.created) }} · {{ p.t.account_manage_api_expires(key.expires) }} · {{ p.t.account_manage_api_last_used(key.last_used) }}{% if !key.last_used_ip.is_empty() %}{{ p.t.common_parenthesized(key.last_used_ip) }}{% endif %}</p><form class="fields" method="post" action="{{ crate::site::base() }}/manage/users/{{ row.uid }}/api/revoke"><input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<div class="field">
+  <label class="field__label" for="api-revoke-{{ row.uid }}-reason">{{ p.t.account_manage_revoke_reason() }}</label>
+  <input id="api-revoke-{{ row.uid }}-reason" name="reason" maxlength="500" required>
+</div>
+<div class="form-actions"><button class="button" type="submit">{{ p.t.account_manage_api_revoke() }}</button></div>
+</form>{% else %}<p>{{ p.t.account_manage_api_none() }}</p>{% endif %}</section>{% endif %}</article>{% else %}<p>{{ p.t.account_manage_users_empty() }}</p>{% endfor %}
+<nav class="form-actions" aria-label="{{ p.t.account_manage_users_pages() }}">{% if !previous.is_empty() %}<a href="{{ crate::site::href(previous) }}">{{ p.t.common_previous_page() }}</a>{% endif %}{% if !next.is_empty() %}<a href="{{ crate::site::href(next) }}">{{ p.t.common_next_page() }}</a>{% endif %}</nav></section>{% endblock %}

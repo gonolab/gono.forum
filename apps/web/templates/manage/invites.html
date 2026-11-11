@@ -1,0 +1,25 @@
+{% extends "layout/manage.html" %}{% block panel %}
+<section class="panel"><h1 class="panel__title">{{ p.t.account_manage_invites() }}</h1><p data-invite-prefix-hint>{% if p.frame.settings.invite.prefixes.is_empty() %}{{ p.t.account_manage_invites_prefix_hint(p.link("/manage/settings/registration", p.t.account_manage_invites_prefix_link()))|safe }}{% else %}{{ p.t.account_manage_invites_prefix_count(p.link("/manage/settings/registration", p.t.account_manage_invites_prefix_link()), p.frame.settings.invite.prefixes.len())|safe }}{% endif %}</p>{% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/invites"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="request_key" value="{{ key }}">
+<div class="field">
+  <label class="field__label" for="invite-count">{{ p.t.account_manage_invites_count() }}</label>
+  <input type="number" id="invite-count" name="count" value="{{ count }}" min="1" max="100" required>
+</div>
+<div class="field">
+  <label class="field__label" for="invite-reason">{{ p.t.account_manage_invites_reason() }}</label>
+  <input id="invite-reason" name="reason" value="{{ reason }}" maxlength="500" required>
+</div>
+<div class="form-actions"><button class="button" type="submit">{{ p.t.account_manage_invites_create() }}</button></div>
+</form>
+<form class="fields fields--inline" method="get" action="{{ crate::site::base() }}/manage/invites">
+<div class="field">
+  <label class="field__label" for="invite-filter-uid">{{ p.t.account_manage_invites_owner() }}</label>
+  <input type="number" id="invite-filter-uid" name="uid" value="{% if let Some(uid) = q.uid %}{{ uid }}{% endif %}" min="1">
+</div>
+<div class="field">
+  <label class="field__label" for="invite-filter-status">{{ p.t.account_manage_status() }}</label>
+  <select id="invite-filter-status" name="status"><option value="">{{ p.t.account_manage_all() }}</option>{% for value in ["available","frozen","revoked","used","expired"] %}<option value="{{ value }}"{% if q.status.as_str() == *value %} selected{% endif %}>{% if *value == "available" %}{{ p.t.account_manage_invite_available() }}{% else if *value == "frozen" %}{{ p.t.account_manage_invite_frozen() }}{% else if *value == "revoked" %}{{ p.t.account_manage_invite_revoked() }}{% else if *value == "used" %}{{ p.t.account_manage_invite_used() }}{% else %}{{ p.t.account_manage_invite_expired() }}{% endif %}</option>{% endfor %}</select>
+</div>
+<div class="form-actions"><button class="button" type="submit">{{ p.t.account_manage_filter() }}</button></div>
+</form><p>{{ p.t.account_manage_invites_total(total) }}</p>
+{% for row in rows %}<article class="admin-row"><h2>#{{ row.id }} · {{ row.owner }}</h2><p>UID {{ row.uid }} · {{ row.status_label() }} · {{ p.t.account_manage_invite_expires(row.expiry()) }}</p>{% if !row.code.is_empty() %}<code class="admin-code">{{ row.code }}</code>{% endif %}{% if let Some(uid) = row.used_by %}<p>{{ p.t.account_manage_invite_used_by(uid.to_string()) }}</p>{% endif %}{% if row.can_change() %}<form class="form-actions" method="post" action="{{ crate::site::base() }}/manage/invites/{{ row.id }}"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="request_key" value="{{ row.request_key }}"><input type="hidden" name="expected" value="{{ row.status }}">{% if row.status == "available" %}<button class="button" type="submit" name="desired" value="frozen">{{ p.t.account_manage_invite_freeze() }}</button>{% else %}<button class="button" type="submit" name="desired" value="available">{{ p.t.account_manage_invite_unfreeze() }}</button>{% endif %}<button class="button" type="submit" name="desired" value="revoked">{{ p.t.account_manage_invite_revoke() }}</button></form>{% endif %}</article>{% else %}<p>{{ p.t.account_manage_invites_empty() }}</p>{% endfor %}<nav class="form-actions" aria-label="{{ p.t.account_manage_invites_pages() }}">{% if !previous.is_empty() %}<a href="{{ crate::site::href(previous) }}">{{ p.t.common_previous_page() }}</a>{% endif %}{% if !next.is_empty() %}<a href="{{ crate::site::href(next) }}">{{ p.t.common_next_page() }}</a>{% endif %}</nav></section>{% endblock %}

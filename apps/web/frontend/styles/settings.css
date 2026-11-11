@@ -1,0 +1,159 @@
+/* Settings pages (account security, profile, avatar check): account-security, security-state, security-detail, security-group, linked-accounts, linked-account, avatar-check. */
+
+/* Rules here never set margin-block on direct children of .panel: the panel's own `> * + *` rhythm in
+   components.css owns that spacing, whichever file loads last. */
+
+/* ------------------------------------------------------------------ */
+/* Account security                                                    */
+/* ------------------------------------------------------------------ */
+
+/* "Confirm with a provider" renders its frame even when no bound provider is enabled here; hide it then. */
+.account-security .provider-list:not(:has(> *)) {
+  display: none;
+}
+
+/* Current state of a sign-in method: a dot (muted when off, success when on) before the sentence.
+   The sentence carries the meaning; the dot only repeats it. */
+.security-state {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-inline-size: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.security-state::before {
+  content: "";
+  flex: none;
+  inline-size: 8px;
+  block-size: 8px;
+  margin-block-start: calc(0.8em - 4px);
+  border-radius: 50%;
+  background: var(--text-disabled);
+}
+
+.security-state--on::before {
+  background: var(--success);
+}
+
+/* A detail under a state line (recovery codes left), indented to the state text. */
+.security-detail {
+  padding-inline-start: 16px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.security-detail--warning {
+  color: var(--warning);
+  font-weight: 500;
+}
+
+.panel > .security-state + .security-detail {
+  margin-block-start: 2px;
+}
+
+/* A titled step inside a panel (unbind the mobile number, regenerate recovery codes, turn two-step off). */
+.security-group {
+  display: grid;
+  gap: 10px;
+  min-inline-size: 0;
+  padding-block-start: 14px;
+  border-block-start: 1px solid var(--line);
+}
+
+.security-group > * {
+  margin: 0;
+}
+
+.security-group__title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+/* One item per provider (and one for a link waiting for the password). State on the start side, a link
+   button on the end side; a form drops to its own line under the state. */
+.linked-accounts {
+  display: grid;
+  min-inline-size: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.linked-account {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  min-inline-size: 0;
+  padding-block: 12px;
+}
+
+.linked-account:first-child {
+  padding-block-start: 0;
+}
+
+.linked-account:last-child {
+  padding-block-end: 0;
+}
+
+.linked-account + .linked-account {
+  border-block-start: 1px solid var(--line);
+}
+
+.linked-account > * {
+  margin: 0;
+}
+
+.linked-account > .security-state {
+  flex: 1 1 14em;
+}
+
+.linked-account > :is(form, .form-feedback) {
+  flex: 1 1 100%;
+}
+
+.linked-account > .button {
+  flex: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Avatar check                                                        */
+/* ------------------------------------------------------------------ */
+
+.avatar-check__file {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.avatar-check__preview {
+  display: block;
+  box-sizing: border-box;
+  inline-size: 160px;
+  block-size: 160px;
+  max-inline-size: 100%;
+  margin-inline: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel-alt);
+  object-fit: cover;
+}
+
+/* The rejection sentence and the scanner's detail form one alert. */
+.avatar-check .form-feedback > p {
+  margin: 0;
+}
+
+.avatar-check .form-feedback > p + p {
+  margin-block-start: 4px;
+}

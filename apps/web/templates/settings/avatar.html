@@ -1,0 +1,36 @@
+{% extends "layout/base.html" %}
+
+{% block content %}
+{#- Check page for an uploaded avatar. No polling: the member reloads with the refresh link.
+    data-avatar-state / data-avatar-aid are kept for diagnostics and a future poller. #}
+<div class="narrow-page avatar-check" hx-boost="false" data-avatar-state="{{ upload.lifecycle }}" data-avatar-aid="{{ upload.aid }}">
+  <section class="panel panel--auth">
+    <h1 class="panel__title">{{ p.t.settings_avatar_check() }}</h1>
+    {%- if !message.is_empty() %}
+    <p class="form-feedback" role="alert">{{ message }}</p>
+    {%- endif %}
+    <p class="avatar-check__file" translate="no">{{ upload.filename }}</p>
+    {%- if ready %}
+    <p class="form-feedback form-feedback--success" role="status">{{ p.t.settings_avatar_ready() }}</p>
+    <img class="avatar-check__preview" src="{{ crate::site::base() }}/media/{{ upload.aid }}" alt="{{ p.t.settings_avatar_new_alt() }}">
+    <form class="fields" method="post" action="{{ crate::site::base() }}/my/profile/avatar/{{ upload.aid }}">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <button class="button button--block" type="submit">{{ p.t.settings_avatar_use() }}</button>
+    </form>
+    {%- else if finished %}
+    <div class="form-feedback" role="alert">
+      <p>{% if upload.is_ready() %}{{ p.t.settings_avatar_type() }}{% else %}{{ p.t.settings_avatar_rejected() }}{% endif %}</p>
+      {%- if !upload.scan_detail.is_empty() %}
+      <p>{{ upload.scan_detail }}</p>
+      {%- endif %}
+    </div>
+    {%- else %}
+    <p class="form-feedback form-feedback--info" role="status">{% if upload.lifecycle == "processing" %}{{ p.t.settings_avatar_processing() }}{% else %}{{ p.t.settings_avatar_waiting() }}{% endif %}</p>
+    <a class="button button--block" href="{{ crate::site::base() }}/my/profile/avatar/{{ upload.aid }}">{{ p.t.settings_avatar_refresh() }}</a>
+    {%- endif %}
+    <ul class="panel__links panel__links--center">
+      <li><a href="{{ crate::site::base() }}/my/profile">{{ p.t.settings_back_to_profile() }}</a></li>
+    </ul>
+  </section>
+</div>
+{% endblock %}

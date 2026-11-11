@@ -1,0 +1,20 @@
+/* Load order matters: tokens, element defaults, the older shared rules, the rendered post body, then the shared
+   components, the page frame and the page styles, the project's own page adaptations, and the editor last.
+   See docs/styles.md, "Style files". */
+@import "./foundation.css";
+@import "./elements.css";
+@import "./controls.css";
+@import "./views.css";
+@import "./prose.css";
+@import "./components.css";
+@import "./frame.css";
+@import "./thread.css";
+@import "./home.css";
+@import "./profile.css";
+@import "./settings.css";
+@import "./editor.css";
+@import "./site.css";
+@import "./personalization.css";
+@import "./manage.css";
+@import "./composer.css";
+@import "./lottery-prizes.css";

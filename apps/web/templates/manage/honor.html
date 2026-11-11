@@ -1,0 +1,35 @@
+{% extends "layout/manage.html" %}{% block panel %}
+<section class="panel"><h1 class="panel__title">{{ p.t.profile_manage_honor_title(form.name) }}</h1>
+{% if !notice.is_empty() %}<p class="form-feedback form-feedback--success" role="status">{{ notice }}</p>{% endif %}
+{% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/honors/{{ id }}" data-honor-form>
+<input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="version" value="{{ form.version }}">
+<div class="field">
+  <label class="field__label" for="honor-name">{{ p.t.profile_manage_name() }}</label>
+  <input id="honor-name" aria-describedby="honor-name-hint" name="name" value="{{ form.name }}" maxlength="10" required>
+  <p class="field__hint" id="honor-name-hint">{{ p.t.profile_manage_name_help() }}</p>
+</div>
+<div class="field">
+  <label class="field__label" for="honor-description">{{ p.t.profile_manage_description() }}</label>
+  <input id="honor-description" aria-describedby="honor-description-hint" name="description" value="{{ form.description }}" maxlength="60" required>
+  <p class="field__hint" id="honor-description-hint">{{ p.t.profile_manage_description_help() }}</p>
+</div>
+<div class="field">
+  <label class="field__label" for="honor-displayorder">{{ p.t.profile_manage_order() }}</label>
+  <input type="number" id="honor-displayorder" name="displayorder" value="{{ form.displayorder }}" min="0" max="9999">
+</div>
+<div class="checkline">
+  <label class="checkline__label">
+    <input type="checkbox" aria-describedby="honor-enabled-hint" name="enabled" value="1"{% if !form.enabled.is_empty() %} checked{% endif %}>
+    <span>{{ p.t.profile_manage_enabled() }}</span>
+  </label>
+  <p class="checkline__hint" id="honor-enabled-hint">{{ p.t.profile_manage_enabled_help() }}</p>
+</div>
+<div class="form-actions"><button class="button" type="submit">{{ p.t.profile_manage_save() }}</button></div>
+</form>
+<p class="form-actions"><a href="{{ crate::site::base() }}/manage/honors">{{ p.t.profile_manage_back() }}</a></p>
+</section>
+<section class="panel"><h2 class="panel__title">{{ p.t.profile_manage_holders() }}</h2>
+{% for holder in holders %}<article class="admin-row" data-honor-holder="{{ holder.uid }}"><h2><a href="{{ crate::site::base() }}/manage/honors/members/{{ holder.uid }}" translate="no">{{ holder.username }}</a> <small>UID {{ holder.uid }}</small></h2><p>{{ p.t.profile_manage_granted(holder.granted) }} · {{ p.t.profile_manage_expires(holder.expires) }}</p></article>{% else %}<p>{{ p.t.profile_manage_holders_empty() }}</p>{% endfor %}
+<nav class="form-actions" aria-label="{{ p.t.profile_manage_holders_pages() }}">{% if !previous.is_empty() %}<a href="{{ crate::site::href(previous) }}">{{ p.t.common_previous_page() }}</a>{% endif %}{% if !next.is_empty() %}<a href="{{ crate::site::href(next) }}">{{ p.t.common_next_page() }}</a>{% endif %}</nav>
+</section>{% endblock %}

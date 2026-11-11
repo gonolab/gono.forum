@@ -1,0 +1,23 @@
+{% extends "layout/my.html" %}
+{% block panel %}
+<section class="pane manage-shell" hx-boost="false">
+  <div class="panel"><h2 class="panel__title">{{ p.t.governance_restorations() }}</h2><p>{{ p.t.governance_restorations_lead(p.link("/my/threads", p.t.governance_my_threads()), p.link("/my/posts", p.t.governance_my_replies()), total)|safe }}</p></div>
+  <ul class="rows">
+    {%- for r in rows %}
+    <li class="rows__item">
+      <div class="row-body">
+        <div class="row-headline"><a class="row-title" href="{{ crate::site::base() }}/my/restorations/{{ r.id }}">#{{ r.id }} · {{ r.state_label() }} · {{ r.status_label() }}</a></div>
+        <p class="row-excerpt">{{ r.reason }}</p>
+        {%- if r.status == "pending" %}
+        <p class="row-meta"><span>{{ p.t.governance_due_short(r.due_time(p.frame.settings.governance.restoration_due_days)) }}</span>{% if r.overdue(p.frame.settings.governance.restoration_due_days) %}<span>{{ p.t.governance_overdue() }}</span>{% endif %}</p>
+        {%- endif %}
+      </div>
+      <span class="row-end"><span class="row-time">{{ r.time() }}</span></span>
+    </li>
+    {%- else %}
+    <li class="empty">{{ p.t.governance_restorations_empty() }}</li>
+    {%- endfor %}
+  </ul>
+  <nav class="form-actions" aria-label="{{ p.t.common_pagination() }}">{% if !previous.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(previous) }}">{{ p.t.common_previous_page() }}</a>{% endif %}{% if !next.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(next) }}">{{ p.t.common_next_page() }}</a>{% endif %}</nav>
+</section>
+{% endblock %}

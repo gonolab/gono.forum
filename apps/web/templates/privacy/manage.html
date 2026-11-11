@@ -1,0 +1,12 @@
+{% extends "layout/manage.html" %}
+{% block panel %}<section class="panel"><h1 class="panel__title">{{ p.t.governance_manage_data() }}</h1><p>{{ p.t.governance_manage_data_lead() }}</p>
+{% for row in rows %}<article class="panel"><h2>#{{ row.id }} · {{ row.label() }}</h2><p>UID {{ row.uid }} · {{ row.status_label() }} · {{ row.time() }}</p><p>{{ p.t.governance_data_due(row.due()) }}</p>{% if !row.last_error.is_empty() %}<p>{{ p.t.governance_data_failed() }}</p>{% endif %}{% if row.status == "failed" %}
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/data-requests/{{ row.id }}/retry">
+  <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+  <div class="field">
+    <label class="field__label" for="retry-{{ row.id }}-reason">{{ p.t.governance_manage_data_retry_reason() }}</label>
+    <textarea id="retry-{{ row.id }}-reason" name="reason" maxlength="500" required></textarea>
+  </div>
+  <div class="form-actions"><button class="button" type="submit">{{ p.t.governance_manage_data_retry() }}</button></div>
+</form>
+{% endif %}</article>{% else %}<p>{{ p.t.governance_data_empty() }}</p>{% endfor %}{% if !next.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(next) }}">{{ p.t.common_next_page() }}</a>{% endif %}</section>{% endblock %}

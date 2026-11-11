@@ -1,0 +1,17 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<div class="manage-frame{% if p.manage.is_none() %} manage-frame--plain{% endif %}" hx-boost="false"><div class="layout">
+  {% if let Some(manage) = p.manage %}{% include "partials/manage_icons.html" %}
+  <nav class="admin-menu" aria-label="{{ p.t.frame_manage_modules() }}">{% for module in manage.modules %}<a class="admin-menu__item" href="{{ crate::site::href(module.href) }}"{% if module.current %} aria-current="page"{% endif %}><svg class="manage-nav-icon" aria-hidden="true" focusable="false"><use href="#manage-icon-{{ module.icon }}"></use></svg><span class="manage-nav-label">{{ module.title }}</span></a>{% endfor %}</nav>{% endif %}
+  <div class="layout__main pane manage-shell">
+    {%- if let Some(manage) = p.manage %}
+    <nav class="section-tabs" aria-label="{{ manage.module_title }}">
+      {%- for tab in manage.tabs %}
+      <a class="section-tabs__item" href="{{ crate::site::href(tab.href) }}"{% if tab.current %} aria-current="page"{% endif %}>{% if tab.page == "credits" %}{{ p.t.manage_tab_credits(p.credit()) }}{% else %}{{ tab.title }}{% endif %}</a>
+      {%- endfor %}
+    </nav>
+    {%- endif %}
+    {% block panel %}{% endblock %}
+  </div>
+</div></div>
+{% endblock %}

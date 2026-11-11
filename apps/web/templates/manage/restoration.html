@@ -1,0 +1,21 @@
+{% extends "layout/manage.html" %}
+{% block panel %}
+<div class="panel"><h1 class="panel__title">{{ p.t.governance_restoration_heading(r.id.to_string(), r.status_label()) }}</h1><p>{{ p.t.governance_manage_member_uid(r.uid.to_string()) }} · {{ p.t.governance_restoration_submitted(r.state_label(), r.time()) }}</p>
+<h2>{{ p.t.governance_request_reason() }}</h2><p class="governance-reason">{{ r.reason }}</p>
+{% if let Some(target) = target %}<h2>{{ p.t.governance_manage_current_content() }}</h2><p>{{ target.subject }} · {{ target.forum_name }} · {{ target.state_label() }}</p>{% if !target.erased %}<div class="prose"><pre><code>{{ target.body }}</code></pre></div>{% endif %}<p><a href="{{ crate::site::href(target.manage_href()) }}">{{ p.t.governance_manage_view_in_content() }}</a></p>{% else %}<p>{{ p.t.governance_manage_restoration_gone() }}</p>{% endif %}
+{% if r.status == "pending" %}<p>{{ p.t.governance_manage_due(r.due_time(p.frame.settings.governance.restoration_due_days)) }}{% if r.overdue(p.frame.settings.governance.restoration_due_days) %} · {{ p.t.governance_overdue() }}{% endif %}</p>{% else %}<h2>{{ p.t.governance_resolution() }}</h2><p class="governance-reason">{{ r.resolution }}</p><p class="row-time">{{ r.handled_time() }}</p>{% endif %}
+{% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+{% if r.status == "pending" && recuse %}<p class="form-feedback form-feedback--info">{{ p.t.governance_manage_restoration_recuse() }}</p>{% else if r.status == "pending" %}<form class="fields" method="post" action="{{ crate::site::base() }}/manage/restorations/{{ r.id }}"><input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<div class="field">
+  <label class="field__label" for="restoration-status">{{ p.t.governance_manage_result() }}</label>
+  <select id="restoration-status" name="status" required><option value="">{{ p.t.common_choose() }}</option><option value="accepted"{% if selected == "accepted" %} selected{% endif %}>{{ p.t.governance_manage_restoration_accept() }}</option><option value="rejected"{% if selected == "rejected" %} selected{% endif %}>{{ p.t.governance_manage_restoration_reject() }}</option></select>
+</div>
+<div class="field">
+  <label class="field__label" for="restoration-resolution">{{ p.t.governance_resolution() }}</label>
+  <textarea id="restoration-resolution" name="resolution" rows="4" maxlength="500" required>{{ resolution }}</textarea>
+</div>
+<p class="form-note">{{ p.t.governance_manage_restoration_rules(p.frame.settings.governance.restoration_cooldown_days) }}</p>
+<div class="form-actions"><button class="button button--primary" type="submit">{{ p.t.governance_manage_restoration_submit() }}</button></div>
+</form>{% endif %}
+<p><a href="{{ crate::site::base() }}/manage/restorations">{{ p.t.governance_restorations_back() }}</a></p></div>
+{% endblock %}

@@ -1,0 +1,70 @@
+# Copy to config/development.toml to override the defaults; that file is ignored by Git.
+# The configuration structs have deny_unknown_fields: an unknown key (including old fields that have moved into the
+# admin area) makes startup fail.
+# The debug panel at the bottom of administrators' pages, the forum domain and the like are admin-area settings
+# (tools and maintenance › maintenance, global settings › site), not here.
+listen = "127.0.0.1:58833"
+
+# MySQL 5.7.44+; the database must be created beforehand, with utf8mb4 / utf8mb4_bin.
+# Fill in the actual URL, e.g. mysql://username:url-encoded-password@host:3306/database.
+# GONOF_DATABASE_URL takes precedence; if it is left empty, startup fails, and no local database file is created or
+# read.
+[database]
+url = ""
+max_connections = 5
+acquire_timeout_seconds = 10
+
+# Redis 7.0+; fill in redis://host:6379/0, or the full authenticated URL when a password is used.
+# GONOF_REDIS_URL and GONOF_REDIS_NAMESPACE take precedence; use a separate namespace for each environment.
+[redis]
+# enabled is the deployment-shape switch: off for a single process on one machine, on for multiple processes or
+# multiple processes on multiple machines; also use false to count SQL queries and timings locally (and set the
+# process cache lifetime settings.cache.ttl_seconds to 0 in the admin area).
+# When off, the startup connection is skipped, Redis cache reads and writes all fall through to MySQL, and background
+# jobs no longer wait for Redis.
+# Cache lifetimes are admin-area settings and are no longer set here.
+enabled = true
+url = ""
+namespace = "gonof:development"
+timeout_milliseconds = 2000
+
+# External service secrets entered in the admin area (the SMTP authorization code at /manage/mail, the Aliyun
+# AccessKey Secret at /manage/login) are encrypted with this key before being stored in gonof_common_settings; keep
+# and back it up together with the database configuration, and never commit a real value. Renamed from [mail] to
+# [common] on 2026-11-06: just move the old value over unchanged, and saved authorization codes need not be entered
+# again; leaving the old [mail] section in place makes startup fail.
+# Before enabling SMTP or Aliyun SMS, generate a 32-byte random key and fill it in as 64 hex digits
+# (openssl rand -hex 32); it must not equal the cookie or two-step verification keys. There is no rotation mechanism:
+# after changing the key, save the authorization code and AccessKey Secret again in the admin area. When it is empty,
+# mail and SMS are only delivered to the local directory.
+[common]
+encryption_key = ""
+
+# When SMTP is not enabled, mail is delivered to .local/mail/. Invitations, session lifetimes and the validity of
+# the various links are admin-area settings.
+[identity]
+# A separate debugging instance can change the local log/mail directory so files of different databases do not mix.
+local_directory = ".local"
+
+[identity.cookie]
+# Generate a separate 32-byte random key (64 hex digits) and keep it long-term; never commit a real value.
+# GONOF_AUTH_COOKIE_KEY takes precedence; when rotating, put old keys in previous_keys (at most 3), used only for
+# decryption.
+# Once an old key is removed, cookies it issued that have not been renewed yet become invalid immediately.
+active_key = ""
+previous_keys = []
+
+[identity.two_factor]
+# Key that encrypts members' authenticator (TOTP) secrets: 32 random bytes as 64 lowercase hex digits, for example
+# the output of openssl rand -hex 32.
+# Required; startup fails if it is missing or malformed. It must not equal any [identity.cookie] key; never commit a
+# real value.
+# GONOF_TWO_FACTOR_KEY takes precedence; previous keys go in GONOF_TWO_FACTOR_PREVIOUS_KEYS (comma-separated; an
+# empty value clears them).
+# Keep it long-term and back it up with the private configuration: if it is lost, members who have turned on
+# two-step verification can only sign in with recovery codes.
+# Rotation: put the new key in active_key, move the old key to previous_keys (at most 3, used only for decryption),
+# then run gono-forum-cli rekey-two-factor; delete the old key only after it reports 0 rows that could not be
+# decrypted and the switch to the current key has finished.
+active_key = ""
+previous_keys = []

@@ -1,0 +1,340 @@
+/* Rendered post bodies (markdown.rs output, also on policy pages, previews and the admin content view): the prose
+   block, code blocks, spoilers, in-site thread cards and video placeholders; plus the thread title and the thread
+   reference line. */
+
+/* Title block above the opening floor: title on the left, follow / move / reply count on the right. */
+.thread-ref {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-block: 14px;
+  padding-inline: 18px;
+  border: 1px solid var(--line);
+  border-block-end: 0;
+  background: var(--panel);
+}
+
+.thread-title {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .thread-ref {
+    flex-direction: column;
+    gap: 8px;
+    padding-block-end: 12px;
+    padding-inline: 12px;
+  }
+
+  .thread-title {
+    font-size: 19px;
+  }
+}
+
+/* Rendered post body (also policy pages, previews and the admin content view). Descendant rules use :where() so
+   that classed components inside a body (pager, sub-replies, mod tools, widgets) keep their own styles. */
+.prose {
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+
+.prose :where(p) {
+  margin-block: 0 0.85em;
+}
+
+.prose :where(h1, h2, h3, h4, h5, h6) {
+  margin-block: 1.1em 0.5em;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.prose :where(h1) {
+  font-size: 19px;
+}
+
+.prose :where(h2) {
+  font-size: 17px;
+}
+
+.prose :where(h3) {
+  font-size: 16px;
+}
+
+.prose :where(h4, h5, h6) {
+  font-size: 15px;
+}
+
+.prose :where(ul, ol) {
+  margin-block: 0.6em;
+  padding-inline-start: 1.4em;
+}
+
+.prose :where(li) {
+  margin-block: 0.25em;
+}
+
+.prose :where(a:not([class])) {
+  color: var(--link);
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 50%, transparent);
+  text-underline-offset: 2px;
+}
+
+.prose :where(a:not([class])):hover {
+  color: var(--link-hover);
+}
+
+.prose :where(blockquote) {
+  margin-block: 0 0.85em;
+  margin-inline: 0;
+  padding-inline-start: 12px;
+  border-inline-start: 2px solid var(--quote-border);
+  color: var(--quote-text);
+}
+
+.prose :where(hr) {
+  margin-block: 1.2em;
+  margin-inline: 0;
+  border: 0;
+  border-block-start: 1px solid var(--line);
+}
+
+/* Wide tables scroll inside the body instead of widening the page. */
+.prose :where(table:not([class])) {
+  display: block;
+  inline-size: max-content;
+  max-inline-size: 100%;
+  margin-block: 0 0.85em;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.prose :where(table:not([class])) :where(th, td) {
+  padding-block: 6px;
+  padding-inline: 10px;
+  border: 1px solid var(--line);
+  text-align: start;
+  vertical-align: top;
+}
+
+.prose :where(table:not([class])) :where(th) {
+  background: var(--panel-alt);
+  font-weight: 600;
+}
+
+.prose :where(img:not([class])) {
+  max-inline-size: min(100%, var(--post-image-max));
+  block-size: auto;
+  vertical-align: middle;
+}
+
+.prose :where(code) {
+  padding-block: 0.1em;
+  padding-inline: 0.35em;
+  border-radius: var(--r-xs);
+  background: var(--code-inline-bg);
+  color: var(--code-inline-text);
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+}
+
+/* Code blocks: plain pre, from Markdown or written by hand; there is no syntax highlighting. */
+.prose :where(pre) {
+  margin-block: 0 0.85em;
+  padding-block: 12px;
+  padding-inline: 14px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-input);
+  background: var(--code-block-bg);
+  color: var(--code-block-text);
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  line-height: 1.6;
+}
+
+.prose :where(pre code) {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+}
+
+.prose > :where(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, hr, figure, aside, details):first-child {
+  margin-block-start: 0;
+}
+
+.prose > :where(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, hr, figure, aside, details):last-child {
+  margin-block-end: 0;
+}
+
+.prose :where(blockquote, li, .reveal, th, td) > :where(:last-child) {
+  margin-block-end: 0;
+}
+
+/* Spoiler: <spoiler> renders as details.reveal; closed it shows only the summary line. */
+.reveal {
+  margin-block: 0 0.85em;
+  padding-inline: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-input);
+  background: var(--panel-alt);
+}
+
+.reveal > summary {
+  padding-block: 6px;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.reveal > summary:hover {
+  color: var(--text);
+}
+
+.reveal[open] {
+  padding-block-end: 10px;
+}
+
+.reveal[open] > summary {
+  margin-block-end: 8px;
+  border-block-end: 1px solid var(--line);
+}
+
+/* In-site thread card that replaces a thread link standing as its own paragraph. */
+.topic-embed {
+  display: block;
+  max-inline-size: var(--post-image-max);
+  margin-block: 0 0.85em;
+  padding-block: 10px;
+  padding-inline: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-input);
+  background: var(--panel);
+}
+
+.topic-embed__title {
+  display: block;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.topic-embed__title:hover {
+  color: var(--link);
+}
+
+.topic-embed__meta {
+  margin-block: 2px 0;
+  color: var(--text-subtle);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.topic-embed__excerpt {
+  margin-block: 6px 0;
+  color: var(--text-muted);
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+
+/* YouTube placeholder: title, privacy notice, load button and external link; site.js swaps the notice and the
+   button for a 16:9 iframe (video-embed__frame) on click. */
+.video-embed {
+  max-inline-size: var(--post-image-max);
+  margin-block: 0 0.85em;
+  margin-inline: 0;
+  padding-block: 12px;
+  padding-inline: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-input);
+  background: var(--panel-alt);
+}
+
+.video-embed__title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.video-embed__notice {
+  margin-block: 4px 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.video-embed__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.video-embed__link {
+  color: var(--link);
+}
+
+.video-embed__link:hover {
+  color: var(--link-hover);
+}
+
+.video-embed__frame {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  aspect-ratio: 16 / 9;
+  margin-block: 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+}
+
+/* Emoji zoom (a per-device reading preference): site.js wraps emoji in .emoji--large; they double in size on hover,
+   and not at all with reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .emoji--large {
+    display: inline-block;
+    position: relative;
+    transition: scale 0.15s ease-out;
+  }
+
+  .emoji--large:hover {
+    z-index: 1;
+    scale: 2;
+  }
+}
+
+.interaction-icon {
+  flex: none;
+  inline-size: 17px;
+  block-size: 17px;
+}
+
+.actions-bar__count {
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.view-switch {
+  display: flex;
+  gap: 6px;
+  margin-inline-start: auto;
+}
+
+/* Members get the editor directly; guests, unverified members and locked threads get a boxed notice instead. */
+.reply-editor {
+  scroll-margin-block-start: calc(72px + var(--safe-top));
+}

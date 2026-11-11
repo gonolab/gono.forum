@@ -1,0 +1,16 @@
+{% extends "layout/manage.html" %}{% block panel %}<section class="panel"><h1 class="panel__title">{{ p.t.manage_tab_branding() }}</h1>{% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/branding/upload" enctype="multipart/form-data"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="request_key" value="{{ key }}">
+<div class="field">
+  <label class="field__label" for="branding-file">{{ p.t.media_manage_brand_upload() }}</label>
+  <input type="file" id="branding-file" name="file" accept="image/png,image/jpeg,image/webp,image/gif" required>
+</div>
+<div class="form-actions"><button class="button" type="submit">{{ p.t.media_manage_brand_upload_submit() }}</button></div>
+</form><p>{{ p.t.media_manage_brand_intro() }}</p><a href="{{ crate::site::base() }}/manage/branding">{{ p.t.media_manage_brand_refresh() }}</a>
+{% for asset in assets %}<section class="admin-row"><h2>{{ asset.label }}</h2>{% if asset.aid.is_some() %}<img class="admin-brand-preview" src="{{ crate::site::href(asset.source()) }}" alt="{{ p.t.media_manage_brand_current_alt(asset.label) }}">{% else %}<p>{{ p.t.media_manage_brand_builtin() }}</p>{% endif %}<form class="fields fields--inline" method="post" action="{{ crate::site::base() }}/manage/branding/{{ asset.slot }}"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="version" value="{{ asset.version }}">
+<div class="field">
+  <label class="field__label" for="branding-{{ asset.slot }}-aid">{{ p.t.media_manage_brand_apply_image() }}</label>
+  <select id="branding-{{ asset.slot }}-aid" name="aid"><option value="0"{% if (selected_slot == asset.slot && selected_aid == 0) || (selected_slot != asset.slot && asset.aid.is_none()) %} selected{% endif %}>{{ p.t.media_manage_brand_restore() }}</option>{% if asset.aid.is_some() %}<option value="{{ asset.aid.unwrap_or(0) }}"{% if (selected_slot == asset.slot && selected_aid == asset.aid.unwrap_or(0)) || selected_slot != asset.slot %} selected{% endif %}>{{ p.t.media_manage_brand_current_image() }} #{{ asset.aid.unwrap_or(0) }}</option>{% endif %}{% for upload in uploads %}{% if upload.is_ready() && asset.aid.unwrap_or(0) != upload.aid %}<option value="{{ upload.aid }}"{% if selected_slot == asset.slot && selected_aid == upload.aid %} selected{% endif %}>#{{ upload.aid }} {{ upload.filename }}</option>{% endif %}{% endfor %}</select>
+</div>
+<div class="form-actions"><button class="button" type="submit">{{ p.t.media_manage_brand_apply() }}</button></div>
+</form></section>{% endfor %}
+<h2>{{ p.t.media_manage_brand_recent() }}</h2>{% for upload in uploads %}<article class="admin-row"><p>#{{ upload.aid }} · {{ upload.filename }} · {{ upload.lifecycle }} · {{ upload.scan_status }}</p>{% if upload.is_ready() %}<img class="admin-brand-preview" src="{{ crate::site::base() }}/manage/branding/preview/{{ upload.aid }}" alt="{{ upload.filename }}">{% else %}<p>{{ upload.scan_detail }}</p>{% endif %}</article>{% else %}<p>{{ p.t.media_manage_brand_none() }}</p>{% endfor %}</section>{% endblock %}

@@ -1,0 +1,34 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<div class="narrow-page" hx-boost="false">
+  <section class="panel panel--auth">
+    <h1 class="panel__title">{{ p.t.governance_appeals() }}</h1>
+    {%- if !message.is_empty() %}
+    <p class="form-feedback form-feedback--info" role="status">{{ message }}</p>
+    {%- endif %}
+    {%- if confirm %}
+    <p class="intro">{{ p.t.governance_appeals_confirm_lead() }}</p>
+    <form class="fields" method="post" action="{{ crate::site::base() }}/appeals/access">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button class="button button--block" type="submit">{{ p.t.governance_appeals_confirm() }}</button>
+    </form>
+    {%- else %}
+    <p class="intro">{{ p.t.governance_appeals_lead() }}</p>
+    {% include "partials/mail_paused.html" %}
+    <form class="fields" method="post" action="{{ crate::site::base() }}/appeals">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <div class="field">
+        <label class="field__label" for="appeals-email">{{ p.t.governance_appeals_email() }}</label>
+        <input type="email" id="appeals-email" name="email" autocomplete="email" maxlength="255" required>
+      </div>
+      <button class="button button--block" type="submit">{{ p.t.governance_appeals_send() }}</button>
+    </form>
+    <p class="intro">{{ p.t.governance_appeals_rules(p.frame.settings.governance.appeal_window_days, p.frame.settings.governance.appeal_handling_days) }}</p>
+    {%- endif %}
+    <ul class="panel__links panel__links--center">
+      <li><a href="{{ crate::site::base() }}/login">{{ p.t.governance_back_to_login() }}</a></li>
+    </ul>
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,27 @@
+{% extends "layout/manage.html" %}{% block panel %}
+<section class="panel"><h1 class="panel__title">{{ p.t.site_manage_link_heading(link.name) }}</h1>
+{% if !notice.is_empty() %}<p class="form-feedback form-feedback--success" role="status">{{ notice }}</p>{% endif %}
+{% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+<p>{{ link.status_label() }} · {{ link.category_label() }} · {{ link.domain }} · <a href="{{ crate::site::href(link.url) }}" rel="nofollow noopener noreferrer" target="_blank">{{ link.url }}</a></p>
+<p>{% if link.owner_name.is_empty() %}{{ p.t.site_manage_link_by_admin() }}{% else %}{{ p.t.site_manage_link_applicant(link.owner_name) }}{% if let Some(uid) = link.owner_uid %}{{ p.t.site_manage_link_uid(uid.to_string()) }}{% endif %}{% endif %} · {{ p.t.site_manage_link_submitted(submitted) }}{% if !handled.is_empty() %} · {{ p.t.site_manage_link_handled(handled) }}{% endif %}</p>
+{% if !link.backlink().is_empty() %}<p>{{ p.t.site_manage_link_backlink() }}<a href="{{ crate::site::href(link.backlink()) }}" rel="nofollow noopener noreferrer" target="_blank" data-backlink>{{ link.backlink() }}</a></p>{% else if link.owner_uid.is_some() %}<p>{{ p.t.site_manage_link_backlink_home() }}</p>{% endif %}
+{% if !link.note.is_empty() %}<p>{{ p.t.site_manage_link_note(link.note) }}</p>{% endif %}
+{% if !link.resolution.is_empty() %}<p>{{ p.t.site_links_reason(link.resolution) }}</p>{% endif %}
+{% if link.is_pending() || link.is_active() %}
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/links/{{ link.id }}" data-link-edit>
+<input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="action" value="{% if link.is_pending() %}approve{% else %}update{% endif %}">
+{% include "manage/link_fields.html" %}
+<div class="form-actions"><button class="button" type="submit">{% if link.is_pending() %}{{ p.t.site_manage_link_approve() }}{% else %}{{ p.t.site_manage_link_update() }}{% endif %}</button></div>
+</form>
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/links/{{ link.id }}" data-link-close>
+<input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="action" value="{% if link.is_pending() %}reject{% else %}remove{% endif %}">
+<div class="field">
+  <label class="field__label" for="link-close-reason">{% if link.is_pending() %}{{ p.t.site_manage_link_reject_reason() }}{% else %}{{ p.t.site_manage_link_remove_reason() }}{% endif %}</label>
+  <input id="link-close-reason" aria-describedby="link-close-reason-hint" name="reason" maxlength="200" required>
+  <p class="field__hint" id="link-close-reason-hint">{{ p.t.site_manage_link_reason_help() }}</p>
+</div>
+<div class="form-actions"><button class="button button--danger" type="submit">{% if link.is_pending() %}{{ p.t.site_manage_link_reject() }}{% else %}{{ p.t.site_manage_link_remove() }}{% endif %}</button></div>
+</form>
+{% endif %}
+<p class="form-actions"><a href="{{ crate::site::base() }}/manage/links">{{ p.t.site_links_back() }}</a></p>
+</section>{% endblock %}

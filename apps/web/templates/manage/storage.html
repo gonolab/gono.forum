@@ -1,0 +1,41 @@
+{% extends "layout/manage.html" %}
+{% block panel %}
+<section class="panel"><h1 class="panel__title">{{ p.t.media_manage_storage_heading() }}</h1>
+{% if !message.is_empty() %}<p class="form-feedback form-feedback--info" role="status">{{ message }}</p>{% endif %}
+<p>{% if settings.configured %}{{ p.t.media_manage_storage_intro_configured() }}{% else %}{{ p.t.media_manage_storage_intro() }}{% endif %}</p>
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/storage">
+<input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="revision" value="{{ settings.revision }}">
+<div class="field">
+  <label class="field__label" for="storage-endpoint">{{ p.t.media_manage_storage_endpoint() }}</label>
+  <input type="url" id="storage-endpoint" name="endpoint" value="{{ settings.endpoint }}" placeholder="https://s3.example.com" required>
+</div>
+<div class="field">
+  <label class="field__label" for="storage-region">{{ p.t.media_manage_storage_region() }}</label>
+  <input id="storage-region" name="region" value="{{ settings.region }}" placeholder="us-east-1" required>
+</div>
+<div class="field">
+  <label class="field__label" for="storage-bucket">{{ p.t.media_manage_storage_bucket() }}</label>
+  <input id="storage-bucket" name="bucket" value="{{ settings.bucket }}" required>
+</div>
+<div class="field">
+  <label class="field__label" for="storage-prefix">{{ p.t.media_manage_storage_prefix() }}</label>
+  <input id="storage-prefix" name="prefix" value="{{ settings.prefix }}" placeholder="gonof/">
+</div>
+<div class="checkline">
+  <label class="checkline__label">
+    <input type="checkbox" name="path_style" value="true"{% if settings.path_style %} checked{% endif %}>
+    <span>{{ p.t.media_manage_storage_path_style() }}</span>
+  </label>
+</div>
+<div class="field">
+  <label class="field__label" for="storage-access_key">Access Key</label>
+  <input type="password" id="storage-access_key" name="access_key" value="{{ access_key }}" autocomplete="off">
+</div>
+<div class="field">
+  <label class="field__label" for="storage-secret_key">Secret Key</label>
+  <input type="password" id="storage-secret_key" name="secret_key" autocomplete="new-password">
+</div>
+{% if secret_dropped %}<p class="form-feedback form-feedback--warning" role="status">{{ p.t.media_manage_storage_secret_dropped() }}</p>{% endif %}
+<div class="form-actions form-actions--sticky"><button class="button" type="submit" name="operation" value="save">{{ p.t.media_manage_storage_save() }}</button><button class="button button--secondary" type="submit" name="operation" value="test">{{ p.t.media_manage_storage_test() }}</button></div>
+</form></section>
+{% endblock %}

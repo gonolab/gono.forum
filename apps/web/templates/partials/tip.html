@@ -1,0 +1,24 @@
+{# Tipping the author. The picker is a native details element, so it works without scripts; each amount is its own submit button. #}
+{%- if tip.can_tip %}
+<details class="tip-picker" id="tip-{{ tip.tid }}">
+  <summary class="icon-button" data-tip-open aria-label="{{ p.t.topic_tip() }}" title="{{ p.t.topic_tip_title(tip.count) }}">
+    {%- include "partials/tip_icon.html" %}
+    <span class="actions-bar__count" data-tip-action-count>{{ tip.count }}</span>
+  </summary>
+  <div class="tip-picker__panel">
+    <p class="tip-hint" id="tip-{{ tip.tid }}-hint">{{ p.t.topic_tip_hint() }}</p>
+    <form class="tip-form" method="post" action="{{ crate::site::base() }}/api/thread-{{ tip.tid }}/tip" hx-boost="false">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <input type="hidden" name="request_key" value="{{ tip.request_key }}">
+      {%- for amount in tip.amounts %}
+      <button class="button button--small button--secondary" type="submit" aria-describedby="tip-{{ tip.tid }}-hint" name="amount" value="{{ amount }}" data-tip-amount="{{ amount }}">{{ p.t.topic_tip_amount(amount, p.credit()) }}</button>
+      {%- endfor %}
+    </form>
+  </div>
+</details>
+{%- else if tip.tipped %}
+<button class="icon-button interaction-disabled" id="tip-{{ tip.tid }}" type="button" data-tipped aria-label="{{ p.t.topic_tipped() }}" title="{{ p.t.topic_tipped_title(tip.count) }}" disabled>
+  {%- include "partials/tip_icon.html" %}
+  <span class="actions-bar__count" data-tip-action-count>{{ tip.count }}</span>
+</button>
+{%- endif %}

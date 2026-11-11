@@ -1,0 +1,29 @@
+{#- Friend-link fields shared by the add form (manage/links.html) and the edit form (manage/link.html); each page includes it once. -#}
+<div class="field">
+  <label class="field__label" for="link-name">{{ p.t.site_links_name() }}</label>
+  <input id="link-name" name="name" value="{{ form.name }}" maxlength="30" required>
+</div>
+<div class="field">
+  <label class="field__label" for="link-category">{{ p.t.site_links_category() }}</label>
+  <select id="link-category" name="category" required><option value="">{{ p.t.common_choose() }}</option>{% for item in categories %}<option value="{{ item.slug }}"{% if item.selected %} selected{% endif %}>{{ item.label }}</option>{% endfor %}</select>
+</div>
+<div class="field">
+  <label class="field__label" for="link-url">{{ p.t.site_links_url() }}</label>
+  <input type="url" id="link-url" name="url" value="{{ form.url }}" placeholder="https://" maxlength="500" required>
+</div>
+<div class="field">
+  <label class="field__label" for="link-description">{{ p.t.site_manage_link_description() }}</label>
+  <input id="link-description" aria-describedby="link-description-hint" name="description" value="{{ form.description }}" maxlength="60">
+  <p class="field__hint" id="link-description-hint">{{ p.t.site_manage_link_description_help() }}</p>
+</div>
+<div class="field">
+  <label class="field__label" for="link-displayorder">{{ p.t.site_manage_link_sort() }}</label>
+  <input type="number" id="link-displayorder" aria-describedby="link-displayorder-hint" name="displayorder" value="{{ form.displayorder }}" min="-9999" max="9999">
+  <p class="field__hint" id="link-displayorder-hint">{{ p.t.site_manage_link_sort_help() }}</p>
+</div>
+<div class="checkline">
+  <label class="checkline__label">
+    <input type="checkbox" name="home" value="true"{% if form.home %} checked{% endif %}>
+    <span>{{ p.t.site_manage_link_home() }}</span>
+  </label>
+</div>

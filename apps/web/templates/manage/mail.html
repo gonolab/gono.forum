@@ -1,0 +1,62 @@
+{% extends "layout/manage.html" %}
+{% block panel %}
+
+<section class="panel"><h1 class="panel__title">{{ p.t.mail_settings_title() }}</h1>
+<p>{{ p.t.mail_settings_lead() }}</p>
+{% if !message.is_empty() %}<p class="form-feedback{% if !failed %} form-feedback--success{% endif %}" role="{% if failed %}alert{% else %}status{% endif %}">{{ message }}</p>{% endif %}
+<form class="form-actions" method="post" action="{{ crate::site::base() }}/manage/mail/switch" data-mail-switch><input type="hidden" name="_csrf" value="{{ p.csrf }}">
+{% if enabled %}<input type="hidden" name="enabled" value="off"><p>{{ p.t.mail_settings_on(crate::i18n::Markup::tag("strong", p.t.mail_settings_state_on()))|safe }}</p><button class="button button--secondary" type="submit">{{ p.t.mail_settings_turn_off() }}</button>
+{% else %}<input type="hidden" name="enabled" value="on"><p>{{ p.t.mail_settings_off(crate::i18n::Markup::tag("strong", p.t.mail_settings_state_off()))|safe }}</p><button class="button button--primary" type="submit">{{ p.t.mail_settings_turn_on() }}</button>{% endif %}
+</form>
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/mail" autocomplete="off">
+<input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<input type="hidden" name="revision" value="{{ settings.revision }}">
+<div class="field">
+  <label class="field__label" for="mail-transport">{{ p.t.mail_settings_transport() }}</label>
+  <select id="mail-transport" name="transport"><option value="local"{% if settings.transport == "local" %} selected{% endif %}>{{ p.t.mail_settings_transport_local() }}</option><option value="smtp"{% if settings.transport == "smtp" %} selected{% endif %}>{{ p.t.mail_settings_transport_smtp() }}</option></select>
+</div>
+<div class="field">
+  <label class="field__label" for="mail-host">{{ p.t.mail_settings_host() }}</label>
+  <input id="mail-host" name="host" value="{{ settings.host }}" placeholder="smtp.qq.com" maxlength="253">
+</div>
+<div class="field">
+  <label class="field__label" for="mail-port">{{ p.t.mail_settings_port() }}</label>
+  <input type="number" id="mail-port" name="port" value="{{ settings.port }}" min="1" max="65535" required>
+</div>
+<div class="field">
+  <label class="field__label" for="mail-security">{{ p.t.mail_settings_security() }}</label>
+  <select id="mail-security" name="security"><option value="tls"{% if settings.security == "tls" %} selected{% endif %}>{{ p.t.mail_settings_security_tls() }}</option><option value="starttls"{% if settings.security == "starttls" %} selected{% endif %}>{{ p.t.mail_settings_security_starttls() }}</option></select>
+</div>
+<div class="field">
+  <label class="field__label" for="mail-username">{{ p.t.mail_settings_username() }}</label>
+  <input id="mail-username" name="username" value="{{ settings.username }}" autocomplete="off" maxlength="320">
+</div>
+<div class="field">
+  <label class="field__label" for="mail-password">{{ p.t.mail_settings_password() }}</label>
+  <input type="password" id="mail-password" aria-describedby="mail-password-hint" name="password" autocomplete="new-password" maxlength="4096">
+</div>
+<p class="form-note" id="mail-password-hint">{% if settings.has_password %}{{ p.t.mail_settings_password_saved() }}{% else %}{{ p.t.mail_settings_password_first() }}{% endif %} {{ p.t.mail_settings_password_note() }}</p>
+<div class="field">
+  <label class="field__label" for="mail-from_address">{{ p.t.mail_settings_from_address() }}</label>
+  <input type="email" id="mail-from_address" name="from_address" value="{{ settings.from_address }}" maxlength="320">
+</div>
+<div class="field">
+  <label class="field__label" for="mail-from_name">{{ p.t.mail_settings_from_name() }}</label>
+  <input id="mail-from_name" name="from_name" value="{{ settings.from_name }}" maxlength="80" required>
+</div>
+<div class="field">
+  <label class="field__label" for="mail-incoming_host">{{ p.t.mail_settings_incoming_host() }}</label>
+  <input id="mail-incoming_host" name="incoming_host" value="{{ settings.incoming_host }}" placeholder="pop.qq.com" maxlength="253">
+</div>
+<div class="field">
+  <label class="field__label" for="mail-incoming_port">{{ p.t.mail_settings_incoming_port() }}</label>
+  <input type="number" id="mail-incoming_port" name="incoming_port" value="{{ settings.incoming_port }}" min="1" max="65535" required>
+</div>
+<p class="form-note">{{ p.t.mail_settings_incoming_note() }}</p>
+<div class="field">
+  <label class="field__label" for="mail-test_to">{{ p.t.mail_settings_test_to() }}</label>
+  <input type="email" id="mail-test_to" name="test_to" value="{{ settings.test_to }}" maxlength="320">
+</div>
+<div class="form-actions form-actions--sticky"><button class="button" type="submit" name="operation" value="save">{{ p.t.mail_settings_save() }}</button><button class="button button--secondary" type="submit" name="operation" value="test">{{ p.t.mail_settings_test() }}</button></div>
+</form></section>
+{% endblock %}

@@ -1,0 +1,36 @@
+{#- Poll settings (thread type 4). Without the script the author writes one option per line in `options`;
+    composer-poll.js shows one input per option instead and still submits `options` and `max_choices`. #}
+<div class="poll-setup" data-categories="4" data-poll>
+  <fieldset class="option-group option-group--inline" data-poll-mode hidden>
+    <legend class="option-group__legend">{{ p.t.editor_poll_mode() }}</legend>
+    <div class="option-group__options">
+      <div class="checkline">
+        <label class="checkline__label"><input type="radio" name="poll_mode" value="single"><span>{{ p.t.editor_poll_single() }}</span></label>
+      </div>
+      <div class="checkline">
+        <label class="checkline__label"><input type="radio" name="poll_mode" value="multiple"><span>{{ p.t.editor_poll_multiple() }}</span></label>
+      </div>
+    </div>
+  </fieldset>
+  {#- The script hides this whole label for single choice and rewrites the text of its first span. #}
+  <label class="field poll-setup__limit" data-poll-limit><span class="field__label">{{ p.t.editor_poll_max() }}</span><input type="number" name="max_choices" value="{{ e.max_choices }}" min="1" max="20"></label>
+  <div class="field" data-poll-source>
+    <label class="field__label" for="editor-options">{{ p.t.editor_poll_lines() }}</label>
+    <textarea id="editor-options" name="options" rows="4">{{ e.options }}</textarea>
+  </div>
+  <fieldset class="option-group" data-poll-rows aria-describedby="editor-poll-hint" hidden>
+    <legend class="option-group__legend">{{ p.t.editor_poll_options() }}</legend>
+    <p class="option-group__hint" id="editor-poll-hint">{{ p.t.editor_poll_help() }}</p>
+    {#- One option row. The script uses the first input, the first span ("Option N") and the first button of the
+        template's first element, and finds the row again with closest('.poll-setup__option'). #}
+    <template data-poll-row>
+      <div class="poll-setup__option">
+        <label class="poll-setup__field"><span class="poll-setup__label"></span><input class="control" type="text"></label>
+        <button class="button button--small button--secondary" type="button">{{ p.t.editor_poll_remove() }}</button>
+      </div>
+    </template>
+    <div class="poll-setup__list" data-poll-list></div>
+    <button class="button button--small button--secondary poll-setup__add" type="button" data-poll-add>{{ p.t.editor_poll_add() }}</button>
+    <p class="poll-setup__status" role="status" data-poll-status></p>
+  </fieldset>
+</div>

@@ -1,0 +1,40 @@
+{% extends "layout/manage.html" %}{% block panel %}
+<section class="panel"><h1 class="panel__title">{{ p.t.profile_manage_honors() }}</h1>
+{% if !notice.is_empty() %}<p class="form-feedback form-feedback--success" role="status">{{ notice }}</p>{% endif %}
+{% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+<p>{{ p.t.profile_manage_honors_lead(p.credit()) }}</p>
+<form class="fields fields--inline" method="get" action="{{ crate::site::base() }}/manage/honors">
+<div class="field">
+  <label class="field__label" for="lookup-uid">{{ p.t.profile_manage_member_uid() }}</label>
+  <input type="number" id="lookup-uid" name="uid" min="1" required>
+</div>
+<div class="form-actions"><button class="button" type="submit">{{ p.t.profile_manage_grant_or_revoke() }}</button></div>
+</form>
+{% for row in rows %}<article class="admin-row" data-honor="{{ row.id }}"><h2><a href="{{ crate::site::base() }}/manage/honors/{{ row.id }}">{{ row.name }}</a> <span class="tag tag--honor" title="{{ row.description }}">{{ row.name }}</span></h2><p>{{ row.description }} · {{ p.t.profile_manage_order_value(row.displayorder.to_string()) }} · {% if row.enabled %}{{ p.t.profile_manage_enabled() }}{% else %}{{ p.t.profile_manage_disabled() }}{% endif %}</p></article>{% else %}<p>{{ p.t.profile_manage_honors_empty() }}</p>{% endfor %}
+</section>
+<section class="panel"><h2 class="panel__title">{{ p.t.profile_manage_create_heading() }}</h2>
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/honors" data-honor-create>
+<input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<div class="field">
+  <label class="field__label" for="honor-name">{{ p.t.profile_manage_name() }}</label>
+  <input id="honor-name" aria-describedby="honor-name-hint" name="name" value="{{ form.name }}" maxlength="10" required>
+  <p class="field__hint" id="honor-name-hint">{{ p.t.profile_manage_name_help() }}</p>
+</div>
+<div class="field">
+  <label class="field__label" for="honor-description">{{ p.t.profile_manage_description() }}</label>
+  <input id="honor-description" aria-describedby="honor-description-hint" name="description" value="{{ form.description }}" maxlength="60" required>
+  <p class="field__hint" id="honor-description-hint">{{ p.t.profile_manage_description_help() }}</p>
+</div>
+<div class="field">
+  <label class="field__label" for="honor-displayorder">{{ p.t.profile_manage_order() }}</label>
+  <input type="number" id="honor-displayorder" aria-describedby="honor-displayorder-hint" name="displayorder" value="{{ form.displayorder }}" min="0" max="9999">
+  <p class="field__hint" id="honor-displayorder-hint">{{ p.t.profile_manage_order_help() }}</p>
+</div>
+<div class="checkline">
+  <label class="checkline__label">
+    <input type="checkbox" name="enabled" value="1"{% if !form.enabled.is_empty() %} checked{% endif %}>
+    <span>{{ p.t.profile_manage_enabled() }}</span>
+  </label>
+</div>
+<div class="form-actions"><button class="button" type="submit">{{ p.t.profile_manage_create() }}</button></div>
+</form></section>{% endblock %}

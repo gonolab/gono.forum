@@ -1,0 +1,70 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<div class="narrow-page" hx-boost="false" data-sms-login>
+  <section class="panel panel--auth">
+    <h1 class="sr-only">{{ p.t.account_sms_login() }}</h1>
+    <nav class="tabs tabs--auth" aria-label="{{ p.t.account_tabs() }}">
+      <a class="tabs__item" href="{{ crate::site::base() }}/login{{ return_query }}">{{ p.t.frame_log_in() }}</a>
+      <a class="tabs__item" href="{{ crate::site::base() }}/login/sms{{ return_query }}" aria-current="page">{{ p.t.account_sms_login() }}</a>
+    </nav>
+    {%- if !message.is_empty() %}
+    <p class="form-feedback" role="alert">{{ message }}</p>
+    {%- endif %}
+    {%- if let Some(sent_to) = sent_to %}
+    <p class="form-feedback form-feedback--success" role="status" data-sms-sent>{{ p.t.account_sms_sent(sent_to) }}</p>
+    <form class="fields" method="post" action="{{ crate::site::base() }}/login/sms">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <input type="hidden" name="return_to" value="{{ return_to }}">
+      <div class="field">
+        <label class="field__label" for="sms-code">{{ p.t.account_code() }}</label>
+        <input type="text" id="sms-code" aria-describedby="sms-code-hint" name="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" required autofocus>
+        <p class="field__hint" id="sms-code-hint">{{ p.t.account_sms_code_hint(p.frame.settings.sms.code_ttl_minutes) }}</p>
+      </div>
+      <button class="button button--block" type="submit">{{ p.t.frame_log_in() }}</button>
+    </form>
+    <details class="auth-fallback">
+      <summary class="auth-fallback__summary">{{ p.t.account_sms_resend_toggle() }}</summary>
+      <form class="fields" method="post" action="{{ crate::site::base() }}/login/sms/send">
+        <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+        <input type="hidden" name="return_to" value="{{ return_to }}">
+        <div class="field">
+          <label class="field__label" for="sms-send-mobile">{{ p.t.account_mobile() }}</label>
+          <input type="tel" id="sms-send-mobile" aria-describedby="sms-send-mobile-hint" name="mobile" value="{{ mobile }}" autocomplete="tel" inputmode="tel" maxlength="20" required>
+          <p class="field__hint" id="sms-send-mobile-hint">{{ p.t.account_sms_interval_hint(p.frame.settings.sms.mobile_interval_seconds) }}</p>
+        </div>
+        <button class="button button--block button--secondary" type="submit">{{ p.t.account_sms_resend() }}</button>
+      </form>
+    </details>
+    {%- else %}
+    <form class="fields" method="post" action="{{ crate::site::base() }}/login/sms/send">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <input type="hidden" name="return_to" value="{{ return_to }}">
+      <div class="field">
+        <label class="field__label" for="sms-send-mobile">{{ p.t.account_mobile() }}</label>
+        <input type="tel" id="sms-send-mobile" aria-describedby="sms-send-mobile-hint" name="mobile" value="{{ mobile }}" autocomplete="tel" inputmode="tel" maxlength="20" required autofocus>
+        <p class="field__hint" id="sms-send-mobile-hint">{{ p.t.account_mobile_hint() }}</p>
+      </div>
+      <button class="button button--block" type="submit">{{ p.t.account_sms_send() }}</button>
+    </form>
+    {%- endif %}
+    <ul class="panel__links panel__links--center">
+      <li><a href="{{ crate::site::base() }}/login" hx-boost="false">{{ p.t.account_sms_password_login() }}</a></li>
+      <li><a href="{{ crate::site::base() }}/data/access" hx-boost="false">{{ p.t.account_data_request() }}</a></li>
+      <li><a href="{{ crate::site::base() }}/appeals" hx-boost="false">{{ p.t.account_appeal() }}</a></li>
+    </ul>
+  </section>
+  <section class="callout">
+    <h2 class="callout__title">{{ p.t.account_sms_notes() }}</h2>
+    <ul class="callout__list">
+      <li>{{ p.t.account_sms_note_how() }}</li>
+      {%- if registration_open %}
+      <li>{{ p.t.account_sms_note_register() }}</li>
+      {%- else %}
+      <li>{{ p.t.account_sms_note_closed() }}</li>
+      {%- endif %}
+      <li>{{ p.t.account_sms_note_daily(p.frame.settings.sms.mobile_daily_limit) }}</li>
+      <li>{{ p.t.account_sms_note_two_factor() }}</li>
+    </ul>
+  </section>
+</div>
+{% endblock %}

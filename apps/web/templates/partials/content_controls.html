@@ -1,0 +1,32 @@
+{# Author and moderator tools under one post. Everything here loads a full page: the edit page needs its own scripts. #}
+{%- if controls.can_author || controls.can_manage || !controls.report_href.is_empty() %}
+<div class="mod-tools" hx-boost="false">
+  {%- if controls.can_author || controls.can_manage %}
+  {%- if controls.can_author || controls.can_edit_manage %}
+  <a class="mod-tools__link" href="{{ crate::site::href(controls.edit_href) }}">{{ p.t.topic_edit() }}</a>
+  {%- endif %}
+  {%- if controls.can_manage %}
+  <a class="mod-tools__link" href="{{ crate::site::base() }}/manage/content/{{ controls.pid }}">{{ p.t.topic_manage() }}</a>
+  {%- endif %}
+  {%- endif %}
+  {%- if !controls.report_href.is_empty() %}
+  <a class="mod-tools__link" href="{{ crate::site::href(controls.report_href) }}">{{ p.t.topic_report() }}</a>
+  {%- endif %}
+  {%- if controls.can_author %}
+  <details class="mod-tools__confirm">
+    <summary class="mod-tools__link">{% if controls.withdrawn %}{{ p.t.topic_restore() }}{% else %}{{ p.t.topic_withdraw() }}{% endif %}</summary>
+    <div class="mod-tools__panel">
+      <p class="mod-tools__note" id="post-{{ controls.pid }}-withdraw-note">{% if controls.withdrawn %}{{ p.t.topic_restore_note() }}{% else %}{{ p.t.topic_withdraw_note() }}{% endif %}</p>
+      <form method="post" action="{{ crate::site::base() }}/api/posts/{{ controls.pid }}/{% if controls.withdrawn %}restore{% else %}withdraw{% endif %}">
+        <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+        <input type="hidden" name="request_key" value="{{ controls.request_key }}">
+        <input type="hidden" name="expected_post_version" value="{{ controls.version }}">
+        <input type="hidden" name="expected_thread_version" value="{{ controls.thread_version }}">
+        <input type="hidden" name="view" value="{{ controls.view }}">
+        <button class="button button--small{% if !controls.withdrawn %} button--danger{% endif %}" type="submit" aria-describedby="post-{{ controls.pid }}-withdraw-note">{% if controls.withdrawn %}{{ p.t.topic_restore_confirm() }}{% else %}{{ p.t.topic_withdraw_confirm() }}{% endif %}</button>
+      </form>
+    </div>
+  </details>
+  {%- endif %}
+</div>
+{%- endif %}

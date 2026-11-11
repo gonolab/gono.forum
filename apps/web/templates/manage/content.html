@@ -1,0 +1,28 @@
+{% extends "layout/manage.html" %}
+{% block panel %}
+
+<section class="panel"><h1 class="panel__title" id="content-title">{{ p.t.forum_content_title() }}</h1>
+<form class="fields fields--inline" method="get" action="{{ crate::site::base() }}/manage/content">
+<div class="field">
+  <label class="field__label" for="content-kind">{{ p.t.forum_content_kind() }}</label>
+  <select id="content-kind" name="kind"><option value="">{{ p.t.forum_content_kind_all() }}</option><option value="thread"{% if filter.kind == "thread" %} selected{% endif %}>{{ p.t.forum_content_thread() }}</option><option value="reply"{% if filter.kind == "reply" %} selected{% endif %}>{{ p.t.forum_content_reply() }}</option></select>
+</div>
+<div class="field">
+  <label class="field__label" for="content-fid">{{ p.t.forum_content_forum() }}</label>
+  <select id="content-fid" name="fid"><option value="">{{ p.t.forum_content_forum_all() }}</option>{% for forum in forums %}<option value="{{ forum.fid }}"{% if filter.selected_forum(forum.fid) %} selected{% endif %}>{{ forum.label() }}</option>{% endfor %}</select>
+</div>
+<div class="field">
+  <label class="field__label" for="content-state">{{ p.t.forum_content_state() }}</label>
+  <select id="content-state" name="state"><option value="">{{ p.t.forum_content_state_all() }}</option><option value="visible"{% if filter.state == "visible" %} selected{% endif %}>{{ p.t.forum_content_state_visible() }}</option><option value="hidden"{% if filter.state == "hidden" %} selected{% endif %}>{{ p.t.forum_content_state_hidden() }}</option><option value="deleted"{% if filter.state == "deleted" %} selected{% endif %}>{{ p.t.forum_content_state_deleted() }}</option></select>
+</div>
+<div class="field">
+  <label class="field__label" for="content-q">{{ p.t.forum_content_keyword() }}</label>
+  <input id="content-q" name="q" value="{{ filter.q }}" placeholder="{{ p.t.forum_content_keyword_placeholder() }}" maxlength="200">
+</div>
+<div class="form-actions"><button class="button button--primary" type="submit">{{ p.t.forum_content_filter() }}</button></div>
+</form>
+<p>{{ p.t.forum_content_summary(total, filter.page()) }}</p></section>
+<ul class="rows" aria-labelledby="content-title">{% for row in rows %}<li class="rows__item"><div class="row-body"><div class="row-headline"><a class="row-title" href="{{ crate::site::base() }}/manage/content/{{ row.pid }}">{% if row.first %}{{ p.t.forum_content_thread() }}{% else %}{{ p.t.forum_content_reply_number(row.position.to_string()) }}{% endif %} · {{ row.subject }}</a></div><p class="row-meta"><span translate="no">{{ row.username }}</span><span>{{ row.forum }}</span><span>{{ row.state }}</span><span>PID {{ row.pid }}</span>{% if row.closed %}<span>{{ p.t.forum_content_locked() }}</span>{% endif %}{% if row.pinned %}<span>{{ p.t.forum_content_pinned() }}</span>{% endif %}{% if row.featured %}<span>{{ p.t.forum_content_featured() }}</span>{% endif %}</p></div></li>{% else %}<li class="empty">{{ p.t.forum_content_empty() }}</li>{% endfor %}</ul>
+<nav class="form-actions" aria-label="{{ p.t.forum_content_pagination() }}">{% if !previous.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(previous) }}">{{ p.t.forum_previous() }}</a>{% endif %}{% if !next.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(next) }}">{{ p.t.forum_next() }}</a>{% endif %}</nav>
+
+{% endblock %}

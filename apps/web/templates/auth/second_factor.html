@@ -1,0 +1,47 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<div class="narrow-page" hx-boost="false">
+  <section class="panel panel--auth">
+    <h1 class="panel__title">{{ p.t.account_two_factor() }}</h1>
+    {%- if !message.is_empty() %}
+    <p class="form-feedback" role="alert">{{ message }}</p>
+    {%- endif %}
+    <form class="fields" method="post" action="{{ crate::site::base() }}/login/verify">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <input type="hidden" name="return_to" value="{{ return_to }}">
+      <div class="field">
+        <label class="field__label" for="verify-code">{{ p.t.account_code() }}</label>
+        <input type="text" id="verify-code" aria-describedby="verify-code-hint" name="code" autocomplete="one-time-code" inputmode="numeric" maxlength="8" required{% if !recovery %} autofocus{% endif %}>
+        <p class="field__hint" id="verify-code-hint">{{ p.t.account_two_factor_code_hint(p.site_name()) }}</p>
+      </div>
+      <button class="button button--block" type="submit">{{ p.t.account_two_factor_submit() }}</button>
+    </form>
+    <details class="auth-fallback"{% if recovery %} open{% endif %}>
+      <summary class="auth-fallback__summary">{{ p.t.account_two_factor_recovery_toggle() }}</summary>
+      <form class="fields" method="post" action="{{ crate::site::base() }}/login/verify">
+        <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+        <input type="hidden" name="return_to" value="{{ return_to }}">
+        <div class="field">
+          <label class="field__label" for="recovery-code">{{ p.t.account_recovery_code() }}</label>
+          <input type="text" id="recovery-code" aria-describedby="recovery-code-hint" name="code" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="32" required{% if recovery %} autofocus{% endif %}>
+          <p class="field__hint" id="recovery-code-hint">{{ p.t.account_recovery_code_hint() }}</p>
+        </div>
+        <button class="button button--block button--secondary" type="submit">{{ p.t.account_recovery_submit() }}</button>
+      </form>
+    </details>
+    <ul class="panel__links panel__links--center">
+      <li><a href="{{ crate::site::base() }}/login" hx-boost="false">{{ p.t.account_two_factor_restart() }}</a></li>
+      <li><a href="{{ crate::site::base() }}/forgot-password" hx-boost="false">{{ p.t.account_forgot() }}</a></li>
+    </ul>
+  </section>
+  <section class="callout">
+    <h2 class="callout__title">{{ p.t.account_two_factor_notes() }}</h2>
+    <ul class="callout__list">
+      <li>{{ p.t.account_two_factor_note_why() }}</li>
+      <li>{{ p.t.account_two_factor_note_refresh() }}</li>
+      <li>{{ p.t.account_two_factor_note_time() }}</li>
+      <li>{{ p.t.account_two_factor_note_reset() }}</li>
+    </ul>
+  </section>
+</div>
+{% endblock %}

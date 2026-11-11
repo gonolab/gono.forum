@@ -1,0 +1,7 @@
+{% extends "layout/my.html" %}
+{% block panel %}{% block collection %}
+<section class="pane private-collection">
+<ul class="rows">
+{% for row in rows %}<li class="rows__item" data-favorite-id="{{ row.control.tid }}"><div class="row-body"><div class="row-headline">{% if row.available %}<a class="row-title" href="{{ crate::site::base() }}/thread-{{ row.control.tid }}">{{ row.title }}</a>{% else %}<span class="row-title row-title--gone">{{ p.t.my_unavailable() }}</span>{% endif %}</div><p class="row-meta"><span>{{ p.t.my_favorited_at(row.time) }}</span></p></div><div class="row-actions">{% let favorite = row.control %}{% include "partials/favorite.html" %}</div></li>{% else %}<li class="empty">{{ p.t.my_favorites_empty() }}</li>{% endfor %}
+</ul>{% include "partials/pagination.html" %}</section>
+{% endblock %}{% endblock %}

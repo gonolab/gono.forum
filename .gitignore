@@ -1,0 +1,73 @@
+# System files
+.DS_Store
+._*
+.AppleDouble/
+Thumbs.db
+desktop.ini
+
+# Editors, IDEs and coding agents
+.idea/
+.vscode/
+.zed/
+.fleet/
+.codex/
+.claude/
+.cursor/
+.windsurf/
+.aider*
+*.swp
+*.swo
+*~
+
+# Temporary files and logs
+*.log
+*.tmp
+tmp/
+temp/
+.local/
+
+# Environment and secret configuration
+.env
+.env.*
+*.pem
+*.key
+# The private configuration a release-layout binary writes (source builds use config/development.toml below).
+config/gono-forum.toml
+
+# Runtime data: an instance's data directory (database, uploads, exports, setup token) and stray SQLite files
+/data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Database backups and exports, merge leftovers
+*.sql.gz
+*.bak
+*.orig
+*.rej
+
+# Rust / local development tools
+/target/
+/dist/
+**/*.rs.bk
+*.profraw
+node_modules/
+__pycache__/
+config/development.toml
+config/test.toml
+test-results/
+playwright-report/
+apps/web/static/js/composer.js
+
+# Styles built from frontend/styles
+apps/web/static/css/forum.css
+apps/web/static/css/debug.css
+
+# Local agent instructions, kept out of the repository.
+AGENTS.md
+CLAUDE.md
+
+# Local-only notes, kept out of the repository.
+/local/

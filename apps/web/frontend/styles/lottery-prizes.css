@@ -1,0 +1,29 @@
+.lottery-prize-row {
+  margin: 0 0 12px;
+  min-inline-size: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+.lottery-prize-row legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+.lottery-prize-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+  margin-bottom: 10px;
+}
+.lottery-prize-fields span { display: block; margin-bottom: 4px; }
+.lottery-prize-wide { grid-column: 1 / -1; }
+.lottery-prize-fields textarea { min-height: 72px; }
+[data-prize-mode] { margin: 0 0 8px; }
+[data-lottery-prizes] [hidden],
+form[data-custom-lottery] [data-simple-lottery],
+form[data-custom-lottery] label:has(input:is([name="budget"], [name="shares"])) {
+  display: none;
+}
+@media (max-width: 480px) {
+  .lottery-prize-fields { grid-template-columns: minmax(0, 1fr); }
+}

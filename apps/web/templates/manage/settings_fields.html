@@ -1,0 +1,25 @@
+{% extends "layout/manage.html" %}{% block panel %}
+{% if outcome.saved %}<p class="form-feedback form-feedback--success" role="status">{{ p.t.config_saved() }}</p>{% else if !outcome.message.is_empty() %}<p class="form-feedback" role="alert">{{ outcome.message }}</p>{% endif %}
+<form method="post" action="{{ crate::site::href(action) }}">
+<input type="hidden" name="_csrf" value="{{ p.csrf }}">
+{%- for section in sections %}
+<section class="panel" id="section-{{ section.id }}" aria-labelledby="section-{{ section.id }}-title">
+  {%- if loop.first %}
+  <h1 class="panel__title"{% if sections.len() == 1 %} id="section-{{ section.id }}-title"{% endif %}>{{ heading }}</h1>
+  <p>{{ p.t.config_page_summary(summary) }}</p>
+  {%- endif %}
+  {%- if sections.len() > 1 %}
+  <h2 class="panel__title" id="section-{{ section.id }}-title">{{ section.title }}</h2>
+  {%- endif %}
+  {%- if !section.intro.is_empty() %}
+  <p class="form-note">{{ section.intro }}</p>
+  {%- endif %}
+  <div class="fields fields--two">
+    {%- include "manage/settings_section.html" %}
+  </div>
+</section>
+{%- endfor %}
+<div class="form-actions form-actions--sticky"><button class="button" type="submit">{{ p.t.config_save() }}</button></div>
+</form>
+{% if !upcoming.is_empty() %}<section class="panel" aria-labelledby="section-upcoming"><h2 class="panel__title" id="section-upcoming">{{ p.t.config_upcoming() }}</h2><p>{{ p.t.config_upcoming_intro() }}</p><ul>{% for item in upcoming %}<li>{{ item }}</li>{% endfor %}</ul></section>{% endif %}
+{% endblock %}

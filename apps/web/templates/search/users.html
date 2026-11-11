@@ -1,0 +1,22 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<div class="layout layout--stack"><div class="layout__main"><div class="pane">
+  <div class="board-head"><h1 class="board-head__name">{% if q.is_empty() %}{{ p.t.search_members() }}{% else %}{{ p.t.search_members_heading(q) }}{% endif %}</h1></div>
+  {% include "partials/search_scope.html" %}
+  <div class="list-toolbar member-search-bar"><form class="member-search-form" method="get" action="{{ crate::site::base() }}/search/users" role="search"><label class="sr-only" for="member-search-q">{{ p.t.search_members_label() }}</label><input class="control member-search-input" type="search" id="member-search-q" name="q" value="{{ q }}" placeholder="{{ p.t.search_members_placeholder() }}" autocomplete="off" maxlength="50"><button class="button button--secondary" type="submit">{{ p.t.search_members_submit() }}</button></form></div>
+  <ul class="rows" aria-label="{{ p.t.search_members_list() }}">
+  {% for row in rows %}
+    <li class="rows__item" data-member-uid="{{ row.uid }}">
+      <span class="row-avatar">{% let avatar = row.avatar %}{% include "partials/avatar.html" %}</span>
+      <div class="row-body"><div class="row-headline"><a class="row-title" href="{{ crate::site::href(row.avatar.profile_href) }}" translate="no">{{ row.username }}</a></div><p class="row-meta"><span>UID {{ row.uid }}</span><span>{{ p.t.profile_joined(row.joined) }}</span></p>{% if !row.bio.is_empty() %}<p class="row-excerpt">{{ row.bio }}</p>{% endif %}</div>
+    </li>
+  {% else %}<li class="empty">{% if q.is_empty() %}{{ p.t.search_members_prompt() }}{% else %}{{ p.t.search_members_empty(q) }}{% endif %}</li>{% endfor %}
+  </ul>
+  {% if !previous.is_empty() || !next.is_empty() %}<nav class="pager" aria-label="{{ p.t.common_pagination() }}">{% if !previous.is_empty() %}<a class="pager__item pager__item--step" href="{{ crate::site::href(previous) }}" rel="prev">{{ p.t.common_previous_page() }}</a>{% endif %}{% if !next.is_empty() %}<a class="pager__item pager__item--step" href="{{ crate::site::href(next) }}" rel="next">{{ p.t.common_next_page() }}</a>{% endif %}</nav>{% endif %}
+</div></div>
+<aside class="layout__aside" aria-label="{{ p.t.home_sidebar() }}">
+  {% include "partials/user_card.html" %}
+  {% include "partials/sidebar.html" %}
+</aside>
+</div>
+{% endblock %}

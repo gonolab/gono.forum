@@ -1,0 +1,56 @@
+{% extends "layout/manage.html" %}
+
+{% macro counts(rows, label, empty_message) %}
+{% if rows.is_empty() %}
+  <p>{{ empty_message }}</p>
+{% else %}
+  <div class="prose">
+    <table class="data-table">
+      <thead><tr><th scope="col">{{ label }}</th><th scope="col">{{ p.t.account_manage_sources_count() }}</th></tr></thead>
+      <tbody>{% for row in rows %}<tr><th scope="row">{{ row.label }}</th><td>{{ row.count }}</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+{% endif %}
+{% endmacro %}
+
+{% macro pagination(title, section, page, more) %}
+{% if page > 1 || more %}
+  <nav class="form-actions" aria-label="{{ p.t.account_manage_sources_pages(title) }}">
+    {% if page > 1 %}<a href="{{ crate::site::href(pages.href(section, page - 1)) }}">{{ p.t.common_previous_page() }}</a>{% endif %}
+    <span>{{ p.t.common_page_number(page) }}</span>
+    {% if more %}<a href="{{ crate::site::href(pages.href(section, page + 1)) }}">{{ p.t.common_next_page() }}</a>{% endif %}
+  </nav>
+{% endif %}
+{% endmacro %}
+
+{% block panel %}
+<section class="panel">
+  <h1 class="panel__title">{{ p.t.account_manage_sources() }}</h1>
+  <p>{{ p.t.account_manage_sources_lead(crate::i18n::Markup::tag("strong", report.total))|safe }}</p>
+</section>
+<section class="panel" id="sites" aria-labelledby="sites-title">
+  <h2 class="panel__title" id="sites-title">{{ p.t.account_manage_sources_sites() }}</h2>
+  <p>{{ p.t.account_manage_sources_sites_lead() }}</p>
+  {{ counts(report.sites, p.t.account_manage_sources_site(), p.t.account_manage_sources_empty()) }}
+  {{ pagination(p.t.account_manage_sources_sites(), "sites", pages.site_page, report.more_sites) }}
+</section>
+<section class="panel" id="channels" aria-labelledby="channels-title">
+  <h2 class="panel__title" id="channels-title">{{ p.t.account_manage_sources_channels() }}</h2>
+  <p>{{ p.t.account_manage_sources_channels_lead(self.channel_example())|safe }}</p>
+  <p>{{ p.t.account_manage_sources_channels_rule() }}</p>
+  {{ counts(report.channels, p.t.account_manage_sources_channel(), p.t.account_manage_sources_empty()) }}
+  {{ pagination(p.t.account_manage_sources_channels(), "channels", pages.channel_page, report.more_channels) }}
+</section>
+<section class="panel" id="inviters" aria-labelledby="inviters-title">
+  <h2 class="panel__title" id="inviters-title">{{ p.t.account_manage_sources_inviters() }}</h2>
+  <p>{{ p.t.account_manage_sources_inviters_lead() }}</p>
+  {{ counts(report.inviters, p.t.account_manage_sources_inviters(), p.t.account_manage_sources_inviters_empty()) }}
+  {{ pagination(p.t.account_manage_sources_inviters(), "inviters", pages.inviter_page, report.more_inviters) }}
+</section>
+<section class="panel" id="prefixes" aria-labelledby="prefixes-title">
+  <h2 class="panel__title" id="prefixes-title">{{ p.t.account_manage_sources_prefixes() }}</h2>
+  <p>{{ p.t.account_manage_sources_prefixes_lead() }}</p>
+  {{ counts(report.prefixes, p.t.account_manage_sources_prefix(), p.t.account_manage_sources_prefixes_empty()) }}
+  {{ pagination(p.t.account_manage_sources_prefixes(), "prefixes", pages.prefix_page, report.more_prefixes) }}
+</section>
+{% endblock %}

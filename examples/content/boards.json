@@ -1,0 +1,32 @@
+[
+  {
+    "slug": "general",
+    "name": "General",
+    "description": "Introductions, everyday chat and anything that does not fit elsewhere",
+    "guidance": "Say hello, share what you are up to and keep it friendly."
+  },
+  {
+    "slug": "help",
+    "name": "Help",
+    "description": "Ask how something works, get unstuck and share answers",
+    "guidance": "Say what you tried, what you expected and what happened instead. When something solves it, say so."
+  },
+  {
+    "slug": "showcase",
+    "name": "Showcase",
+    "description": "Projects, write-ups and things you made",
+    "guidance": "Share what you built and how. Screenshots, source links and lessons learned are welcome."
+  },
+  {
+    "slug": "tech",
+    "name": "Technology",
+    "description": "Software, hardware, the web and the tools we use",
+    "guidance": "News, opinions and comparisons. Link to your sources and keep it civil."
+  },
+  {
+    "slug": "feedback",
+    "name": "Feedback",
+    "description": "Suggestions and questions about this forum",
+    "guidance": "One idea or question per thread. Say what you would like to change and why."
+  }
+]

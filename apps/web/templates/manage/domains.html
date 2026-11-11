@@ -1,0 +1,15 @@
+{% extends "layout/manage.html" %}{% block panel %}
+<section class="panel" data-domains><h1 class="panel__title">{{ p.t.domain_title() }}</h1>
+{% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+{% if !notice.is_empty() %}<p class="form-feedback form-feedback--success" role="status">{{ notice }}</p>{% endif %}
+<p>{{ p.t.domain_lead() }}</p>
+<form class="form-actions" method="post" action="{{ crate::site::base() }}/manage/domains/switch" data-domains-switch><input type="hidden" name="_csrf" value="{{ p.csrf }}">
+{% if enabled %}<input type="hidden" name="enabled" value="off"><p>{{ p.t.domain_enabled_status(crate::i18n::Markup::tag("strong", p.t.domain_state_on()), crate::i18n::Markup::tag("code", forum_url))|safe }}</p><button class="button button--secondary" type="submit">{{ p.t.domain_switch_off() }}</button>
+{% else %}<input type="hidden" name="enabled" value="on"><p>{{ p.t.domain_disabled_status(crate::i18n::Markup::tag("strong", p.t.domain_state_off()))|safe }}{% if forum_url.is_empty() %}{{ p.t.domain_disabled_need_url(p.link("/manage/settings", p.t.domain_link_settings_site()))|safe }}{% else %}{{ p.t.domain_disabled_will_use(crate::i18n::Markup::tag("code", forum_url))|safe }}{% endif %}</p><button class="button button--primary" type="submit">{{ p.t.domain_switch_on() }}</button>{% endif %}
+</form>
+</section>
+<section class="panel" aria-labelledby="domains-list-title"><h2 class="panel__title" id="domains-list-title">{{ p.t.domain_list_title() }}</h2>
+{% if !unshown.is_empty() && enabled %}<p class="form-feedback" role="alert">{{ p.t.domain_unshown(self.unshown_names()) }}</p>{% endif %}
+{% for row in rows %}<article class="admin-row" data-domain-row="{{ row.id }}"><h2><a href="{{ crate::site::base() }}/manage/domains/{{ row.id }}">{{ row.url }}</a>{% if row.main %} · {{ p.t.domain_list_main() }}{% endif %}{% if !row.enabled %} · {{ p.t.domain_list_disabled() }}{% endif %}</h2><p>{{ row.name }}{% if !row.main %} · {{ p.t.domain_list_canonical(row.canonical) }}{% endif %}</p><p>{{ p.t.domain_list_forums(row.forums) }}</p>{% if !row.main %}<form class="form-actions" method="post" action="{{ crate::site::base() }}/manage/domains/{{ row.id }}/delete"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="version" value="{{ row.version }}"><button class="button button--secondary" type="submit">{{ p.t.domain_delete() }}</button></form>{% endif %}</article>{% else %}<p>{{ p.t.domain_list_empty() }}{% if !enabled %}{{ p.t.domain_list_empty_hint() }}{% endif %}</p>{% endfor %}
+{% if enabled %}<a class="button button--secondary" href="{{ crate::site::base() }}/manage/domains/new">{{ p.t.domain_add() }}</a>{% endif %}
+</section>{% endblock %}

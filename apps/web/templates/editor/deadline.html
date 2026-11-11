@@ -1,0 +1,24 @@
+{#- Activity deadline (thread types 1-4), entered as wall-clock time in the site time zone. composer-deadline.js
+    converts with data-offset-minutes (must be an integer) and shows the quick choices. #}
+<fieldset class="option-group option-group--inline deadline-setup" data-categories="1 2 3 4" data-activity-deadline>
+  <legend class="option-group__legend">{{ p.t.editor_deadline(p.site_zone()) }}</legend>
+  <div class="option-group__options" data-deadline-choices hidden>
+    <div class="checkline">
+      <label class="checkline__label"><input type="radio" name="deadline_preset" value="1"><span>{{ p.t.editor_deadline_days(1) }}</span></label>
+    </div>
+    <div class="checkline">
+      <label class="checkline__label"><input type="radio" name="deadline_preset" value="3"><span>{{ p.t.editor_deadline_days(3) }}</span></label>
+    </div>
+    <div class="checkline">
+      <label class="checkline__label"><input type="radio" name="deadline_preset" value="7"><span>{{ p.t.editor_deadline_days(7) }}</span></label>
+    </div>
+    <div class="checkline">
+      <label class="checkline__label"><input type="radio" name="deadline_preset" value="custom"><span>{{ p.t.editor_deadline_custom() }}</span></label>
+    </div>
+  </div>
+  <div class="field deadline-setup__field">
+    <label class="field__label" for="editor-deadline">{{ p.t.editor_deadline_at() }}</label>
+    <input type="datetime-local" id="editor-deadline" data-offset-minutes="{{ p.site_offset_minutes() }}" name="deadline" value="{{ e.deadline }}">
+  </div>
+  <p class="form-note" role="status" data-deadline-note></p>
+</fieldset>

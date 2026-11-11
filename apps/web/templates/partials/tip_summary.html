@@ -1,0 +1,7 @@
+{# Punctuation comes from the translation files: colons and list separators differ between languages. #}
+{%- if tip.count > 0 %}
+<p class="tip-summary" data-tip-summary>
+  {%- include "partials/tip_icon.html" %}
+  <span class="tip-summary__text"><span data-tip-count="{{ tip.count }}" data-tip-total="{{ tip.total }}">{{ p.t.topic_tip_summary(tip.count, tip.total, p.credit()) }}</span>{{ p.t.common_colon() }}{% for tipper in tip.tippers %}{% if !loop.first %}{{ p.t.common_list_separator() }}{% endif %}{% if tipper.href.is_empty() %}<span translate="no">{{ tipper.name }}</span>{% else %}<a href="{{ crate::site::href(tipper.href) }}" translate="no">{{ tipper.name }}</a>{% endif %}{% endfor %}{% if tip.more %}{{ p.t.topic_tip_more() }}{% endif %}</span>
+</p>
+{%- endif %}

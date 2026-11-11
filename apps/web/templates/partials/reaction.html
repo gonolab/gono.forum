@@ -1,0 +1,20 @@
+{# One root with id reaction-{pid} in both visible branches: other responses replace it out of band. #}
+{%- if reaction.can_change %}
+<form class="interaction-form reaction-control" id="reaction-{{ reaction.pid }}" method="post" action="{{ crate::site::base() }}/api/comments/{{ reaction.pid }}/vote" hx-post="{{ crate::site::base() }}/api/comments/{{ reaction.pid }}/vote" hx-target="this" hx-swap="outerHTML" hx-boost="false" hx-disabled-elt="find button"{% if reaction.oob %} hx-swap-oob="true"{% endif %}>
+  <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+  <input type="hidden" name="request_key" value="{{ reaction.request_key }}">
+  <input type="hidden" name="desired" value="{% if reaction.active %}false{% else %}true{% endif %}">
+  <input type="hidden" name="location" value="{{ reaction.location }}">
+  <button class="icon-button reaction-action" type="submit" aria-pressed="{{ reaction.active }}" aria-label="{% if reaction.active %}{{ p.t.topic_unlike() }}{% else %}{{ p.t.topic_like() }}{% endif %}{% if reaction.available %} {{ reaction.count }}{% endif %}" title="{% if reaction.active %}{{ p.t.topic_unlike() }}{% else %}{{ p.t.topic_like() }}{% endif %}">
+    {%- include "partials/reaction_icon.html" %}
+    {%- if reaction.available %}
+    <span class="actions-bar__count" data-reaction-count>{{ reaction.count }}</span>
+    {%- endif %}
+  </button>
+</form>
+{%- else if reaction.available %}
+<button class="icon-button reaction-action interaction-disabled" id="reaction-{{ reaction.pid }}" type="button" aria-label="{{ p.t.topic_like_count(reaction.count) }}{% if reaction.own %}{{ p.t.topic_like_own_note() }}{% endif %}" title="{% if reaction.own %}{{ p.t.topic_like_own() }}{% else %}{{ p.t.topic_like_locked() }}{% endif %}"{% if reaction.oob %} hx-swap-oob="true"{% endif %} disabled>
+  {%- include "partials/reaction_icon.html" %}
+  <span class="actions-bar__count" data-reaction-count>{{ reaction.count }}</span>
+</button>
+{%- endif %}

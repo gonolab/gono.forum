@@ -1,0 +1,135 @@
+{% extends "layout/manage.html" %}
+{% block panel %}
+<section class="panel" data-login-methods><h1 class="panel__title">{{ p.t.manage_tab_login_methods() }}</h1>
+<p>{% if domains_enabled %}{{ p.t.account_manage_lead_domains(p.link("/manage/domains", p.t.manage_module_domains()))|safe }}{% else %}{{ p.t.account_manage_lead(p.link("/manage/domains", p.t.manage_module_domains()))|safe }}{% endif %}</p>
+{% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+{% if !notice.is_empty() %}<p class="form-feedback form-feedback--success" role="status">{{ notice }}</p>{% endif %}
+<p data-sms-today>{{ p.t.account_manage_sms_today(crate::i18n::Markup::tag("strong", sent_today), sms.site_daily_limit)|safe }}</p>
+{% if sent_today >= sms.site_daily_limit %}<p class="form-feedback form-feedback--warning" role="alert" data-sms-site-limit>{{ p.t.account_manage_sms_site_limit() }}</p>{% endif %}
+{% for item in oauth %}{% if item.checked_unconfigured %}<p class="form-feedback form-feedback--warning" data-oauth-unconfigured="{{ item.value }}">{{ p.t.account_manage_oauth_unconfigured(item.label) }}</p>{% endif %}{% endfor %}
+{% if provider.transport == "local" %}<p class="form-feedback form-feedback--warning" data-sms-local>{{ p.t.account_manage_sms_local() }}</p>{% endif %}
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/login" data-login-settings>
+<input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<fieldset class="option-group" aria-describedby="login-methods-hint">
+  <legend class="option-group__legend">{{ p.t.account_manage_methods() }}</legend>
+  <p class="option-group__hint" id="login-methods-hint">{{ p.t.account_manage_methods_help() }}</p>
+  <div class="option-group__options">
+    {%- for (value, label, checked) in methods %}
+    <div class="checkline">
+      <label class="checkline__label">
+        <input type="checkbox" name="method_{{ value }}" value="1"{% if *checked %} checked{% endif %}>
+        <span>{{ label }}</span>
+      </label>
+    </div>
+    {%- endfor %}
+  </div>
+</fieldset>
+<fieldset class="option-group" aria-describedby="login-participation-hint">
+  <legend class="option-group__legend">{{ p.t.account_manage_participation() }}</legend>
+  <p class="option-group__hint" id="login-participation-hint">{{ p.t.account_manage_participation_help() }}</p>
+  <div class="option-group__options">
+    {%- for (value, label, checked) in participation %}
+    <div class="checkline">
+      <label class="checkline__label">
+        <input type="checkbox" name="participation_{{ value }}" value="1"{% if *checked %} checked{% endif %}>
+        <span>{{ label }}</span>
+      </label>
+    </div>
+    {%- endfor %}
+  </div>
+</fieldset>
+<fieldset class="option-group">
+  <legend class="option-group__legend">{{ p.t.account_manage_two_factor() }}</legend>
+  <div class="option-group__options">
+    {%- for value in ["require", "skip"] %}
+    <div class="checkline">
+      <label class="checkline__label">
+        <input type="radio" name="external_two_factor" value="{{ value }}"{% if external_two_factor == *value %} checked{% endif %}>
+        <span>{% if *value == "require" %}{{ p.t.account_manage_two_factor_require() }}{% else %}{{ p.t.account_manage_two_factor_skip() }}{% endif %}</span>
+      </label>
+    </div>
+    {%- endfor %}
+  </div>
+</fieldset>
+<div class="field">
+  <label class="field__label" for="login-sms_mobile_interval_seconds">{{ p.t.account_manage_sms_interval() }}</label>
+  <input type="number" id="login-sms_mobile_interval_seconds" aria-describedby="login-sms_mobile_interval_seconds-hint" name="sms_mobile_interval_seconds" value="{{ sms.mobile_interval_seconds }}" min="60" max="3600" required>
+  <p class="field__hint" id="login-sms_mobile_interval_seconds-hint">{{ p.t.account_manage_range(60, 3600) }}</p>
+</div>
+<div class="field">
+  <label class="field__label" for="login-sms_mobile_daily_limit">{{ p.t.account_manage_sms_mobile_daily() }}</label>
+  <input type="number" id="login-sms_mobile_daily_limit" aria-describedby="login-sms_mobile_daily_limit-hint" name="sms_mobile_daily_limit" value="{{ sms.mobile_daily_limit }}" min="1" max="50" required>
+  <p class="field__hint" id="login-sms_mobile_daily_limit-hint">{{ p.t.account_manage_sms_mobile_daily_help() }}</p>
+</div>
+<div class="field">
+  <label class="field__label" for="login-sms_ip_hourly_limit">{{ p.t.account_manage_sms_ip_hourly() }}</label>
+  <input type="number" id="login-sms_ip_hourly_limit" aria-describedby="login-sms_ip_hourly_limit-hint" name="sms_ip_hourly_limit" value="{{ sms.ip_hourly_limit }}" min="1" max="1000" required>
+  <p class="field__hint" id="login-sms_ip_hourly_limit-hint">{{ p.t.account_manage_range(1, 1000) }}</p>
+</div>
+<div class="field">
+  <label class="field__label" for="login-sms_site_daily_limit">{{ p.t.account_manage_sms_site_daily() }}</label>
+  <input type="number" id="login-sms_site_daily_limit" aria-describedby="login-sms_site_daily_limit-hint" name="sms_site_daily_limit" value="{{ sms.site_daily_limit }}" min="1" max="1000000" required>
+  <p class="field__hint" id="login-sms_site_daily_limit-hint">{{ p.t.account_manage_sms_site_daily_help() }}</p>
+</div>
+<div class="field">
+  <label class="field__label" for="login-sms_code_ttl_minutes">{{ p.t.account_manage_sms_ttl() }}</label>
+  <input type="number" id="login-sms_code_ttl_minutes" aria-describedby="login-sms_code_ttl_minutes-hint" name="sms_code_ttl_minutes" value="{{ sms.code_ttl_minutes }}" min="1" max="30" required>
+  <p class="field__hint" id="login-sms_code_ttl_minutes-hint">{{ p.t.account_manage_range(1, 30) }}</p>
+</div>
+<div class="field">
+  <label class="field__label" for="login-sms_max_attempts">{{ p.t.account_manage_sms_attempts() }}</label>
+  <input type="number" id="login-sms_max_attempts" aria-describedby="login-sms_max_attempts-hint" name="sms_max_attempts" value="{{ sms.max_attempts }}" min="1" max="20" required>
+  <p class="field__hint" id="login-sms_max_attempts-hint">{{ p.t.account_manage_sms_attempts_help() }}</p>
+</div>
+<div class="form-actions"><button class="button button--primary" type="submit">{{ p.t.manage_save() }}</button></div>
+</form></section>
+<section class="panel" data-sms-provider><h2 class="panel__title">{{ p.t.account_manage_sms_provider() }}</h2>
+<p>{{ p.t.account_manage_sms_provider_intro() }}</p>
+{% if !key_configured %}<p class="form-feedback form-feedback--warning" data-providers-key-missing>{{ p.t.account_manage_key_missing_sms() }}</p>{% endif %}
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/login/sms" autocomplete="off">
+<input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="revision" value="{{ revision }}">
+<div class="field">
+  <label class="field__label" for="sms-transport">{{ p.t.account_manage_transport() }}</label>
+  <select id="sms-transport" name="transport">{% for (value, label) in transports %}<option value="{{ value }}"{% if provider.transport == *value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+</div>
+<div class="field">
+  <label class="field__label" for="sms-access_key_id">AccessKey ID</label>
+  <input id="sms-access_key_id" aria-describedby="sms-access_key_id-hint" name="access_key_id" value="{{ provider.access_key_id }}" autocomplete="off" spellcheck="false" maxlength="64">
+  <p class="field__hint" id="sms-access_key_id-hint">{{ p.t.account_manage_access_key_id_help() }}</p>
+</div>
+<div class="field">
+  <label class="field__label" for="sms-access_key_secret">AccessKey Secret</label>
+  <input type="password" id="sms-access_key_secret" aria-describedby="sms-access_key_secret-hint" name="access_key_secret" autocomplete="new-password" maxlength="128">
+  <p class="field__hint" id="sms-access_key_secret-hint">{% if provider.has_secret %}{{ p.t.account_manage_access_secret_saved() }}{% else %}{{ p.t.account_manage_access_secret_new() }}{% endif %}{{ p.t.account_manage_secret_encrypted() }}</p>
+</div>
+<div class="field">
+  <label class="field__label" for="sms-sign_name">{{ p.t.account_manage_sign_name() }}</label>
+  <input id="sms-sign_name" name="sign_name" value="{{ provider.sign_name }}" maxlength="40">
+</div>
+<div class="field">
+  <label class="field__label" for="sms-template_code">{{ p.t.account_manage_template_code() }}</label>
+  <input id="sms-template_code" name="template_code" value="{{ provider.template_code }}" spellcheck="false" maxlength="40">
+</div>
+<div class="form-actions"><button class="button button--primary" type="submit">{{ p.t.account_manage_sms_provider_save() }}</button></div>
+</form></section>
+{% for item in oauth %}
+<section class="panel" data-oauth-provider="{{ item.value }}"><h2 class="panel__title">{{ item.label }}</h2>
+{% if item.value == "google" %}<p>{{ p.t.account_manage_google_intro() }}</p>{% else %}<p>{{ p.t.account_manage_github_intro() }}</p>{% endif %}
+<div class="callback-urls" data-oauth-callbacks><p>{{ p.t.account_manage_callbacks(item.label) }}</p>{% if item.callbacks.is_empty() %}<p class="intro">{{ p.t.account_manage_callbacks_none(item.label) }}</p>{% else %}<ul>{% for url in item.callbacks %}<li><code translate="no">{{ url }}</code></li>{% endfor %}</ul>{% endif %}{% if item.over_limit %}<p class="form-feedback form-feedback--warning" role="alert" data-oauth-over-limit>{{ p.t.account_manage_github_over_limit() }}</p>{% endif %}</div>
+{% if !key_configured %}<p class="form-feedback form-feedback--warning">{{ p.t.account_manage_key_missing_oauth(item.label) }}</p>{% endif %}
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/login/oauth/{{ item.value }}" autocomplete="off">
+<input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="revision" value="{{ revision }}">
+<div class="field">
+  <label class="field__label" for="oauth-{{ item.value }}-client_id">Client ID</label>
+  <input id="oauth-{{ item.value }}-client_id" aria-describedby="oauth-{{ item.value }}-client_id-hint" name="client_id" value="{{ item.app.client_id }}" autocomplete="off" spellcheck="false" maxlength="255">
+  <p class="field__hint" id="oauth-{{ item.value }}-client_id-hint">{{ p.t.account_manage_client_id_help() }}</p>
+</div>
+<div class="field">
+  <label class="field__label" for="oauth-{{ item.value }}-client_secret">Client Secret</label>
+  <input type="password" id="oauth-{{ item.value }}-client_secret" aria-describedby="oauth-{{ item.value }}-client_secret-hint" name="client_secret" autocomplete="new-password" maxlength="255">
+  <p class="field__hint" id="oauth-{{ item.value }}-client_secret-hint">{% if item.app.has_secret %}{{ p.t.account_manage_client_secret_saved() }}{% else %}{{ p.t.account_manage_client_secret_new() }}{% endif %}{{ p.t.account_manage_secret_encrypted() }}</p>
+</div>
+<div class="form-actions"><button class="button button--primary" type="submit">{{ p.t.account_manage_oauth_save(item.label) }}</button></div>
+</form></section>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,31 @@
+{% extends "layout/my.html" %}
+{% block panel %}
+<section class="pane private-collection" hx-boost="false" hx-history="false">
+  <div class="thread-ref"><h2 class="thread-title">{{ p.t.my_conversation_with(thread.counterpart) }}</h2></div>
+  {% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+  <ol class="conversation">
+  {% for item in thread.messages %}
+    <li{% if item.mine %} class="conversation__mine"{% endif %}><span>{% if item.mine %}{{ p.t.my_conversation_me() }}{% else %}{{ thread.counterpart }}{% endif %} · {{ item.time }}</span><p>{{ item.body }}</p></li>
+  {% else %}<li class="empty">{{ p.t.my_conversation_empty() }}</li>{% endfor %}
+  </ol>
+  <nav class="form-actions" aria-label="{{ p.t.common_pagination() }}">{% if !previous.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(previous) }}">{{ p.t.my_conversation_older() }}</a>{% endif %}{% if !next.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(next) }}">{{ p.t.my_conversation_newer() }}</a>{% endif %}</nav>
+  {%- if thread.counterpart_state == "active" %}
+  <section class="panel">
+    <form class="fields" method="post" action="{{ crate::site::base() }}/my/messages/{{ thread.thread_id }}/replies">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <input type="hidden" name="request_key" value="{{ request_key }}">
+      <div class="field">
+        <label class="field__label" for="reply-body">{{ p.t.my_conversation_reply() }}</label>
+        <textarea id="reply-body" name="body" rows="4" maxlength="{{ crate::messages::BODY_MAX }}" required>{{ body }}</textarea>
+      </div>
+      <button class="button button--block" type="submit">{{ p.t.my_send() }}</button>
+    </form>
+  </section>
+  {%- else if thread.counterpart_state == "deleting" %}
+  <p class="intro" data-counterpart-state="deleting">{{ p.t.my_conversation_deleting() }}</p>
+  {%- else %}
+  <p class="intro" data-counterpart-state="deleted">{{ p.t.my_conversation_deleted() }}</p>
+  {%- endif %}
+  <p class="intro"><a href="{{ crate::site::base() }}/my/messages">{{ p.t.my_messages_back() }}</a></p>
+</section>
+{% endblock %}

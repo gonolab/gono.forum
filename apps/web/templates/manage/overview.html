@@ -1,0 +1,3 @@
+{% extends "layout/manage.html" %}{% block panel %}
+<section class="panel"><h1 class="panel__title">{{ p.t.manage_overview_title() }}</h1><dl class="admin-statistics">{% for (label,count) in counts %}<div><dt>{{ label }}</dt><dd>{{ count }}</dd></div>{% endfor %}</dl><p>{{ p.t.manage_overview_scope() }}</p></section>
+{% endblock %}

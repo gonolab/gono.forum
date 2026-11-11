@@ -1,0 +1,30 @@
+<div class="panel">{% if staff %}<h1 class="panel__title">{{ p.t.governance_manage_reports() }}</h1>{% else %}<h2 class="panel__title">{{ p.t.governance_my_reports() }}</h2>{% endif %}
+<form class="fields fields--inline" method="get">
+  <div class="field">
+    <label class="field__label" for="reports-status">{{ p.t.governance_report_status() }}</label>
+    <select id="reports-status" name="status">
+      <option value="pending"{% if status == "pending" %} selected{% endif %}>{{ p.t.governance_report_pending() }}</option>
+      <option value="resolved"{% if status == "resolved" %} selected{% endif %}>{{ p.t.governance_report_resolved() }}</option>
+      <option value="dismissed"{% if status == "dismissed" %} selected{% endif %}>{{ p.t.governance_report_dismissed() }}</option>
+      {%- if !staff %}
+      <option value=""{% if status.is_empty() %} selected{% endif %}>{{ p.t.home_all() }}</option>
+      {%- endif %}
+    </select>
+  </div>
+  <div class="form-actions"><button class="button" type="submit">{{ p.t.governance_filter() }}</button></div>
+</form>
+{% if staff %}<p>{{ p.t.governance_manage_reports_lead() }}</p>{% endif %}</div>
+<ul class="rows">
+  {%- for r in rows %}
+  <li class="rows__item">
+    <div class="row-body">
+      <div class="row-headline"><a class="row-title" href="{{ crate::site::base() }}{% if staff %}/manage{% else %}/my{% endif %}/reports/{{ r.id }}">#{{ r.id }} · {{ p.t.governance_report_kind(r.target.label()) }} · {{ r.status_label() }}</a></div>
+      <p class="row-excerpt">{{ r.reason }}</p>
+    </div>
+    <span class="row-end"><span class="row-time">{{ r.time() }}</span></span>
+  </li>
+  {%- else %}
+  <li class="empty">{{ p.t.governance_reports_empty() }}</li>
+  {%- endfor %}
+</ul>
+{% if !next.is_empty() %}<div class="panel"><a href="{{ crate::site::href(next) }}">{{ p.t.common_next_page() }}</a></div>{% endif %}

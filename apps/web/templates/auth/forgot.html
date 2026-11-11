@@ -1,0 +1,31 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<div class="narrow-page" hx-boost="false">
+  <section class="panel panel--auth">
+    {# Neither tab is the current page here, and neither carries a return address. #}
+    <nav class="tabs tabs--auth" aria-label="{{ p.t.account_tabs() }}">
+      <a class="tabs__item" href="{{ crate::site::base() }}/login">{{ p.t.frame_log_in() }}</a>
+      {%- if p.registration_open() %}
+      <a class="tabs__item" href="{{ crate::site::base() }}/register">{{ p.t.frame_register() }}</a>
+      {%- endif %}
+    </nav>
+    <h1 class="panel__title">{{ p.t.account_forgot_title() }}</h1>
+    <p class="intro">{{ p.t.account_forgot_lead() }}</p>
+    {% include "partials/mail_paused.html" %}
+    {%- if sent %}
+    <p class="form-feedback form-feedback--success" role="status">{{ p.t.account_forgot_sent() }}</p>
+    {%- endif %}
+    {%- if !message.is_empty() %}
+    <p class="form-feedback" role="alert">{{ message }}</p>
+    {%- endif %}
+    <form class="fields" method="post" action="{{ crate::site::base() }}/forgot-password">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <div class="field">
+        <label class="field__label" for="forgot-email">{{ p.t.account_email() }}</label>
+        <input type="email" id="forgot-email" name="email" value="{{ email }}" autocomplete="email" maxlength="255" required>
+      </div>
+      <button class="button button--block" type="submit">{{ p.t.account_forgot_submit() }}</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "layout/manage.html" %}{% block panel %}
+<section class="panel"><h1 class="panel__title">{{ p.t.manage_tab_links() }}</h1>
+{% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+<p>{{ p.t.site_manage_links_intro(p.link("/links", "/links"), p.frame.settings.links.home_count)|safe }}</p>
+<nav class="tabs" aria-label="{{ p.t.site_manage_links_status() }}">
+  {%- for tab in filters %}
+  <a class="tabs__item" href="{{ crate::site::href(tab.href) }}"{% if tab.active %} aria-current="page"{% endif %}>{{ tab.label }}</a>
+  {%- endfor %}
+</nav>
+{% for row in rows %}<article class="admin-row" data-manage-link="{{ row.link.id }}"><h2><a href="{{ crate::site::base() }}/manage/links/{{ row.link.id }}">{{ row.link.name }}</a> · {{ row.link.status_label() }}</h2><p>{{ row.link.category_label() }} · {{ row.link.domain }}{% if row.link.home %} · {{ p.t.site_manage_link_on_home() }}{% endif %} · {{ p.t.site_manage_link_order() }} {{ row.link.displayorder }}</p><p>{% if row.link.owner_name.is_empty() %}{{ p.t.site_manage_link_by_admin() }}{% else %}{{ p.t.site_manage_link_applicant(row.link.owner_name) }}{% endif %} · {{ p.t.site_manage_link_submitted(row.submitted) }}</p></article>{% else %}<p>{{ p.t.site_manage_links_empty() }}</p>{% endfor %}
+<nav class="form-actions" aria-label="{{ p.t.site_manage_links_pages() }}">{% if !previous.is_empty() %}<a href="{{ crate::site::href(previous) }}">{{ p.t.common_previous_page() }}</a>{% endif %}{% if !next.is_empty() %}<a href="{{ crate::site::href(next) }}">{{ p.t.common_next_page() }}</a>{% endif %}</nav>
+</section>
+<section class="panel" id="section-link-rules" aria-labelledby="section-link-rules-title"><h2 class="panel__title" id="section-link-rules-title">{{ p.t.config_section_link_rules() }}</h2>
+{% if rules_saved %}<p class="form-feedback form-feedback--success" role="status">{{ p.t.site_manage_rules_saved() }}</p>{% endif %}
+<form class="fields fields--two" method="post" action="{{ crate::site::base() }}/manage/links/rules" data-link-rules>
+<input type="hidden" name="_csrf" value="{{ p.csrf }}">
+{% let section = rules %}{% include "manage/settings_section.html" %}
+<p class="form-note">{{ p.t.site_manage_rules_note() }}</p>
+<div class="form-actions"><button class="button" type="submit">{{ p.t.site_manage_rules_save() }}</button></div>
+</form></section>
+<section class="panel"><h2 class="panel__title">{{ p.t.site_manage_link_add() }}</h2>
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/links" data-link-create>
+<input type="hidden" name="_csrf" value="{{ p.csrf }}">
+{% include "manage/link_fields.html" %}
+<div class="form-actions"><button class="button" type="submit">{{ p.t.site_manage_link_add_submit() }}</button></div>
+</form></section>{% endblock %}

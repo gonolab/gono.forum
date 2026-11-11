@@ -1,0 +1,18 @@
+{% extends "layout/manage.html" %}
+{% block panel %}
+<div class="panel"><h1 class="panel__title">{{ p.t.governance_manage_appeals() }}</h1>
+<form class="fields fields--inline" method="get" action="{{ crate::site::base() }}/manage/appeals">
+  <div class="field">
+    <label class="field__label" for="appeals-status">{{ p.t.governance_report_status() }}</label>
+    <select id="appeals-status" name="status">
+      <option value="pending"{% if status == "pending" %} selected{% endif %}>{{ p.t.governance_status_pending() }}</option>
+      <option value="accepted"{% if status == "accepted" %} selected{% endif %}>{{ p.t.governance_status_accepted() }}</option>
+      <option value="rejected"{% if status == "rejected" %} selected{% endif %}>{{ p.t.governance_status_rejected() }}</option>
+    </select>
+  </div>
+  <div class="form-actions"><button class="button" type="submit">{{ p.t.governance_filter() }}</button></div>
+</form>
+<p>{{ p.t.governance_manage_appeals_lead(p.frame.settings.governance.appeal_handling_days) }}</p></div>
+{% for row in rows %}<article class="panel"><h2><a href="{{ crate::site::base() }}/manage/appeals/{{ row.id }}">{{ p.t.governance_manage_appeal_row(row.id.to_string(), row.label()) }}</a></h2><p>{{ p.t.governance_manage_appeal_target(row.uid.to_string(), row.sanction_id.to_string()) }}</p><p class="governance-reason">{{ row.reason }}</p><p>{{ p.t.governance_appeal_received(row.submitted_time()) }} · {{ p.t.governance_manage_due(row.due_time(p.frame.settings.governance.appeal_handling_days)) }}{% if row.overdue(p.frame.settings.governance.appeal_handling_days) %} · {{ p.t.governance_overdue() }}{% endif %}</p></article>{% else %}<p class="empty">{{ p.t.governance_manage_appeals_empty() }}</p>{% endfor %}
+{% if !next.is_empty() %}<div class="panel"><a href="{{ crate::site::href(next) }}">{{ p.t.common_next_page() }}</a></div>{% endif %}
+{% endblock %}

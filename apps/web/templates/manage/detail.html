@@ -1,0 +1,29 @@
+{% extends "layout/manage.html" %}
+{% block panel %}
+
+<section class="panel"><h1 class="panel__title">{{ post.subject }}</h1><p>{{ post.forum }} · <span translate="no">{{ post.username }}</span> · PID {{ post.pid }} · #{{ post.position }} · {{ post.state }}</p>
+{% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+{% if !restorations.is_empty() %}<p class="form-feedback form-feedback--info">{{ p.t.forum_detail_restorations(self.restoration_links())|safe }}</p>{% endif %}
+<p>{% if !post.erased && full %}<a href="{{ crate::site::base() }}/edit/post-{{ post.pid }}">{{ p.t.forum_detail_edit() }}</a> · {% endif %} <a href="{{ crate::site::href(public_href) }}">{{ p.t.forum_detail_public() }}</a></p>
+<h2>{{ p.t.forum_detail_original() }}</h2><div class="prose"><pre><code>{{ post.message }}</code></pre></div>
+{% if post.erased %}<p class="form-feedback form-feedback--info">{{ p.t.forum_detail_erased() }}</p>{% else %}<form class="fields" method="post" action="{{ crate::site::base() }}/manage/posts/{{ post.pid }}/actions">
+<input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="request_key" value="{{ request_key }}"><input type="hidden" name="expected_post_version" value="{{ post.post_version }}"><input type="hidden" name="expected_thread_version" value="{{ post.thread_version }}">
+<div class="field">
+  <label class="field__label" for="detail-action">{{ p.t.forum_detail_action() }}</label>
+  <select id="detail-action" name="action" required><option value="">{{ p.t.forum_detail_choose() }}</option>
+<option value="hide"{% if selected_action == "hide" %} selected{% endif %}>{{ p.t.forum_detail_hide() }}</option><option value="unhide"{% if selected_action == "unhide" %} selected{% endif %}>{{ p.t.forum_detail_unhide() }}</option>
+{% if full %}<option value="restore"{% if selected_action == "restore" %} selected{% endif %}>{{ p.t.forum_detail_restore() }}</option>{% endif %}
+{% if post.first && can_lock %}<option value="lock"{% if selected_action == "lock" %} selected{% endif %}>{{ p.t.forum_detail_lock() }}</option><option value="unlock"{% if selected_action == "unlock" %} selected{% endif %}>{{ p.t.forum_detail_unlock() }}</option>{% endif %}{% if post.first && full %}<option value="pin"{% if selected_action == "pin" %} selected{% endif %}>{{ p.t.forum_detail_pin() }}</option><option value="pin2"{% if selected_action == "pin2" %} selected{% endif %}>{{ p.t.forum_detail_pin2() }}</option><option value="pin3"{% if selected_action == "pin3" %} selected{% endif %}>{{ p.t.forum_detail_pin3() }}</option><option value="unpin"{% if selected_action == "unpin" %} selected{% endif %}>{{ p.t.forum_detail_unpin() }}</option><option value="feature"{% if selected_action == "feature" %} selected{% endif %}>{{ p.t.forum_detail_feature() }}</option><option value="unfeature"{% if selected_action == "unfeature" %} selected{% endif %}>{{ p.t.forum_detail_unfeature() }}</option>{% endif %}
+</select>
+</div>
+<div class="field">
+  <label class="field__label" for="detail-reason">{{ p.t.forum_detail_reason() }}</label>
+  <textarea id="detail-reason" name="reason" rows="3" maxlength="500" minlength="1" required>{{ reason }}</textarea>
+</div>
+<p class="form-note">{{ p.t.forum_detail_target(post.pid.to_string()) }}</p>{% if post.first %}<p class="form-note" data-pin-scope>{{ p.t.forum_detail_pin_scope() }}</p>{% endif %}
+<div class="form-actions"><button class="button button--primary" type="submit">{{ p.t.forum_detail_submit() }}</button></div>
+</form>{% endif %}</section>
+<section class="panel" id="revisions"><h2 class="panel__title">{{ p.t.forum_detail_revisions() }}</h2><p>{{ p.t.forum_detail_revisions_summary(revisions_total, revisions_page) }}</p>{% for revision in revisions %}<details><summary>{{ p.t.forum_detail_revision(revision.version.to_string()) }} · {{ revision.editor }} · {{ revision.time() }}</summary>{% if !revision.subject.is_empty() %}<p>{{ revision.subject }}</p>{% endif %}<div class="prose"><pre><code>{{ revision.message }}</code></pre></div></details>{% else %}<p>{{ p.t.forum_detail_no_revisions() }}</p>{% endfor %}
+<nav class="form-actions" aria-label="{{ p.t.forum_detail_revisions_pagination() }}">{% if !previous.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(previous) }}">{{ p.t.forum_previous() }}</a>{% endif %}{% if !next.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(next) }}">{{ p.t.forum_next() }}</a>{% endif %}</nav></section>
+
+{% endblock %}

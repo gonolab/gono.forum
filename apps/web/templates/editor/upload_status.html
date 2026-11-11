@@ -1,0 +1,51 @@
+{% extends "layout/base.html" %}
+
+{% block content %}
+<div class="narrow-page upload-status" hx-boost="false">
+  <section class="panel panel--auth">
+    <h1 class="panel__title">{{ p.t.editor_upload_title() }}</h1>
+    {% include "editor/attachment.html" %}
+    <p class="intro">{{ p.t.editor_upload_help() }}</p>
+    {#- Carries everything the author had typed back to the editor (only used without the script); nothing in it is
+        visible. Multi-line values go in hidden textareas, with no whitespace around the content. #}
+    <form class="fields" method="post" action="{{ crate::site::base() }}/api/media/{{ upload.aid }}/continue" hx-boost="false">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <input type="hidden" name="request_key" value="{{ e.request_key }}">
+      <input type="hidden" name="title" value="{{ e.title }}">
+      <input type="hidden" name="fid" value="{{ e.fid }}">
+      <input type="hidden" name="tid" value="{{ e.tid }}">
+      <input type="hidden" name="root_pid" value="{{ e.root_pid }}">
+      <input type="hidden" name="reply_to_pid" value="{{ e.reply_to_pid }}">
+      <input type="hidden" name="quote_pid" value="{{ e.quote_pid }}">
+      <input type="hidden" name="view" value="{{ e.view }}">
+      <input type="hidden" name="location" value="{{ e.location }}">
+      <input type="hidden" name="return_to" value="{{ e.return_to }}">
+      <input type="hidden" name="attachment_ids" value="{{ e.attachment_ids }}">
+      <input type="hidden" name="edit_pid" value="{{ e.edit_pid }}">
+      <input type="hidden" name="edit_thread" value="{{ e.edit_thread }}">
+      <input type="hidden" name="expected_post_version" value="{{ e.expected_post_version }}">
+      <input type="hidden" name="expected_thread_version" value="{{ e.expected_thread_version }}">
+      <input type="hidden" name="reason" value="{{ e.reason }}">
+      <input type="hidden" name="visibility" value="{{ e.visibility }}">
+      <input type="hidden" name="category" value="{{ e.category }}">
+      <input type="hidden" name="budget" value="{{ e.budget }}">
+      <input type="hidden" name="shares" value="{{ e.shares }}">
+      <input type="hidden" name="distribution" value="{{ e.distribution }}">
+      <input type="hidden" name="deadline" value="{{ e.deadline }}">
+      <input type="hidden" name="max_choices" value="{{ e.max_choices }}">
+      <input type="hidden" name="source_name" value="{{ e.source_name }}">
+      <input type="hidden" name="source_url" value="{{ e.source_url }}">
+      <input type="hidden" name="source_author" value="{{ e.source_author }}">
+      <input type="hidden" name="entry_mode" value="{{ e.entry_mode }}">
+      <input type="hidden" name="review" value="{{ e.review }}">
+      <input type="hidden" name="early_draw" value="{{ e.early_draw }}">
+      <textarea name="body" hidden>{{ e.body }}</textarea>
+      <textarea name="options" hidden>{{ e.options }}</textarea>
+      <textarea name="requirements" hidden>{{ e.requirements }}</textarea>
+      <textarea name="prizes" hidden>{{ e.prizes }}</textarea>
+      <textarea name="lottery_codes" autocomplete="off" hidden>{{ e.lottery_codes }}</textarea>
+      <button class="button button--block" type="submit">{{ p.t.editor_upload_refresh() }}</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

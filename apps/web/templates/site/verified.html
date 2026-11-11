@@ -1,0 +1,32 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<div class="layout layout--stack"><div class="layout__main"><div class="pane">
+  <div class="board-head"><h1 class="board-head__name">{{ p.t.frame_footer_verified() }}</h1><p class="board-head__desc">{{ p.t.site_verified_lede() }}</p></div>
+  <nav class="tabs" aria-label="{{ p.t.site_verified_categories() }}">{% for tab in tabs %}<a class="tabs__item" href="{{ crate::site::href(tab.href) }}"{% if tab.active %} aria-current="page"{% endif %}>{{ tab.label }}</a>{% endfor %}</nav>
+  {% for section in sections %}
+  <section class="directory-section" aria-labelledby="verified-{{ section.slug }}" data-verified-section="{{ section.slug }}">
+    <h2 class="directory-title" id="verified-{{ section.slug }}">{{ p.t.profile_verified(section.label) }}</h2>
+    <ul class="rows">
+    {% for member in section.members %}
+      <li class="rows__item" data-verified-member="{{ member.username }}">
+        <span class="row-avatar">{% let avatar = member.avatar %}{% include "partials/avatar.html" %}</span>
+        <div class="row-body"><div class="row-headline"><a class="row-title" href="{{ crate::site::href(member.avatar.profile_href) }}" translate="no">{{ member.username }}</a><span class="tag tag--verified" title="{{ member.title }}" data-verified-badge="{{ section.slug }}">{{ section.label }}</span></div><p class="row-excerpt">{{ member.title }}</p>{% if !member.site_href.is_empty() %}<p class="row-meta"><a href="{{ crate::site::href(member.site_href) }}" rel="nofollow ugc noopener noreferrer" target="_blank" data-verified-site>{{ member.site_host }}</a></p>{% endif %}</div>
+      </li>
+    {% else %}<li class="empty">{{ p.t.site_verified_empty(section.label) }}</li>{% endfor %}
+    </ul>
+    {% if section.more && previous.is_empty() && next.is_empty() %}<p class="directory-more"><a href="{{ crate::site::base() }}/verified?category={{ section.slug }}&amp;page=2">{{ p.t.site_verified_more(section.label) }}</a></p>{% endif %}
+  </section>
+  {% endfor %}
+  {% if !previous.is_empty() || !next.is_empty() %}<nav class="form-actions" aria-label="{{ p.t.site_directory_pages() }}">{% if !previous.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(previous) }}" rel="prev">{{ p.t.common_previous_page() }}</a>{% endif %}{% if !next.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(next) }}" rel="next">{{ p.t.common_next_page() }}</a>{% endif %}</nav>{% endif %}
+  <section class="directory-section directory-explainer" aria-labelledby="verified-apply" data-verified-apply>
+    <h2 class="directory-title" id="verified-apply">{{ explainer.title }}</h2>
+    <div class="prose">{{ explainer.body|safe }}</div>
+    <p class="directory-contact"><a href="{{ crate::site::base() }}/contact">{{ p.t.site_contact_page() }}</a>{% if !contact_email.is_empty() %} · {{ p.t.site_contact_email() }} <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>{% endif %}</p>
+  </section>
+</div></div>
+<aside class="layout__aside" aria-label="{{ p.t.home_sidebar() }}">
+  {% include "partials/user_card.html" %}
+  {% include "partials/sidebar.html" %}
+</aside>
+</div>
+{% endblock %}

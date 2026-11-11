@@ -1,0 +1,40 @@
+{% extends "layout/manage.html" %}
+{% block panel %}
+<section class="panel"><h1 class="panel__title" id="moderators-title">{{ p.t.forum_moderators_title() }}</h1><p>{{ p.t.forum_moderators_lead() }}</p>
+{% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+<form class="fields fields--inline" method="get" action="{{ crate::site::base() }}/manage/moderators">
+<div class="field">
+  <label class="field__label" for="moderators-q">{{ p.t.forum_moderators_username() }}</label>
+  <input id="moderators-q" name="q" value="{{ q }}" maxlength="200">
+</div>
+<div class="form-actions"><button class="button button--primary" type="submit">{{ p.t.forum_moderators_search() }}</button></div>
+</form><p>{{ p.t.forum_moderators_total(total) }}</p>
+<ul class="rows" aria-labelledby="moderators-title">{% for member in members %}<li class="rows__item"><div class="row-body"><div class="row-headline"><strong translate="no">{{ member.username }}</strong></div><p class="row-meta"><span>UID {{ member.uid }}</span><span>{% if member.adminid == 0 %}{{ p.t.forum_moderators_role_member() }}{% else if member.adminid == 3 %}{{ p.t.forum_moderators_role_moderator() }}{% else %}{{ crate::identity::role_label(*member.adminid) }}{% endif %}</span>{% if member.adminid != 1 %}<a href="{{ crate::site::base() }}/manage/moderators?uid={{ member.uid }}">{{ p.t.forum_moderators_edit() }}</a>{% endif %}</p></div></li>{% else %}<li class="empty">{{ p.t.forum_moderators_empty() }}</li>{% endfor %}</ul>
+<nav class="form-actions" aria-label="{{ p.t.forum_moderators_pagination() }}">{% if !previous.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(previous) }}">{{ p.t.forum_previous() }}</a>{% endif %}{% if !next.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(next) }}">{{ p.t.forum_next() }}</a>{% endif %}</nav></section>
+{% if let Some(fields) = fields %}<section class="panel"><h2 class="panel__title">{{ p.t.forum_moderators_appoint(crate::router::my::username_markup(fields.username))|safe }}</h2><form class="fields" method="post" action="{{ crate::site::base() }}/manage/moderators">
+<input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="target_uid" value="{{ fields.uid }}"><input type="hidden" name="expected_version" value="{{ fields.expected_version }}"><input type="hidden" name="request_key" value="{{ fields.request_key }}">
+<div class="field">
+  <label class="field__label" for="appoint-adminid">{{ p.t.forum_moderators_role() }}</label>
+  <select id="appoint-adminid" name="adminid"><option value="0"{% if fields.adminid == 0 %} selected{% endif %}>{{ p.t.forum_moderators_role_member() }}</option><option value="2"{% if fields.adminid == 2 %} selected{% endif %}>{{ p.t.forum_moderators_role_global() }}</option><option value="3"{% if fields.adminid == 3 %} selected{% endif %}>{{ p.t.forum_moderators_role_moderator() }}</option><option value="4"{% if fields.adminid == 4 %} selected{% endif %}>{{ p.t.forum_moderators_role_intern() }}</option><option value="5"{% if fields.adminid == 5 %} selected{% endif %}>{{ p.t.forum_moderators_role_reviewer() }}</option></select>
+</div>
+<fieldset class="option-group" aria-describedby="appoint-forums-hint">
+  <legend class="option-group__legend">{{ p.t.forum_moderators_forums() }}</legend>
+  <p class="option-group__hint" id="appoint-forums-hint" data-moderator-inheritance>{{ p.t.forum_moderators_inheritance() }}</p>
+  <div class="option-group__options">
+    {%- for forum in fields.forums %}
+    <div class="checkline">
+      <label class="checkline__label">
+        <input type="checkbox" name="forum_{{ forum.fid }}" value="1"{% if forum.selected %} checked{% endif %}>
+        <span>{{ forum.name }}</span>
+      </label>
+    </div>
+    {%- endfor %}
+  </div>
+</fieldset>
+<div class="field">
+  <label class="field__label" for="appoint-reason">{{ p.t.forum_moderators_reason() }}</label>
+  <textarea id="appoint-reason" name="reason" rows="3" maxlength="500" minlength="1" required>{{ fields.reason }}</textarea>
+</div>
+<div class="form-actions"><button class="button button--primary" type="submit">{{ p.t.forum_moderators_submit() }}</button></div>
+</form></section>{% endif %}
+{% endblock %}

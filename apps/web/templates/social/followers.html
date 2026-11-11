@@ -1,0 +1,5 @@
+{% extends "layout/my.html" %}
+{% block panel %}<section class="pane private-collection" hx-history="false">
+<p>{{ p.t.social_followers_lead(total, page) }}</p>
+<ul class="rows">{% for row in rows %}<li class="rows__item" data-follower="{{ row.target }}"><div class="row-body"><div class="row-headline">{% if !row.href.is_empty() %}<a class="row-title" href="{{ crate::site::href(row.href) }}">{{ row.title }}</a>{% else %}<span class="row-title row-title--gone">{{ row.title }}</span>{% endif %}</div></div></li>{% else %}<li class="empty">{{ p.t.social_followers_empty() }}</li>{% endfor %}</ul>
+<nav class="form-actions" aria-label="{{ p.t.common_pagination() }}">{% if !previous.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(previous) }}">{{ p.t.common_previous_page() }}</a>{% endif %}{% if !next.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(next) }}">{{ p.t.common_next_page() }}</a>{% endif %}</nav></section>{% endblock %}

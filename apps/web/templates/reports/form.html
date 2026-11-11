@@ -1,0 +1,23 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<section class="pane manage-shell" hx-boost="false"><div class="panel"><h1 class="panel__title">{{ target.target.heading() }}</h1><p>{{ target.title }}</p>
+{% if !target.href.is_empty() %}<p><a href="{{ crate::site::href(target.href) }}">{{ p.t.governance_report_view_target() }}</a></p>{% endif %}
+{% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+<form class="fields" method="post" action="{{ crate::site::base() }}/my/reports">
+  <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+  <input type="hidden" name="request_key" value="{{ key }}">
+  <input type="hidden" name="target_type" value="{{ target.target.target_type }}">
+  <input type="hidden" name="target_id" value="{{ target.target.target_id }}">
+  <div class="field">
+    <label class="field__label" for="report-reason">{{ p.t.governance_report_reason() }}</label>
+    <textarea id="report-reason" name="reason" rows="5" maxlength="1000" required>{{ reason }}</textarea>
+  </div>
+  <p class="form-note">{{ p.t.governance_report_rules() }}</p>
+  <div class="form-actions">
+    <button class="button" type="submit">{{ p.t.governance_report_submit() }}</button>
+    <a class="button button--secondary" href="{{ crate::site::base() }}/my/reports">{{ p.t.governance_my_reports() }}</a>
+  </div>
+</form>
+{% if !target.attachments.is_empty() %}<h2>{{ p.t.governance_report_attachments() }}</h2><ul>{% for item in target.attachments %}<li><a href="{{ crate::site::base() }}/my/reports/new?target_type=attachment&amp;target_id={{ item.aid }}">{{ item.filename }}</a></li>{% endfor %}</ul>{% endif %}
+</div></section>
+{% endblock %}

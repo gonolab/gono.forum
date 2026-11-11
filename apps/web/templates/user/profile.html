@@ -1,0 +1,178 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<div class="layout layout--sticky profile" data-member-view="{{ view }}">
+  <div class="layout__main profile__main">
+    <section class="panel profile__head" data-profile-head>
+      <div class="profile__top">
+        <div class="person person--large">
+          <span class="person__avatar">{% include "partials/avatar.html" %}</span>
+          <div class="person__ident">
+            <h1 class="person__name" translate="no">{{ username }}</h1>
+            <p class="person__badges">
+              <span class="tag tag--level" title="{{ level.name }}" data-level="{{ level.number }}">Lv{{ level.number }} {{ level.name }}</span>
+              {%- if let Some(badge) = verification %}
+              <span class="tag tag--verified" title="{{ badge.title }}" data-verified-badge="{{ badge.category.slug() }}">{{ p.t.profile_verified(badge.label()) }}</span>
+              {%- endif %}
+              {%- for honor in honors %}
+              <span class="tag tag--honor" title="{{ honor.description }}" data-honor-badge>{{ honor.name }}</span>
+              {%- endfor %}
+              {%- if frozen %}
+              <span class="tag tag--state" data-member-state="frozen">{{ p.t.profile_frozen() }}</span>
+              {%- endif %}
+              {%- if deleting %}
+              <span class="tag tag--state" data-member-state="deleting">{{ p.t.profile_deleting() }}</span>
+              {%- endif %}
+            </p>
+            <p class="person__role">
+              <span>UID {{ uid }}</span>
+              <span>{{ p.t.profile_joined(joined) }}</span>
+              {%- if !presence.is_empty() %}
+              <span data-presence>{{ presence }}</span>
+              {%- endif %}
+            </p>
+          </div>
+        </div>
+        {%- if p.authenticated %}
+        {#- Signed-in visitors only: messages and the relation toggles for someone else, credits and editing for the owner. #}
+        <div class="profile__actions">
+          {%- if let Some(entry) = message_entry %}
+          {%- if entry.reason.is_empty() %}
+          <a class="button button--small" href="{{ crate::site::href(entry.href) }}" hx-boost="false" data-message-entry>{{ p.t.home_card_messages() }}</a>
+          {%- else %}
+          <span class="button button--small button--secondary message-entry-disabled" aria-disabled="true" data-message-entry="disabled">{{ p.t.home_card_messages() }}<span class="message-entry-reason">{{ p.t.common_parenthesized(entry.reason) }}</span></span>
+          {%- endif %}
+          {%- endif %}
+          {%- if p.authenticated && !own_profile %}
+          {%- let control = follow_control %}
+          {% include "social/control.html" %}
+          {%- let control = block_control %}
+          {% include "social/control.html" %}
+          <a class="button button--small button--secondary" href="{{ crate::site::base() }}/my/reports/new?target_type=profile&amp;target_id={{ uid }}" hx-boost="false">{{ p.t.profile_report() }}</a>
+          {%- endif %}
+          {%- if own_profile %}
+          <a class="button button--small button--secondary" href="{{ crate::site::base() }}/my/credits" hx-boost="false" data-credits-entry>{{ p.t.common_my_credits(p.credit()) }}</a>
+          <a class="button button--small button--secondary" href="{{ crate::site::base() }}/my/profile" hx-boost="false">{{ p.t.profile_edit() }}</a>
+          {%- endif %}
+        </div>
+        {%- endif %}
+      </div>
+      {%- if let Some(badge) = verification %}
+      <p class="profile-verification" data-profile-verification>
+        <a href="{{ crate::site::base() }}/verified">{{ p.t.profile_verified(badge.label()) }}</a>
+        <span>{{ badge.title }}</span>
+        {%- if !badge.site_href().is_empty() %}
+        <a href="{{ crate::site::href(badge.site_href()) }}" rel="nofollow ugc noopener noreferrer" target="_blank" data-verified-site>{{ badge.site_host() }}</a>
+        {%- endif %}
+      </p>
+      {%- endif %}
+      {%- if !bio.is_empty() %}
+      <p class="public-bio">{{ bio|safe }}</p>
+      {%- endif %}
+      <dl class="tally tally--six" data-member-stats>
+        <div class="tally__item"><dt class="tally__label">{{ p.t.home_stats_threads() }}</dt><dd class="tally__value"><a href="{{ crate::site::href(tabs[1].href) }}" data-stat="threads">{{ stats.threads }}</a></dd></div>
+        <div class="tally__item"><dt class="tally__label">{{ p.t.home_stats_replies() }}</dt><dd class="tally__value"><a href="{{ crate::site::href(tabs[2].href) }}" data-stat="replies">{{ stats.replies }}</a></dd></div>
+        <div class="tally__item"><dt class="tally__label">{{ p.t.common_featured() }}</dt><dd class="tally__value"><span data-stat="digests">{{ stats.digests }}</span></dd></div>
+        <div class="tally__item"><dt class="tally__label">{{ p.t.profile_following() }}</dt><dd class="tally__value">{% if own_profile %}<a href="{{ crate::site::base() }}/my/following/members" data-stat="following">{{ follows.following }}</a>{% else %}<span data-stat="following">{{ follows.following }}</span>{% endif %}</dd></div>
+        <div class="tally__item"><dt class="tally__label">{{ p.t.profile_followers() }}</dt><dd class="tally__value">{% if own_profile %}<a href="{{ crate::site::base() }}/my/followers" data-stat="followers">{{ follows.followers }}</a>{% else %}<span data-stat="followers">{{ follows.followers }}</span>{% endif %}</dd></div>
+        <div class="tally__item"><dt class="tally__label">{{ p.t.profile_growth() }}</dt><dd class="tally__value"><span data-stat="growth">{{ level.growth }}</span></dd></div>
+      </dl>
+      <div class="growth-progress" data-growth-progress>
+        {%- if let Some(next) = level.next %}
+        <progress max="100" value="{{ level.percent() }}" aria-label="{{ p.t.profile_level_progress() }}" aria-describedby="profile-growth-note">{{ level.percent() }}%</progress>
+        <p class="growth-progress__note" id="profile-growth-note">
+          <span>{{ p.t.profile_level_remaining(level.remaining(), level.number + 1, next_level, next) }}</span>
+          <a href="{{ crate::site::base() }}/credits/rules">{{ p.t.profile_level_rules() }}</a>
+        </p>
+        {%- else %}
+        <p class="growth-progress__note">
+          <span>{{ p.t.profile_top_level() }}</span>
+          <a href="{{ crate::site::base() }}/credits/rules">{{ p.t.profile_level_rules() }}</a>
+        </p>
+        {%- endif %}
+      </div>
+    </section>
+
+    <div class="pane">
+      <div class="list-toolbar">
+        <nav class="tabs" aria-label="{{ p.t.profile_tabs() }}">
+          {%- for tab in tabs %}
+          <a class="tabs__item" href="{{ crate::site::href(tab.href) }}"{% if tab.active %} aria-current="page"{% endif %}>{{ tab.label }}</a>
+          {%- endfor %}
+        </nav>
+        {%- if view != "overview" %}
+        <p class="list-toolbar__note" data-member-total="{{ total }}">{{ p.t.profile_total(total) }}</p>
+        {%- endif %}
+      </div>
+      <ul class="rows">
+        {%- for row in rows %}
+        <li class="rows__item" data-member-pid="{{ row.pid }}" data-member-kind="{% if row.position == 1 %}thread{% else %}post{% endif %}">
+          <div class="row-body">
+            <div class="row-headline">
+              {%- if view == "overview" %}
+              <span class="profile__verb" data-member-action>{{ row.action }}</span>
+              {%- endif %}
+              {%- if row.position == 1 && row.category != p.t.common_category_normal() %}
+              <span class="tag">{{ row.category }}</span>
+              {%- endif %}
+              <a class="row-title" href="{{ crate::site::href(row.href) }}">{{ row.title }}</a>
+            </div>
+            {%- if row.position != 1 && !row.excerpt.is_empty() %}
+            <div class="row-excerpt">{{ row.excerpt }}</div>
+            {%- endif %}
+            <p class="row-meta">
+              {#- Shown only where the board chip at the row end is hidden (narrow screens). #}
+              <a class="profile__meta-board" href="{{ crate::site::base() }}/{{ row.forum_slug }}">{{ row.forum_name }}</a>
+              <span>{{ row.time }}</span>
+              {%- if row.position == 1 %}
+              <span>{{ p.t.common_reply_count(row.replies) }}</span>
+              {%- else %}
+              <a href="{{ crate::site::href(row.href) }}">{{ p.t.profile_reply_number(row.position) }}</a>
+              {%- endif %}
+            </p>
+          </div>
+          <span class="row-end"><a class="board-chip" href="{{ crate::site::base() }}/{{ row.forum_slug }}">{{ row.forum_name }}</a></span>
+        </li>
+        {%- else %}
+        <li class="empty">{% if view == "threads" %}{{ p.t.profile_no_threads() }}{% else if view == "posts" %}{{ p.t.profile_no_replies() }}{% else %}{{ p.t.profile_no_activity() }}{% endif %}</li>
+        {%- endfor %}
+      </ul>
+    </div>
+
+    {%- if pages.len() > 1 %}
+    <nav class="pager" aria-label="{{ p.t.common_pagination() }}">
+      {%- if let Some(href) = previous %}
+      <a class="pager__item pager__item--step" href="{{ crate::site::href(href) }}" rel="prev" aria-label="{{ p.t.common_previous_page() }}">{{ p.t.common_previous_page() }}</a>
+      {%- endif %}
+      {%- for page in pages %}
+      {%- if !loop.first && page.number > pages[loop.index0 - 1].number + 1 %}
+      <span class="pager__gap" aria-hidden="true"></span>
+      {%- endif %}
+      <a class="pager__item" href="{{ crate::site::href(page.href) }}" aria-label="{{ p.t.common_page_number(page.number) }}"{% if page.active %} aria-current="page"{% endif %}>{{ page.number }}</a>
+      {%- endfor %}
+      {%- if let Some(href) = next %}
+      <a class="pager__item pager__item--step" href="{{ crate::site::href(href) }}" rel="next" aria-label="{{ p.t.common_next_page() }}">{{ p.t.common_next_page() }}</a>
+      {%- endif %}
+    </nav>
+    {%- endif %}
+  </div>
+
+  <aside class="layout__aside" aria-label="{{ p.t.profile_sidebar() }}">
+    <section class="panel panel--aside">
+      <h2 class="panel__title">{{ p.t.profile_space() }}</h2>
+      <ul class="mini-list">
+        {%- for tab in tabs %}
+        <li><a href="{{ crate::site::href(tab.href) }}"{% if tab.active %} aria-current="page"{% endif %}><span class="mini-list__title">{{ tab.label }}</span></a></li>
+        {%- endfor %}
+      </ul>
+    </section>
+    <section class="panel panel--aside">
+      <h2 class="panel__title">{{ p.t.profile_forums() }}</h2>
+      <ul class="mini-list">
+        {%- for link in p.navigation %}
+        <li><a href="{{ crate::site::href(link.href) }}"><span class="mini-list__title">{{ link.label }}</span></a></li>
+        {%- endfor %}
+      </ul>
+    </section>
+  </aside>
+</div>
+{% endblock %}

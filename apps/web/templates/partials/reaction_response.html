@@ -1,0 +1,6 @@
+{# HTMX response to a like: the new control replaces the form that was clicked; the top replies and, for the opening post, the downvote control are swapped out of band. #}
+{% include "partials/reaction.html" %}
+{% include "partials/highlights.html" %}
+{%- if let Some(downvote) = downvote %}
+{% include "partials/downvote.html" %}
+{%- endif %}

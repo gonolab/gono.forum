@@ -1,0 +1,8 @@
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.woff2 binary
+# Keep reference SQL dumps at their original bytes.
+db/reference/install.sql -text
+# Upstream licenses keep their trailing whitespace as in the original.
+docs/licenses/* whitespace=-blank-at-eol

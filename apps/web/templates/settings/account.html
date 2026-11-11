@@ -1,0 +1,319 @@
+{% extends "layout/my.html" %}
+
+{% block panel %}
+{#- Every block is its own form with its own feedback. #password, #mobile and #external are targets of server
+    redirects. The change-password form must come before #two-factor: tests slice the page between the two. #}
+<div class="narrow-page narrow-page--embedded account-security" hx-boost="false">
+  {%- if mobile.has_password %}
+  <section class="panel">
+    <h2 class="panel__title">{{ p.t.settings_password_title() }}</h2>
+    <p class="intro">{{ p.t.settings_password_lead() }}</p>
+    {%- if !message.is_empty() %}
+    <p class="form-feedback" role="alert">{{ message }}</p>
+    {%- endif %}
+    <form class="fields" method="post" action="{{ crate::site::base() }}/my/account/password">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <div class="field">
+        <label class="field__label" for="password-change-current_password">{{ p.t.settings_current_password() }}</label>
+        <input type="password" id="password-change-current_password" name="current_password" autocomplete="current-password" maxlength="128" required>
+      </div>
+      <div class="field">
+        <label class="field__label" for="password-change-password">{{ p.t.account_new_password() }}</label>
+        <input type="password" id="password-change-password" aria-describedby="password-change-password-hint" name="password" autocomplete="new-password" maxlength="128" minlength="{{ p.frame.settings.account.password_min_length }}" required>
+        <p class="field__hint" id="password-change-password-hint">{{ p.t.account_password_hint(p.frame.settings.account.password_min_length) }}</p>
+      </div>
+      <div class="field">
+        <label class="field__label" for="password-change-password2">{{ p.t.account_new_password_confirm() }}</label>
+        <input type="password" id="password-change-password2" name="password2" autocomplete="new-password" maxlength="128" minlength="{{ p.frame.settings.account.password_min_length }}" required>
+      </div>
+      <div class="form-actions">
+        <button class="button" type="submit">{{ p.t.settings_password_submit() }}</button>
+      </div>
+    </form>
+    <ul class="panel__links">
+      <li><a href="{{ crate::site::base() }}/forgot-password">{{ p.t.settings_password_forgot() }}</a></li>
+    </ul>
+  </section>
+  {%- else %}
+  <section class="panel" id="password" data-set-password>
+    <h2 class="panel__title">{{ p.t.settings_set_password() }}</h2>
+    <p class="intro">{% if mobile.bound.is_some() %}{{ p.t.settings_set_password_lead_mobile() }}{% else %}{{ p.t.settings_set_password_lead_external() }}{% endif %}</p>
+    {%- if let Some(label) = external.confirmed %}
+    <p class="form-feedback form-feedback--success" role="status">{{ p.t.settings_external_confirmed(label.to_string()) }}</p>
+    <form class="fields" method="post" action="{{ crate::site::base() }}/my/account/password/external" data-external-confirmed>
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <div class="field">
+        <label class="field__label" for="password-external-password">{{ p.t.account_new_password() }}</label>
+        <input type="password" id="password-external-password" aria-describedby="password-external-password-hint" name="password" autocomplete="new-password" maxlength="128" minlength="{{ p.frame.settings.account.password_min_length }}" required>
+        <p class="field__hint" id="password-external-password-hint">{{ p.t.account_password_hint(p.frame.settings.account.password_min_length) }}</p>
+      </div>
+      <div class="field">
+        <label class="field__label" for="password-external-password2">{{ p.t.account_new_password_confirm() }}</label>
+        <input type="password" id="password-external-password2" name="password2" autocomplete="new-password" maxlength="128" minlength="{{ p.frame.settings.account.password_min_length }}" required>
+      </div>
+      <div class="form-actions">
+        <button class="button" type="submit">{{ p.t.settings_set_password_submit() }}</button>
+      </div>
+    </form>
+    {%- endif %}
+    {%- if mobile.confirm_sent %}
+    <p class="form-feedback form-feedback--success" role="status">{% if let Some(bound) = mobile.bound %}{{ p.t.account_sms_sent(bound.as_str()) }}{% else %}{{ p.t.account_sms_sent("") }}{% endif %}</p>
+    <form class="fields" method="post" action="{{ crate::site::base() }}/my/account/password/set">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <div class="field">
+        <label class="field__label" for="password-set-code">{{ p.t.account_code() }}</label>
+        <input type="text" id="password-set-code" name="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" required>
+      </div>
+      <div class="field">
+        <label class="field__label" for="password-set-password">{{ p.t.account_new_password() }}</label>
+        <input type="password" id="password-set-password" aria-describedby="password-set-password-hint" name="password" autocomplete="new-password" maxlength="128" minlength="{{ p.frame.settings.account.password_min_length }}" required>
+        <p class="field__hint" id="password-set-password-hint">{{ p.t.account_password_hint(p.frame.settings.account.password_min_length) }}</p>
+      </div>
+      <div class="field">
+        <label class="field__label" for="password-set-password2">{{ p.t.account_new_password_confirm() }}</label>
+        <input type="password" id="password-set-password2" name="password2" autocomplete="new-password" maxlength="128" minlength="{{ p.frame.settings.account.password_min_length }}" required>
+      </div>
+      <div class="form-actions">
+        <button class="button" type="submit">{{ p.t.settings_set_password_submit() }}</button>
+      </div>
+    </form>
+    {%- endif %}
+    {%- if let Some(bound) = mobile.bound %}
+    <form class="fields" method="post" action="{{ crate::site::base() }}/my/account/password/send">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <div class="form-actions">
+        <button class="button{% if mobile.confirm_sent %} button--secondary{% endif %}" type="submit">{% if mobile.confirm_sent %}{{ p.t.settings_code_resend() }}{% else %}{{ p.t.settings_code_send_to(bound.as_str()) }}{% endif %}</button>
+      </div>
+    </form>
+    {%- endif %}
+    {%- if external.confirmed.is_none() %}
+    {#- May end up empty (no bound provider enabled on this domain); settings.css hides it then. #}
+    <div class="provider-list">
+      {%- for row in external.rows %}
+      {%- if row.bound.is_some() && row.available %}
+      <a class="button button--secondary button--block" href="{{ crate::site::base() }}/auth/{{ row.value }}?purpose=confirm" hx-boost="false" data-external-confirm="{{ row.value }}">{{ p.t.settings_external_confirm(row.label) }}</a>
+      {%- endif %}
+      {%- endfor %}
+    </div>
+    {%- endif %}
+  </section>
+  {%- endif %}
+
+  <section class="panel" id="mobile" data-mobile>
+    <h2 class="panel__title">{{ p.t.account_mobile() }}</h2>
+    {%- if !mobile.message.is_empty() %}
+    <p class="form-feedback" role="alert" data-mobile-message>{{ mobile.message }}</p>
+    {%- endif %}
+    {%- if !mobile.notice.is_empty() %}
+    <p class="form-feedback form-feedback--success" role="status">{{ mobile.notice }}</p>
+    {%- endif %}
+    {%- if let Some(bound) = mobile.bound %}
+    <p class="security-state security-state--on" data-mobile-status="bound">{{ p.t.settings_mobile_bound(bound.as_str()) }}</p>
+    {%- else %}
+    <p class="security-state" data-mobile-status="none">{{ p.t.settings_mobile_none() }}</p>
+    {%- endif %}
+    {%- if mobile.has_password %}
+    {%- if email_unverified %}
+    {#- Until the email is verified no number can be added or changed (identity::Member::email_unverified). #}
+    <p class="intro" data-verify-email-first="mobile">{{ p.t.settings_mobile_verify_email() }}</p>
+    {%- else %}
+    {%- if let Some(sent_to) = mobile.bind_sent_to %}
+    <p class="form-feedback form-feedback--success" role="status">{{ p.t.account_sms_sent(sent_to.as_str()) }}</p>
+    <form class="fields" method="post" action="{{ crate::site::base() }}/my/account/mobile">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <div class="field">
+        <label class="field__label" for="mobile-confirm-code">{{ p.t.account_code() }}</label>
+        <input type="text" id="mobile-confirm-code" name="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" required>
+      </div>
+      <div class="field">
+        <label class="field__label" for="mobile-confirm-current_password">{{ p.t.settings_current_password() }}</label>
+        <input type="password" id="mobile-confirm-current_password" name="current_password" autocomplete="current-password" maxlength="128" required>
+      </div>
+      <div class="form-actions">
+        <button class="button" type="submit">{% if mobile.bound.is_some() %}{{ p.t.settings_mobile_confirm_change() }}{% else %}{{ p.t.settings_confirm_link() }}{% endif %}</button>
+      </div>
+    </form>
+    {%- endif %}
+    <form class="fields" method="post" action="{{ crate::site::base() }}/my/account/mobile/send">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <div class="field">
+        <label class="field__label" for="mobile-send-mobile">{% if mobile.bound.is_some() %}{{ p.t.settings_new_mobile() }}{% else %}{{ p.t.account_mobile() }}{% endif %}</label>
+        <input type="tel" id="mobile-send-mobile" aria-describedby="mobile-send-mobile-hint" name="mobile" autocomplete="tel" inputmode="tel" maxlength="20" required>
+        <p class="field__hint" id="mobile-send-mobile-hint">{{ p.t.settings_mobile_hint() }}</p>
+      </div>
+      <div class="form-actions">
+        <button class="button" type="submit">{{ p.t.account_sms_send() }}</button>
+      </div>
+    </form>
+    {%- endif %}
+    {%- if mobile.bound.is_some() %}
+    <section class="security-group">
+      <h3 class="security-group__title">{{ p.t.settings_mobile_unbind() }}</h3>
+      <p class="intro">{{ p.t.settings_mobile_unbind_lead() }}</p>
+      <form class="fields" method="post" action="{{ crate::site::base() }}/my/account/mobile/unbind">
+        <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+        <div class="field">
+          <label class="field__label" for="mobile-unbind-current_password">{{ p.t.settings_current_password() }}</label>
+          <input type="password" id="mobile-unbind-current_password" name="current_password" autocomplete="current-password" maxlength="128" required>
+        </div>
+        <div class="form-actions">
+          <button class="button button--secondary" type="submit">{{ p.t.settings_mobile_unbind() }}</button>
+        </div>
+      </form>
+    </section>
+    {%- endif %}
+    {%- else %}
+    {#- Without a password the number can be neither changed nor unbound, so none of those forms render. #}
+    <p class="intro">{% if mobile.bound.is_some() %}{{ p.t.settings_mobile_need_password_change() }}{% else %}{{ p.t.settings_mobile_need_password_link() }}{% endif %}</p>
+    {%- endif %}
+  </section>
+
+  {%- if !external.rows.is_empty() || external.pending.is_some() || !external.message.is_empty() %}
+  <section class="panel" id="external" data-external>
+    <h2 class="panel__title">{{ p.t.settings_external() }}</h2>
+    {%- if !external.message.is_empty() %}
+    <p class="form-feedback" role="alert" data-external-message>{{ external.message }}</p>
+    {%- endif %}
+    {%- if !external.notice.is_empty() %}
+    <p class="form-feedback form-feedback--success" role="status">{{ external.notice }}</p>
+    {%- endif %}
+    {%- if !external.rows.is_empty() || external.pending.is_some() %}
+    <ul class="linked-accounts">
+      {%- if let Some(pending) = external.pending %}
+      <li class="linked-account">
+        <p class="form-feedback form-feedback--info" role="status">{{ p.t.settings_external_pending(pending.label, pending.display.as_str()) }}</p>
+        <form class="fields" method="post" action="{{ crate::site::base() }}/my/account/external/link" data-external-pending>
+          <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+          <div class="field">
+            <label class="field__label" for="external-link-current_password">{{ p.t.settings_current_password() }}</label>
+            <input type="password" id="external-link-current_password" name="current_password" autocomplete="current-password" maxlength="128" required>
+          </div>
+          <div class="form-actions">
+            <button class="button" type="submit">{{ p.t.settings_confirm_link() }}</button>
+          </div>
+        </form>
+      </li>
+      {%- endif %}
+      {%- for row in external.rows %}
+      {%- if let Some(bound) = row.bound %}
+      <li class="linked-account">
+        <p class="security-state security-state--on" data-external-status="{{ row.value }}-bound">{{ p.t.settings_external_bound(row.label, bound.0.as_str(), bound.1.as_str()) }}</p>
+        {%- if mobile.has_password %}
+        <form class="fields" method="post" action="{{ crate::site::base() }}/my/account/external/unlink">
+          <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+          <input type="hidden" name="provider" value="{{ row.value }}">
+          <div class="field">
+            <label class="field__label" for="external-unlink-{{ row.value }}-current_password">{{ p.t.settings_current_password() }}</label>
+            <input type="password" id="external-unlink-{{ row.value }}-current_password" name="current_password" autocomplete="current-password" maxlength="128" required>
+          </div>
+          <div class="form-actions">
+            <button class="button button--secondary" type="submit">{{ p.t.settings_external_unlink(row.label) }}</button>
+          </div>
+        </form>
+        {%- endif %}
+      </li>
+      {%- else if !row.awaiting %}
+      <li class="linked-account">
+        <p class="security-state" data-external-status="{{ row.value }}-none">{{ p.t.settings_external_none(row.label) }}</p>
+        {%- if mobile.has_password && !email_unverified %}
+        <a class="button button--secondary" href="{{ crate::site::base() }}/auth/{{ row.value }}?purpose=link" hx-boost="false" data-external-link="{{ row.value }}">{{ p.t.settings_external_link(row.label) }}</a>
+        {%- endif %}
+      </li>
+      {%- endif %}
+      {%- endfor %}
+    </ul>
+    {%- endif %}
+    {%- if !mobile.has_password %}
+    {#- Without a password no provider can be linked or unlinked, so the rows above carry no forms. #}
+    <p class="intro">{{ p.t.settings_external_need_password() }}</p>
+    {%- else if email_unverified %}
+    <p class="intro" data-verify-email-first="external">{{ p.t.settings_external_verify_email() }}</p>
+    {%- endif %}
+  </section>
+  {%- endif %}
+
+  {#- Status and the actions share one panel so the errors of all three forms (data-two-factor-message) sit with them. #}
+  <section class="panel" id="two-factor">
+    <h2 class="panel__title">{{ p.t.account_two_factor() }}</h2>
+    {%- if !two_factor_message.is_empty() %}
+    <p class="form-feedback" role="alert" data-two-factor-message>{{ two_factor_message }}</p>
+    {%- endif %}
+    {%- if !notice.is_empty() %}
+    <p class="form-feedback form-feedback--success" role="status">{{ notice }}</p>
+    {%- endif %}
+    {%- if let Some(status) = two_factor %}
+    <p class="security-state security-state--on" data-two-factor-status="enabled">{{ p.t.settings_two_factor_enabled(status.enabled.as_str()) }}</p>
+    <p class="security-detail{% if status.recovery_remaining < 3 %} security-detail--warning{% endif %}" data-recovery-remaining>{% if status.recovery_remaining < 3 %}{{ p.t.settings_recovery_remaining_low(status.recovery_remaining) }}{% else %}{{ p.t.settings_recovery_remaining(status.recovery_remaining) }}{% endif %}</p>
+    {%- if !status.locked.is_empty() %}
+    <p class="form-feedback" role="alert">{{ p.t.settings_two_factor_locked(status.locked.as_str()) }}</p>
+    {%- endif %}
+    {%- else %}
+    <p class="security-state" data-two-factor-status="disabled">{{ p.t.settings_two_factor_disabled() }}</p>
+    {%- endif %}
+    {%- if !mobile.has_password %}
+    <p class="intro">{{ p.t.settings_two_factor_need_password() }}</p>
+    {%- else if two_factor.is_some() %}
+    <section class="security-group">
+      <h3 class="security-group__title">{{ p.t.settings_recovery_regenerate() }}</h3>
+      <p class="intro">{{ p.t.settings_recovery_regenerate_lead() }}</p>
+      <form class="fields" method="post" action="{{ crate::site::base() }}/my/account/recovery-codes">
+        <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+        <div class="field">
+          <label class="field__label" for="recovery-current_password">{{ p.t.settings_current_password() }}</label>
+          <input type="password" id="recovery-current_password" name="current_password" autocomplete="current-password" maxlength="128" required>
+        </div>
+        <div class="form-actions">
+          <button class="button" type="submit">{{ p.t.settings_recovery_regenerate() }}</button>
+        </div>
+      </form>
+    </section>
+    <section class="security-group">
+      <h3 class="security-group__title">{{ p.t.settings_two_factor_disable() }}</h3>
+      <p class="intro">{{ p.t.settings_two_factor_disable_lead() }}</p>
+      <form class="fields" method="post" action="{{ crate::site::base() }}/my/account/two-factor/disable">
+        <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+        <div class="field">
+          <label class="field__label" for="two-factor-disable-current_password">{{ p.t.settings_current_password() }}</label>
+          <input type="password" id="two-factor-disable-current_password" name="current_password" autocomplete="current-password" maxlength="128" required>
+        </div>
+        <div class="field">
+          <label class="field__label" for="two-factor-disable-code">{{ p.t.settings_code_or_recovery() }}</label>
+          <input type="text" id="two-factor-disable-code" name="code" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="32" required>
+        </div>
+        <div class="form-actions">
+          <button class="button button--danger" type="submit">{{ p.t.settings_two_factor_disable() }}</button>
+        </div>
+      </form>
+    </section>
+    {%- else if email_unverified %}
+    <p class="intro" data-verify-email-first="two-factor">{{ p.t.settings_two_factor_verify_email() }}</p>
+    {%- else %}
+    <section class="security-group">
+      <h3 class="security-group__title">{{ p.t.settings_two_factor_enable() }}</h3>
+      <p class="intro">{{ p.t.settings_two_factor_enable_lead() }}</p>
+      <form class="fields" method="post" action="{{ crate::site::base() }}/my/account/two-factor/setup">
+        <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+        <div class="field">
+          <label class="field__label" for="two-factor-setup-current_password">{{ p.t.settings_current_password() }}</label>
+          <input type="password" id="two-factor-setup-current_password" name="current_password" autocomplete="current-password" maxlength="128" required>
+        </div>
+        <div class="form-actions">
+          <button class="button" type="submit">{{ p.t.settings_two_factor_enable() }}</button>
+        </div>
+      </form>
+    </section>
+    {%- endif %}
+  </section>
+
+  <section class="panel">
+    <h2 class="panel__title">{{ p.t.settings_logout_all() }}</h2>
+    <p class="intro">{{ p.t.settings_logout_all_lead() }}</p>
+    <form class="fields" method="post" action="{{ crate::site::base() }}/my/account/logout-all">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <div class="form-actions">
+        <button class="button" type="submit">{{ p.t.settings_logout_all() }}</button>
+      </div>
+    </form>
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,225 @@
+/* Older shared rules that the components in components.css did not take over: controls still wrapped in their
+   label, unclassed buttons, two-step verification, recovery codes and the OAuth callback list. See docs/styles.md, "Style files". */
+
+/* Text fields, selects and textareas. Every styled field sits inside its label; checkboxes, radios and file
+   inputs keep the native look. */
+label > input:where(:not([type="checkbox"], [type="radio"], [type="file"], [type="range"], [type="color"], [type="hidden"], [type="submit"], [type="reset"], [type="button"], [type="image"])),
+label > select,
+label > textarea {
+  display: block;
+  box-sizing: border-box;
+  inline-size: 100%;
+  padding-block: 7px;
+  padding-inline: 10px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--r-input);
+  background-color: var(--input-bg);
+  color: var(--input-text);
+  font-family: inherit;
+  font-size: 14px;
+  /* Fields take the weight of their caption: medium in grouped field rows, regular elsewhere. */
+  font-weight: inherit;
+  line-height: 1.75;
+}
+
+label > select {
+  padding-inline-end: 34px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--input-placeholder) 50%),
+    linear-gradient(135deg, var(--input-placeholder) 50%, transparent 50%);
+  background-position: calc(100% - 16px) 55%, calc(100% - 11px) 55%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+  appearance: none;
+}
+
+label > select:dir(rtl) {
+  background-position: 11px 55%, 16px 55%;
+}
+
+label > textarea {
+  min-block-size: 132px;
+  line-height: 1.7;
+  resize: vertical;
+}
+
+label > :is(input, textarea)::placeholder {
+  color: var(--input-placeholder);
+  opacity: 1;
+}
+
+label > :is(input:where(:not([type="checkbox"], [type="radio"], [type="file"], [type="range"], [type="color"], [type="hidden"], [type="submit"], [type="reset"], [type="button"], [type="image"])), select, textarea):focus-visible {
+  border-color: var(--input-focus);
+}
+
+label > :is(input, select, textarea):disabled {
+  border-color: var(--disabled-border);
+  background-color: var(--disabled-bg);
+  color: var(--disabled-text);
+  cursor: not-allowed;
+}
+
+label > input:is([type="checkbox"], [type="radio"]) {
+  margin: 0;
+  accent-color: var(--choice-accent);
+  vertical-align: -2px;
+}
+
+/* 16px keeps phones from zooming into a focused field. */
+@media (max-width: 420px) {
+  label > input:where(:not([type="checkbox"], [type="radio"], [type="file"], [type="range"], [type="color"], [type="hidden"], [type="submit"], [type="reset"], [type="button"], [type="image"])),
+  label > select,
+  label > textarea {
+    font-size: 16px;
+  }
+}
+
+/* Buttons. `.button`, `.button--primary` and a plain button without a class are the primary pill;
+   `--secondary` and `--danger` change the colours only. */
+:where(button:not([class])) {
+  display: inline-block;
+  box-sizing: border-box;
+  padding-block: 7px;
+  padding-inline: 16px;
+  border: 1px solid;
+  border-radius: var(--r-pill);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.75;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+:where(button:not([class])) {
+  border-color: var(--primary-border);
+  background-color: var(--primary-bg);
+  color: var(--primary-text);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :where(button:not([class])) {
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, filter 0.15s ease;
+  }
+}
+
+:where(button:not([class])):hover {
+  background-color: var(--primary-hover);
+  color: var(--primary-text);
+  text-decoration: none;
+}
+
+:where(button:not([class])):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+:where(button:not([class])):disabled {
+  border-color: var(--disabled-border);
+  background-color: var(--disabled-bg);
+  color: var(--disabled-text);
+  cursor: not-allowed;
+  filter: none;
+}
+
+/* Page and section titles inside panels. */
+.heading {
+  margin-block: 0 6px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+h2.heading {
+  margin-block-end: 16px;
+  font-size: 17px;
+}
+
+:where(.box) label > small {
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.75;
+}
+
+/* OAuth callback addresses on the login-methods admin page. */
+.callback-urls {
+  margin-block-end: 14px;
+}
+
+.callback-urls ul {
+  display: grid;
+  gap: 4px;
+  margin-block: 0 0.85em;
+  margin-inline: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.callback-urls code {
+  overflow-wrap: anywhere;
+}
+
+/* Two-step verification setup and sign-in. The QR code draws its own white background. */
+.totp-qr {
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  margin-block: 0 16px;
+  margin-inline: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-input);
+  background: var(--panel);
+}
+
+.totp-qr svg {
+  display: block;
+  inline-size: 184px;
+  max-inline-size: 100%;
+  block-size: auto;
+}
+
+.totp-secret {
+  display: inline-block;
+  max-inline-size: 100%;
+  padding-block: 6px;
+  padding-inline: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  background: var(--panel-alt);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+/* Freshly issued recovery codes. */
+.backup-codes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+  margin-block: 0 16px;
+  margin-inline: 0;
+  padding-block: 12px;
+  padding-inline: 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-input);
+  background: var(--panel-alt);
+  list-style: none;
+}
+
+.backup-codes code {
+  padding: 0;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  user-select: all;
+}
+
+/* Rules list on the personal style page; personalization.css sets the indent and line height. */
+.custom-style-rules > li {
+  list-style: none;
+}

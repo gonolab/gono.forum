@@ -1,0 +1,121 @@
+{% extends "layout/manage.html" %}{% block panel %}
+{% if outcome.saved %}<p class="form-feedback form-feedback--success" role="status">{{ p.t.config_saved() }}</p>{% else if !outcome.message.is_empty() %}<p class="form-feedback" role="alert">{{ outcome.message }}</p>{% endif %}
+<form method="post" action="{{ crate::site::base() }}/manage/settings">
+<input type="hidden" name="_csrf" value="{{ p.csrf }}">
+{% if let Some(c) = confirm %}<section class="panel" id="section-prefix-confirm" data-prefix-confirm aria-labelledby="section-prefix-confirm-title"><h2 class="panel__title" id="section-prefix-confirm-title">{{ p.t.config_prefix_heading() }}</h2><p class="form-feedback" role="alert">{{ c.message }}</p>
+<p>{{ p.t.config_prefix_from_to(crate::i18n::Markup::tag("code", c.from_label), crate::i18n::Markup::tag("code", c.to_label))|safe }}</p>
+<table class="data-table"><thead><tr><th scope="col">{{ p.t.config_prefix_page() }}</th><th scope="col">{{ p.t.config_prefix_now() }}</th><th scope="col">{{ p.t.config_prefix_after() }}</th></tr></thead><tbody>{% for row in c.rows %}<tr><th scope="row">{{ row.0 }}</th><td><code>{{ row.1 }}</code></td><td><code>{{ row.2 }}</code></td></tr>{% endfor %}</tbody></table>
+<p>{{ p.t.config_prefix_nginx() }}</p><pre class="admin-pre">{{ c.nginx }}</pre>
+{% if !c.redirect.is_empty() %}<p>{{ p.t.config_prefix_redirect() }}</p><pre class="admin-pre">{{ c.redirect }}</pre>{% endif %}
+<ol><li>{{ p.t.config_prefix_step_nginx() }}</li><li>{{ p.t.config_prefix_step_save() }}</li><li>{{ p.t.config_prefix_step_check() }}</li><li>{% if c.redirect.is_empty() %}{{ p.t.config_prefix_step_root() }}{% else %}{{ p.t.config_prefix_step_redirect() }}{% endif %}</li></ol>
+{% if c.to_root %}<p>{{ p.t.config_prefix_to_root() }}</p>{% endif %}
+<p>{{ p.t.config_prefix_rescue(crate::i18n::Markup::tag("code", c.rescue))|safe }}</p>
+<input type="hidden" name="prefix_from" value="{{ c.from }}">
+<div class="field">
+  <label class="field__label" for="settings-confirm_prefix">{{ p.t.config_prefix_confirm_label() }}</label>
+  <input id="settings-confirm_prefix" name="confirm_prefix" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+</div>
+</section>
+{% endif %}
+<section class="panel" id="section-site" aria-labelledby="section-site-title">
+  <h1 class="panel__title" id="section-site-title">{{ p.t.config_site_heading() }}</h1>
+  <p class="form-note">{{ p.t.config_site_intro() }}</p>
+  <div class="fields fields--two">
+    <div class="field">
+      <label class="field__label" for="settings-site_name">{{ p.t.config_site_name() }}</label>
+      <input id="settings-site_name" aria-describedby="settings-site_name-hint" name="site_name" value="{{ settings.site.name }}" placeholder="{{ product_name }}" maxlength="80">
+      <p class="field__hint" id="settings-site_name-hint">{{ p.t.config_site_name_help(product_name) }}</p>
+    </div>
+    <div class="field">
+      <label class="field__label" for="settings-brand_text">{{ p.t.config_brand_text() }}</label>
+      <input id="settings-brand_text" aria-describedby="settings-brand_text-hint" name="brand_text" value="{{ settings.site.brand_text }}" placeholder="{{ product_name }}" maxlength="40">
+      <p class="field__hint" id="settings-brand_text-hint">{{ p.t.config_brand_text_help(product_name) }}</p>
+    </div>
+    <div class="field">
+      <label class="field__label" for="settings-credit_name">{{ p.t.config_credit_name() }}</label>
+      <input id="settings-credit_name" aria-describedby="settings-credit_name-hint" name="credit_name" value="{{ settings.site.credit_name }}" placeholder="{{ default_credit }}" maxlength="10">
+      <p class="field__hint" id="settings-credit_name-hint">{{ p.t.config_credit_name_help(default_credit) }}</p>
+    </div>
+    <div class="field">
+      <label class="field__label" for="settings-index_name">{{ p.t.config_index_name() }}</label>
+      <input id="settings-index_name" aria-describedby="settings-index_name-hint" name="index_name" value="{{ settings.site.index_name }}" placeholder="{{ default_index }}" maxlength="20">
+      <p class="field__hint" id="settings-index_name-hint">{{ p.t.config_index_name_help(default_index) }}</p>
+    </div>
+    <div class="field">
+      <label class="field__label" for="settings-contact_email">{{ p.t.config_contact_email() }}</label>
+      <input type="email" id="settings-contact_email" aria-describedby="settings-contact_email-hint" name="contact_email" value="{{ settings.site.contact_email }}" maxlength="190">
+      <p class="field__hint" id="settings-contact_email-hint">{{ p.t.config_contact_email_help() }}</p>
+    </div>
+    <div class="checkline">
+      <label class="checkline__label">
+        <input type="checkbox" aria-describedby="settings-read_only-hint" name="read_only" value="true"{% if settings.site.read_only %} checked{% endif %}>
+        <span>{{ p.t.config_read_only() }}</span>
+      </label>
+      <p class="checkline__hint" id="settings-read_only-hint">{{ p.t.config_read_only_help() }}</p>
+    </div>
+    <div class="field field--wide">
+      <label class="field__label" for="settings-read_only_message">{{ p.t.config_read_only_message() }}</label>
+      <textarea id="settings-read_only_message" name="read_only_message" rows="2" maxlength="500">{{ settings.site.read_only_message }}</textarea>
+    </div>
+  </div>
+</section>
+
+<section class="panel" id="section-domains" aria-labelledby="section-domains-title">
+  <h2 class="panel__title" id="section-domains-title">{{ p.t.config_url_heading() }}</h2>
+  <p class="form-note">{{ p.t.config_url_intro() }}</p>
+  <div class="fields fields--two">
+    <div class="field">
+      <label class="field__label" for="settings-site_url">{{ p.t.config_url_heading() }}</label>
+      <input type="url" id="settings-site_url" aria-describedby="settings-site_url-hint" name="site_url" value="{{ settings.site.url }}" placeholder="{{ request_site_url }}" maxlength="255">
+      <p class="field__hint" id="settings-site_url-hint">{{ p.t.config_url_help(request_site_url) }}</p>
+    </div>
+    <p class="form-note">{{ p.t.config_url_note(crate::i18n::Markup::tag("strong", p.t.config_url_path_differs()), crate::i18n::Markup::tag("code", p.t.config_url_rescue_command()))|safe }}</p>
+  </div>
+</section>
+
+<section class="panel" id="section-time" aria-labelledby="section-time-title">
+  <h2 class="panel__title" id="section-time-title">{{ p.t.config_time_heading() }}</h2>
+  <p class="form-note">{{ p.t.config_time_intro() }}</p>
+  <div class="fields fields--two">
+    <div class="field">
+      <label class="field__label" for="settings-timezone_offset">{{ p.t.config_time_zone() }}</label>
+      <select id="settings-timezone_offset" aria-describedby="settings-timezone_offset-hint" name="timezone_offset">
+        {%- for zone in zones %}
+        <option value="{{ zone.offset_minutes }}"{% if settings.time.offset_minutes == zone.offset_minutes %} selected{% endif %}>{{ zone.label }}</option>
+        {%- endfor %}
+      </select>
+      <p class="field__hint" id="settings-timezone_offset-hint">{{ p.t.config_time_zone_help() }}</p>
+    </div>
+    <div class="field">
+      <label class="field__label" for="settings-date_format">{{ p.t.config_date_format() }}</label>
+      <select id="settings-date_format" name="date_format">
+        <option value="ymd-dash"{% if settings.time.date_format == "ymd-dash" %} selected{% endif %}>2026-09-17</option>
+        <option value="ymd-cn"{% if settings.time.date_format == "ymd-cn" %} selected{% endif %}>2026&#x5e74;09&#x6708;17&#x65e5;</option>
+        <option value="mdy-slash"{% if settings.time.date_format == "mdy-slash" %} selected{% endif %}>09/17/2026</option>
+        <option value="locale"{% if settings.time.date_format == "locale" %} selected{% endif %}>{{ p.t.config_date_format_locale() }}</option>
+      </select>
+    </div>
+    <div class="checkline">
+      <label class="checkline__label">
+        <input type="checkbox" name="clock24" value="true"{% if settings.time.clock24 %} checked{% endif %}>
+        <span>{{ p.t.config_clock24() }}</span>
+      </label>
+    </div>
+    <div class="checkline">
+      <label class="checkline__label">
+        <input type="checkbox" name="relative_time" value="true"{% if settings.time.relative %} checked{% endif %}>
+        <span>{{ p.t.config_relative_time() }}</span>
+      </label>
+    </div>
+    <div class="field">
+      <label class="field__label" for="settings-relative_hours">{{ p.t.config_relative_hours() }}</label>
+      <input type="number" id="settings-relative_hours" aria-describedby="settings-relative_hours-hint" name="relative_hours" value="{{ settings.time.relative_hours }}" min="1" max="720">
+      <p class="field__hint" id="settings-relative_hours-hint">{{ p.t.config_relative_hours_help() }}</p>
+    </div>
+    <p class="form-note">{{ p.t.config_time_note(p.credit()) }}</p>
+  </div>
+</section>
+
+<div class="form-actions form-actions--sticky"><button class="button" type="submit">{{ p.t.config_save() }}</button></div>
+</form>
+{% endblock %}

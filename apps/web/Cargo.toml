@@ -1,0 +1,106 @@
+[package]
+name = "gono-forum-web"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+default-run = "gono-forum-web"
+build = "build.rs"
+
+[features]
+# Release packages: static assets compiled into the binary and the binary's directory as the instance root.
+# Source builds leave it off and read apps/web/static from disk.
+bundled = []
+
+[dependencies]
+anyhow = "1"
+aes-gcm = "0.10.3"
+base64 = "0.22"
+argon2 = "0.5"
+askama = "0.16.1"
+ammonia = "4.1"
+aws-sdk-s3 = { version = "1.145", default-features = false, features = ["rt-tokio", "default-https-client"] }
+axum = { version = "0.8.9", features = ["multipart"] }
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+# Validation when saving personal styles. Already in the dependency tree via ammonia.
+cssparser = "0.37"
+# Unpacks the release package during a one-click upgrade; already in the dependency tree via zip and png.
+flate2 = "1.1"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# Interface translations (docs/architecture.md, "Languages"): Fluent files under locales/, compiled in. The
+# concurrent bundle is shared by all requests; fluent-syntax walks the parsed messages for the checks and the script
+# catalogs, and intl-memoizer keeps one ICU number formatter per language inside each bundle.
+fluent-bundle = "0.16"
+fluent-syntax = "0.12"
+intl-memoizer = "0.5"
+unic-langid = "0.9"
+# Dates and numbers by language: ICU4X with the full built-in data, so a community translation only adds .ftl
+# files. `sync` makes the formatters shareable across threads.
+icu_datetime = "2.4"
+icu_decimal = "2.4"
+icu_locale = "2.4"
+icu_locale_core = "2.4"
+icu_provider = { version = "2.4", features = ["sync"] }
+# TOTP for two-step verification (RFC 6238): HMAC-SHA1 is written in-house; both crates were already in the
+# dependency tree.
+hmac = "0.12"
+libc = "0.2"
+lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls", "ring", "webpki-roots"] }
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+percent-encoding = "2"
+pulldown-cmark = "0.13.4"
+qrcodegen = "1.8"
+rand = "0.8"
+# Random source for lottery draws. The version is pinned: the winner list is recomputed from the seed in the draw
+# record, so the dependency must not silently change its output.
+rand_chacha = "=0.3.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha1 = "0.10"
+sha2 = "0.10"
+subtle = "2"
+# Optional SQLite: the sqlite feature bundles SQLite 3.46.0 instead of using the system library.
+sqlx = { version = "=0.8.6", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "mysql", "sqlite", "migrate"] }
+# Registers a Unicode-aware lower on SQLite connections: sqlx 0.8 has no interface for registering SQL functions, so
+# sqlite3_create_function_v2 is called through its raw handle. The version is the same one sqlx-sqlite uses, so there
+# is only one copy in the dependency tree.
+libsqlite3-sys = { version = "=0.30.1", default-features = false }
+redis = { version = "0.32", default-features = false, features = ["tokio-comp", "tokio-rustls-comp"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "time", "fs", "io-util", "process"] }
+tokio-util = { version = "0.7", features = ["io"] }
+# The member API checks the request body limit per request (`settings.api.max_body_kib`) and has to recognize
+# `LengthLimitError`; axum itself already depends on it.
+http-body-util = "0.1"
+# SMS and third-party login send outbound HTTPS requests through a minimal client around the hyper family crates
+# already in the dependency tree, instead of pulling in reqwest. Both the ring and aws-lc-rs crypto backends are in
+# the dependency tree; the client explicitly uses ring (same as sqlx and lettre), with the bundled webpki-roots as
+# root certificates.
+bytes = "1"
+hyper = { version = "1", default-features = false, features = ["client", "http1"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "ring", "tls12", "webpki-tokio"] }
+hyper-util = { version = "0.1", default-features = false, features = ["client-legacy", "http1", "tokio"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+toml = "1.1.5"
+tower-http = { version = "0.6", features = ["fs", "trace", "set-header"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+unicode-normalization = "0.1"
+url = "2"
+zip = { version = "4.6", default-features = false, features = ["deflate"] }
+
+[build-dependencies]
+# build.rs parses the base (en) translations to generate one typed method per message (docs/architecture.md,
+# "Languages").
+fluent-syntax = "0.12"
+
+# Release packages are static musl builds; musl's own allocator is slow under multi-threaded load. Only compiled for
+# musl targets.
+[target.'cfg(target_env = "musl")'.dependencies]
+mimalloc = { version = "0.1", default-features = false }
+
+[dev-dependencies]
+# The feed and highlighted-reply tests parse XML; nothing outside the tests does.
+quick-xml = "0.42"
+tower = { version = "0.5", features = ["util"] }

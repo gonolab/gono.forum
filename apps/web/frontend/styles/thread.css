@@ -1,0 +1,915 @@
+/* Topic page: topic, thread, thread-head, thread-stats, floor (floor-card, floor__*), blocked-content, actions-bar, icon-button, interaction-form, tip-picker, tip-hint, tip-form, tip-summary, mod-tools, sub-replies, pager--compact, replies, spotlight, highlight-*, replies-pane, replies-head, rows--posts, reply-box, reply-gate. Body HTML (prose, reveal, code-block, topic-embed, video-embed) is styled elsewhere. */
+
+/* ------------------------------------------------------------------ */
+/* Page column                                                         */
+/* ------------------------------------------------------------------ */
+
+.topic__main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  align-content: start;
+}
+
+/* ------------------------------------------------------------------ */
+/* Thread: head, opening post                                          */
+/* ------------------------------------------------------------------ */
+
+.thread {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-inline-size: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  box-shadow: var(--shadow-base);
+}
+
+.thread-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding-block: 18px 14px;
+  padding-inline: 20px;
+}
+
+.thread-head__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+}
+
+.thread-head__title {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.thread-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-inline-size: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.thread-stats__count {
+  font-variant-numeric: tabular-nums;
+}
+
+.thread-stats__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-inline-start: auto;
+}
+
+.thread-stats__tools > form {
+  margin: 0;
+}
+
+.thread > .floor--opening {
+  padding-block: 16px 18px;
+  padding-inline: 20px;
+  border-block-start: 1px solid var(--line);
+}
+
+/* ------------------------------------------------------------------ */
+/* Floors: the opening post, replies and replies to a reply            */
+/* ------------------------------------------------------------------ */
+
+/* Avatar column plus body; below 640px the avatar joins the head line and the body takes the full width. */
+.floor {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: start;
+  min-inline-size: 0;
+  scroll-margin-block-start: calc(var(--sticky-top) + var(--safe-top) + 12px);
+}
+
+.floor > .row-avatar {
+  grid-column: 1;
+  grid-row: 1;
+  inline-size: 40px;
+  block-size: 40px;
+}
+
+.floor > .row-body {
+  grid-column: 2;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+.floor > .row-body > * {
+  min-inline-size: 0;
+  margin-block: 0;
+}
+
+/* A reply in the main list (also a member style hook: .floor-card > .row-body). */
+.floor-card {
+  padding-block: 14px;
+  padding-inline: 16px;
+}
+
+.floor--sub {
+  grid-template-columns: 28px minmax(0, 1fr);
+  column-gap: 10px;
+  padding-block: 10px;
+  padding-inline: 12px;
+}
+
+.floor--sub > .row-avatar {
+  inline-size: 28px;
+  block-size: 28px;
+}
+
+.floor--sub > .row-body {
+  gap: 8px;
+}
+
+/* site.js adds floor--flash for 1.6s when the hash points at a floor. */
+.floor--flash {
+  background-color: var(--accent-soft);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .floor {
+    transition: background-color 0.6s var(--ease-out);
+  }
+}
+
+.floor__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  min-inline-size: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.floor__byline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  min-inline-size: 0;
+}
+
+.floor__byline > .row-author {
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.floor__byline > a.row-author:hover {
+  color: var(--link-hover);
+  text-decoration: underline;
+}
+
+.tag.floor__op {
+  border-color: transparent;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.floor__tools {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  margin-inline-start: auto;
+}
+
+.floor__switch,
+.floor__number {
+  color: var(--text-muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.floor__number {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.floor__switch:hover,
+.floor__number:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+/* Who a flat-view reply answers, and which top-level floor it belongs to. */
+.floor__context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.floor__context > a {
+  color: inherit;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.floor__context > a + a::before {
+  content: "·";
+  content: "·" / "";
+  display: inline-block;
+  margin-inline-end: 6px;
+}
+
+.floor__context > a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+/* Reply and quote links in the floor's action row. */
+.floor__action {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-block-size: 32px;
+  padding-inline: 10px;
+  border-radius: var(--r-pill);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.floor__action:hover {
+  background: var(--panel-alt);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.floor__accept {
+  display: inline-flex;
+  margin: 0;
+}
+
+.floor--sub .icon-button,
+.floor--sub .floor__action {
+  min-block-size: 28px;
+}
+
+/* Content from a member the reader blocked: collapsed until opened. */
+.blocked-content__summary {
+  inline-size: fit-content;
+  padding-block: 6px;
+  padding-inline: 12px;
+  border-radius: var(--r-input);
+  background: var(--panel-alt);
+  color: var(--text-muted);
+  font-size: 13.5px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.blocked-content__summary:hover {
+  color: var(--text);
+}
+
+.blocked-content[open] > .blocked-content__summary {
+  margin-block-end: 10px;
+}
+
+/* Server placeholder for hidden, withdrawn or erased content (router.rs, inside the body). */
+.prose > .gone {
+  margin: 0;
+  padding-block: 10px;
+  padding-inline: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-input);
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* ------------------------------------------------------------------ */
+/* Action rows and the toggle buttons in them                          */
+/* ------------------------------------------------------------------ */
+
+/* Positioned so the tip picker and the withdraw confirmation open inside the row's width. */
+.actions-bar {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-inline-size: 0;
+}
+
+.actions-bar:not(:has(*)) {
+  display: none;
+}
+
+.interaction-form {
+  display: inline-flex;
+  margin: 0;
+}
+
+/* Icon plus a count (and, for bookmarks, a label). State is aria-pressed; locked ones are disabled buttons. */
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  min-inline-size: 32px;
+  min-block-size: 32px;
+  margin: 0;
+  padding-block: 0;
+  padding-inline: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--panel);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  background: var(--panel-alt);
+  color: var(--text);
+}
+
+.icon-button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.icon-button:disabled,
+.icon-button:disabled:hover {
+  background: var(--panel);
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.actions-bar__icon,
+.icon-button svg {
+  flex: none;
+  inline-size: 16px;
+  block-size: 16px;
+}
+
+.favorite-control .icon-button[aria-pressed="true"],
+.icon-button.favorite-control[data-active="true"] {
+  border-color: var(--favorite-border);
+  color: var(--favorite-text);
+}
+
+.reaction-action[aria-pressed="true"] {
+  border-color: var(--reaction-active);
+  color: var(--reaction-active);
+}
+
+.downvote-control .icon-button[aria-pressed="true"] {
+  border-color: var(--line-strong);
+  background: var(--panel-alt);
+  color: var(--text);
+}
+
+.icon-button[data-tipped],
+.icon-button[data-tipped]:hover {
+  border-color: transparent;
+  background: var(--warning-soft);
+  color: var(--warning-soft-text);
+}
+
+/* A filled icon, so the state does not rest on colour alone. */
+.favorite-control .icon-button[aria-pressed="true"] svg,
+.icon-button.favorite-control[data-active="true"] svg,
+.reaction-action[aria-pressed="true"] svg,
+.downvote-control .icon-button[aria-pressed="true"] svg {
+  fill: currentColor;
+}
+
+/* ------------------------------------------------------------------ */
+/* Tip picker and summary                                              */
+/* ------------------------------------------------------------------ */
+
+.tip-picker > summary {
+  list-style: none;
+}
+
+.tip-picker > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tip-picker[open] > summary {
+  background: var(--panel-alt);
+  color: var(--text);
+}
+
+.tip-picker__panel,
+.mod-tools__panel {
+  position: absolute;
+  inset-block-start: calc(100% + 6px);
+  z-index: 5;
+  display: grid;
+  gap: 10px;
+  box-sizing: border-box;
+  inline-size: min(320px, 100%);
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-input);
+  background: var(--panel);
+  box-shadow: var(--shadow-medium);
+}
+
+.tip-picker__panel {
+  inset-inline-start: 0;
+}
+
+.tip-hint,
+.mod-tools__note {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.tip-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+}
+
+.tip-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.tip-summary > svg {
+  flex: none;
+  inline-size: 14px;
+  block-size: 14px;
+  margin-block-start: 3px;
+}
+
+.tip-summary__text {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.tip-summary a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.tip-summary a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+/* ------------------------------------------------------------------ */
+/* Author and moderator tools                                          */
+/* ------------------------------------------------------------------ */
+
+.mod-tools {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  margin-inline-start: auto;
+}
+
+.mod-tools__link {
+  display: inline-flex;
+  align-items: center;
+  padding-block: 4px;
+  padding-inline: 6px;
+  border-radius: var(--r-xs);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.4;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mod-tools__link:hover {
+  background: var(--panel-alt);
+  color: var(--text);
+  text-decoration: none;
+}
+
+summary.mod-tools__link {
+  list-style: none;
+}
+
+summary.mod-tools__link::-webkit-details-marker {
+  display: none;
+}
+
+.mod-tools__confirm[open] > .mod-tools__link {
+  background: var(--panel-alt);
+  color: var(--text);
+}
+
+.mod-tools__panel {
+  inset-inline-end: 0;
+}
+
+.mod-tools__panel > form {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Replies to a reply and their pages                                  */
+/* ------------------------------------------------------------------ */
+
+.sub-replies {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: var(--r-input);
+  background: var(--panel-alt);
+}
+
+.sub-replies > * + * {
+  border-block-start: 1px solid var(--line);
+}
+
+/* Smaller page links for the pages of one floor's replies (shared pager block). */
+.pager--compact {
+  justify-content: flex-start;
+  gap: 4px;
+}
+
+.pager--compact .pager__item {
+  min-inline-size: 28px;
+  min-block-size: 28px;
+  padding-inline: 6px;
+  font-size: 12.5px;
+}
+
+.pager--compact .pager__gap::before {
+  font-size: 12.5px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Replies section (the HTMX fragment): top replies, list, reply box   */
+/* ------------------------------------------------------------------ */
+
+.replies {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  min-inline-size: 0;
+  scroll-margin-block-start: calc(var(--sticky-top) + var(--safe-top) + 12px);
+}
+
+.spotlight,
+.replies-pane,
+.reply-box {
+  box-sizing: border-box;
+  min-inline-size: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  box-shadow: var(--shadow-base);
+}
+
+.spotlight {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding-block: 14px;
+  padding-inline: 16px;
+}
+
+.spotlight[hidden] {
+  display: none;
+}
+
+.spotlight__title {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.highlight-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.highlight-list > * + * {
+  padding-block-start: 10px;
+  border-block-start: 1px solid var(--line);
+}
+
+.highlight-item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: start;
+}
+
+.highlight-item > .row-avatar {
+  inline-size: 28px;
+  block-size: 28px;
+}
+
+.highlight-item__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 3px;
+  min-inline-size: 0;
+}
+
+.highlight-item__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.highlight-item__meta > .row-author {
+  text-decoration: none;
+}
+
+.highlight-item__meta > a.row-author:hover {
+  color: var(--link-hover);
+  text-decoration: underline;
+}
+
+.highlight-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--reaction-active);
+  font-weight: 500;
+}
+
+.highlight-count > svg {
+  inline-size: 14px;
+  block-size: 14px;
+}
+
+.highlight-excerpt {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.highlight-permalink {
+  justify-self: start;
+  color: var(--link);
+  font-size: 12.5px;
+  text-decoration: none;
+}
+
+.highlight-permalink:hover {
+  color: var(--link-hover);
+  text-decoration: underline;
+}
+
+.replies-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding-block: 12px;
+  padding-inline: 16px;
+  border-block-end: 1px solid var(--line);
+}
+
+.replies-head__title {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+/* Floors carry their own padding; the shared rows block draws the lines between them. */
+.rows--posts > .empty {
+  padding-block: 32px;
+}
+
+.replies-pane__pager {
+  padding-block: 12px;
+  padding-inline: 16px;
+  border-block-start: 1px solid var(--line);
+}
+
+/* partials/pagination.html renders nothing for a single page. */
+.replies-pane__pager:not(:has(*)) {
+  display: none;
+}
+
+.reply-box {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  padding: 16px;
+  scroll-margin-block-start: calc(var(--sticky-top) + var(--safe-top) + 12px);
+}
+
+.reply-box__title {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.reply-gate {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-block: 12px;
+  padding-inline: 14px;
+  border-radius: var(--r-input);
+  background: var(--panel-alt);
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.reply-gate__text {
+  margin: 0;
+}
+
+.reply-gate__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Focus rings                                                         */
+/* ------------------------------------------------------------------ */
+
+:is(.floor__byline > a.row-author, .floor__switch, .floor__number, .floor__context > a, .floor__action, .mod-tools__link, .blocked-content__summary, .tip-summary a, .highlight-item__meta > a, .highlight-permalink):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+
+/* ------------------------------------------------------------------ */
+/* Breakpoints (docs/styles.md, "Breakpoints")                         */
+/* ------------------------------------------------------------------ */
+
+@media (max-width: 900px) {
+  .thread-head {
+    padding-inline: 16px;
+  }
+
+  .thread > .floor--opening {
+    padding-inline: 16px;
+  }
+}
+
+@media (max-width: 760px) {
+  .topic__main,
+  .replies {
+    gap: 12px;
+  }
+
+  .thread-head {
+    padding-block: 14px 12px;
+    padding-inline: 14px;
+  }
+
+  .thread-head__title {
+    font-size: 19px;
+  }
+
+  .thread > .floor--opening {
+    padding-block: 14px;
+    padding-inline: 14px;
+  }
+
+  .floor-card {
+    padding-block: 12px;
+    padding-inline: 12px;
+  }
+
+  .spotlight {
+    padding-block: 12px;
+    padding-inline: 14px;
+  }
+
+  .replies-head {
+    padding-block: 10px;
+    padding-inline: 12px;
+  }
+
+  .replies-pane__pager {
+    padding-inline: 12px;
+  }
+
+  .reply-box {
+    padding: 14px;
+  }
+}
+
+@media (max-width: 640px) {
+  /* The avatar sits beside the head; everything else in the floor spans the full width. */
+  .floor {
+    grid-template-columns: 32px minmax(0, 1fr);
+    column-gap: 10px;
+    row-gap: 10px;
+  }
+
+  .floor > .row-avatar {
+    inline-size: 32px;
+    block-size: 32px;
+    align-self: center;
+  }
+
+  .floor > .row-body {
+    display: contents;
+  }
+
+  .floor > .row-body > * {
+    grid-column: 1 / -1;
+  }
+
+  .floor > .row-body > .floor__head {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+  }
+
+  .floor--sub {
+    grid-template-columns: 24px minmax(0, 1fr);
+    row-gap: 8px;
+    padding-inline: 10px;
+  }
+
+  .floor--sub > .row-avatar {
+    inline-size: 24px;
+    block-size: 24px;
+  }
+
+  .mod-tools {
+    margin-inline-start: 0;
+  }
+
+  .mod-tools__panel {
+    inset-inline-end: auto;
+    inset-inline-start: 0;
+  }
+}
+
+@media (max-width: 420px) {
+  /* The bookmark button keeps its name in aria-label. */
+  .actions-bar .actions-bar__label {
+    display: none;
+  }
+
+  .thread-head__title {
+    font-size: 17px;
+  }
+}

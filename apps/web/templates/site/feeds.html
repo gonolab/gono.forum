@@ -1,0 +1,18 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<div class="layout reader-layout"><div class="layout__main"><div class="pane">
+  <article class="reader">
+    <header class="reader__head"><h1>{{ p.t.site_feeds() }}</h1><p class="reader__lede">{{ p.t.site_feeds_lede() }}</p></header>
+    <div class="reader__body">
+      <div class="reader__prose"><div class="reader__section prose">
+        <p>{{ p.t.site_feeds_body(limit, summary_chars) }}</p>
+        <table class="data-table">
+          <thead><tr><th scope="col">{{ p.t.site_feeds_scope() }}</th><th scope="col">RSS</th><th scope="col">Atom</th></tr></thead>
+          <tbody>{% for row in rows %}<tr><th scope="row">{{ row.name }}</th><td><a href="{{ crate::site::href(base) }}{{ row.rss }}" hx-boost="false">{{ row.rss }}</a></td><td><a href="{{ crate::site::href(base) }}{{ row.atom }}" hx-boost="false">{{ row.atom }}</a></td></tr>{% endfor %}</tbody>
+        </table>
+        <p>{{ p.t.site_feeds_private(p.link("/my/feed", p.t.site_feeds_private_link()))|safe }}</p>
+      </div></div>
+    </div>
+  </article>
+</div></div></div>
+{% endblock %}

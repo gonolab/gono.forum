@@ -1,0 +1,29 @@
+{% extends "layout/manage.html" %}
+{% block panel %}
+<section class="panel"><h1 class="panel__title">{{ p.t.maintenance_logs_title() }}</h1>
+<form class="fields fields--inline" method="get" action="{{ crate::site::base() }}/manage/logs">
+<div class="field">
+  <label class="field__label" for="logs-kind">{{ p.t.maintenance_logs_kind() }}</label>
+  <select id="logs-kind" name="kind"><option value="">{{ p.t.maintenance_logs_kind_all() }}</option>{% for kind in ["content","identity","report","sanction","appeal","restore","organization","invite","site","mail","task","privacy"] %}<option value="{{ kind }}"{% if filter.kind.as_str() == *kind %} selected{% endif %}>{% if *kind == "content" %}{{ p.t.maintenance_logs_kind_content() }}{% else if *kind == "identity" %}{{ p.t.maintenance_logs_kind_identity() }}{% else if *kind == "report" %}{{ p.t.maintenance_logs_kind_report() }}{% else if *kind == "sanction" %}{{ p.t.maintenance_logs_kind_sanction() }}{% else if *kind == "appeal" %}{{ p.t.maintenance_logs_kind_appeal() }}{% else if *kind == "restore" %}{{ p.t.maintenance_logs_kind_restore() }}{% else if *kind == "organization" %}{{ p.t.maintenance_logs_kind_organization() }}{% else if *kind == "invite" %}{{ p.t.maintenance_logs_kind_invite() }}{% else if *kind == "site" %}{{ p.t.maintenance_logs_kind_site() }}{% else if *kind == "mail" %}{{ p.t.maintenance_logs_kind_mail() }}{% else if *kind == "task" %}{{ p.t.maintenance_logs_kind_task() }}{% else %}{{ p.t.maintenance_logs_kind_privacy() }}{% endif %}</option>{% endfor %}</select>
+</div>
+<div class="field">
+  <label class="field__label" for="logs-operator">{{ p.t.maintenance_logs_operator() }}</label>
+  <input id="logs-operator" name="operator" value="{{ filter.operator }}" inputmode="numeric">
+</div>
+<div class="field">
+  <label class="field__label" for="logs-target">{{ p.t.maintenance_logs_target() }}</label>
+  <input id="logs-target" name="target" value="{{ filter.target }}" inputmode="numeric">
+</div>
+<div class="field">
+  <label class="field__label" for="logs-from">{{ p.t.maintenance_logs_from() }}</label>
+  <input type="date" id="logs-from" name="from" value="{{ filter.from }}">
+</div>
+<div class="field">
+  <label class="field__label" for="logs-until">{{ p.t.maintenance_logs_until() }}</label>
+  <input type="date" id="logs-until" name="until" value="{{ filter.until }}">
+</div>
+<div class="form-actions"><button class="button" type="submit">{{ p.t.maintenance_logs_filter() }}</button></div>
+</form><p>{{ p.t.maintenance_logs_summary(total, page) }}</p>
+{% for row in rows %}<article class="panel"><h2 class="panel__title">#{{ row.id }} · {{ row.label() }}</h2><p>{{ row.operator }}{% if !row.target.is_empty() %} · {{ row.target }}{% endif %} · {{ row.result_label() }} · {{ row.time() }}</p><p>{{ row.reason }}</p></article>{% else %}<p>{{ p.t.maintenance_logs_empty() }}</p>{% endfor %}
+<nav class="form-actions" aria-label="{{ p.t.maintenance_logs_pagination() }}">{% if previous %}<a class="button button--secondary" href="{{ crate::site::href(previous_href) }}">{{ p.t.maintenance_previous() }}</a>{% endif %}{% if next %}<a class="button button--secondary" href="{{ crate::site::href(next_href) }}">{{ p.t.maintenance_next() }}</a>{% endif %}</nav></section>
+{% endblock %}

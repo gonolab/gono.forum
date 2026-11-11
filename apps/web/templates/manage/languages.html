@@ -1,0 +1,15 @@
+{% extends "layout/manage.html" %}{% block panel %}
+{% if saved %}<p class="form-feedback form-feedback--success" role="status">{{ p.t.language_saved() }}</p>{% else if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+<section class="panel" id="section-site-language" aria-labelledby="section-site-language-title"><h1 class="panel__title" id="section-site-language-title">{{ p.t.language_site_heading() }}</h1><p>{{ p.t.language_site_intro(p.link("/manage/domains", p.t.manage_module_domains()))|safe }}</p>
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/languages"><input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<div class="field">
+  <label class="field__label" for="site-language">{{ p.t.language_site_heading() }}</label>
+  <select id="site-language" data-site-language name="language">{% for row in rows %}<option value="{{ row.tag }}"{% if row.site %} selected{% endif %} lang="{{ row.tag }}">{{ p.t.language_option(row.name, row.tag, row.percent) }}</option>{% endfor %}</select>
+</div>
+<div class="form-actions"><button class="button" type="submit">{{ p.t.manage_save() }}</button></div>
+</form></section>
+<section class="panel" id="section-languages" aria-labelledby="section-languages-title"><h2 class="panel__title" id="section-languages-title">{{ p.t.language_progress_heading() }}</h2><p>{{ p.t.language_progress_intro() }}</p>
+<table class="data-table" data-language-table><thead><tr><th scope="col">{{ p.t.language_column_language() }}</th><th scope="col">{{ p.t.language_column_tag() }}</th><th scope="col">{{ p.t.language_column_progress() }}</th><th scope="col">{{ p.t.language_column_used() }}</th></tr></thead><tbody>{% for row in rows %}<tr><th scope="row" lang="{{ row.tag }}">{{ row.name }}</th><td><code>{{ row.tag }}</code></td><td>{{ p.t.language_progress(row.percent, row.translated, row.total) }}</td><td>{% if row.site %}{{ p.t.language_used_site() }}{% endif %}{% for domain in row.domains %}{% if row.site || !loop.first %}{{ p.t.common_list_separator() }}{% endif %}{{ domain }}{% endfor %}{% if !row.site && row.domains.is_empty() %}—{% endif %}</td></tr>{% endfor %}</tbody></table></section>
+<section class="panel" id="section-localized" aria-labelledby="section-localized-title"><h2 class="panel__title" id="section-localized-title">{{ p.t.language_localized_heading() }}</h2><p>{{ p.t.language_localized_intro(p.link("/manage/mail/templates/email_verification", p.t.manage_tab_mail_templates()))|safe }}</p>
+{% for row in rows %}<h3 lang="{{ row.tag }}">{{ row.name }}</h3>{% if row.texts.is_empty() %}<p>{{ p.t.language_localized_none() }}</p>{% else %}<ul data-localized-texts="{{ row.tag }}">{% for (label, href) in row.texts %}<li><a href="{{ crate::site::href(href) }}">{{ label }}</a></li>{% endfor %}</ul>{% endif %}{% endfor %}</section>
+{% endblock %}

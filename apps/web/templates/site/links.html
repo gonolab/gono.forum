@@ -1,0 +1,26 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<div class="layout layout--stack"><div class="layout__main"><div class="pane">
+  <div class="board-head"><h1 class="board-head__name">{{ p.t.home_friend_links() }}</h1><p class="board-head__desc">{{ p.t.site_links_lede() }}{% if applications_open %}<a href="{{ crate::site::base() }}/links/apply" data-link-apply-entry>{{ p.t.site_links_apply() }}</a>{% endif %}</p></div>
+  {% for group in groups %}
+  <section class="directory-section" aria-label="{{ group.label }}" data-link-group="{{ group.label }}">
+    <h2 class="directory-title">{{ group.label }}<span class="directory-count">{{ group.links.len() }}</span></h2>
+    <ul class="link-grid">
+    {% for link in group.links %}
+      <li class="link-tile"><a class="link-name" href="{{ crate::site::href(link.url) }}" rel="nofollow noopener" referrerpolicy="origin" target="_blank" data-friend-link>{{ link.name }}</a><span class="link-domain">{{ link.domain }}</span>{% if !link.description.is_empty() %}<span class="link-desc">{{ link.description }}</span>{% endif %}</li>
+    {% endfor %}
+    </ul>
+  </section>
+  {% else %}<p class="empty">{{ p.t.site_links_empty() }}</p>{% endfor %}
+  <section class="directory-section directory-explainer" aria-labelledby="links-explainer">
+    <h2 class="directory-title" id="links-explainer">{{ explainer.title }}</h2>
+    <div class="prose">{{ explainer.body|safe }}</div>
+    {% if applications_open %}<p class="form-actions"><a class="button button--primary" href="{{ crate::site::base() }}/links/apply" hx-boost="false">{{ p.t.site_links_apply() }}</a></p>{% else %}<p class="directory-contact">{{ p.t.site_links_closed() }}</p>{% endif %}
+  </section>
+</div></div>
+<aside class="layout__aside" aria-label="{{ p.t.home_sidebar() }}">
+  {% include "partials/user_card.html" %}
+  {% include "partials/sidebar.html" %}
+</aside>
+</div>
+{% endblock %}

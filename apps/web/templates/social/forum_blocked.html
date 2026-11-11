@@ -1,0 +1,2 @@
+{% extends "layout/base.html" %}
+{% block content %}<div class="panel" data-forum-blocked><h1 class="panel__title">{{ p.t.social_forum_blocked() }}</h1><p>{{ message }}</p>{% include "social/forum_filter.html" %}<ul class="panel__links"><li><a href="{{ crate::site::base() }}/my/forum-filters">{{ p.t.social_forum_filters_manage() }}</a></li><li><a href="{{ crate::site::base() }}/">{{ p.t.common_back_home() }}</a></li></ul></div>{% endblock %}

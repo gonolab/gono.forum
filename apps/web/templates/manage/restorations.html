@@ -1,0 +1,13 @@
+{% extends "layout/manage.html" %}
+{% block panel %}
+<div class="panel"><h1 class="panel__title">{{ p.t.governance_restorations() }}</h1>
+<form class="fields fields--inline" method="get" action="{{ crate::site::base() }}/manage/restorations">
+<div class="field">
+  <label class="field__label" for="restorations-status">{{ p.t.governance_report_status() }}</label>
+  <select id="restorations-status" name="status"><option value="pending"{% if status == "pending" %} selected{% endif %}>{{ p.t.governance_status_pending() }}</option><option value="accepted"{% if status == "accepted" %} selected{% endif %}>{{ p.t.governance_status_accepted() }}</option><option value="rejected"{% if status == "rejected" %} selected{% endif %}>{{ p.t.governance_status_rejected() }}</option></select>
+</div>
+<div class="form-actions"><button class="button button--primary" type="submit">{{ p.t.governance_filter() }}</button></div>
+</form><p>{{ p.t.governance_manage_restorations_lead(p.frame.settings.governance.restoration_due_days) }}</p></div>
+{% for r in rows %}<article class="panel"><h2 class="panel__title"><a href="{{ crate::site::base() }}/manage/restorations/{{ r.id }}">{{ p.t.governance_manage_restoration_row(r.id.to_string(), r.state_label(), r.status_label()) }}</a></h2><p>{{ p.t.governance_manage_restoration_target(r.uid.to_string(), r.pid.to_string()) }}</p><p class="governance-reason">{{ r.reason }}</p><p>{{ p.t.governance_manage_submitted(r.time()) }}{% if r.status == "pending" %} · {{ p.t.governance_manage_due(r.due_time(p.frame.settings.governance.restoration_due_days)) }}{% if r.overdue(p.frame.settings.governance.restoration_due_days) %} · {{ p.t.governance_overdue() }}{% endif %}{% endif %}</p></article>{% else %}<p class="empty">{{ p.t.governance_manage_restorations_empty() }}</p>{% endfor %}
+{% if !next.is_empty() %}<div class="panel"><a href="{{ crate::site::href(next) }}">{{ p.t.common_next_page() }}</a></div>{% endif %}
+{% endblock %}

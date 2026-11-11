@@ -1,0 +1,20 @@
+{% extends "layout/my.html" %}
+{% block panel %}
+<div class="narrow-page narrow-page--embedded" hx-boost="false">
+  <section class="panel">
+    <h2 class="panel__title">{{ p.t.settings_recovery_codes() }}</h2>
+    {%- if !notice.is_empty() %}
+    <p class="form-feedback form-feedback--success" role="status">{{ notice }}</p>
+    {%- endif %}
+    {%- if codes.is_empty() %}
+    <p class="intro" data-recovery-empty>{{ p.t.settings_recovery_empty() }}</p>
+    {%- else %}
+    <p class="intro">{{ p.t.settings_recovery_save(codes.len()) }}</p>
+    <ol class="backup-codes" data-recovery-codes>{% for code in codes %}<li><code>{{ code }}</code></li>{% endfor %}</ol>
+    {%- endif %}
+    <ul class="panel__links panel__links--center">
+      <li><a href="{{ crate::site::base() }}/my/account">{{ p.t.settings_back_to_security() }}</a></li>
+    </ul>
+  </section>
+</div>
+{% endblock %}

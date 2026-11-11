@@ -1,0 +1,199 @@
+{#- One form for new threads, replies and edits. composer.js mounts on form[data-composer]; it moves the body textarea into
+    its own shell, so the textarea must not sit inside a <label>. Without the script everything is a plain form post. -#}
+{%- let new_topic = e.tid == 0 && e.edit_pid == 0 %}
+<form class="fields editor" method="post" action="{{ crate::site::href(e.action) }}" data-composer data-body-max-bytes="{{ p.frame.settings.posting.body_max_bytes }}" data-draft="{{ e.draft }}" data-uid="{{ p.uid }}" data-edit-pid="{{ e.edit_pid }}" data-restore-draft="{% if e.preserve_input %}false{% else %}true{% endif %}" hx-post="{{ crate::site::href(e.action) }}" hx-target="#topic-replies" hx-swap="outerHTML" hx-boost="false">
+  {#- The no-script upload posts this whole form as multipart: _csrf has to come before `file`, and the server accepts
+      at most 40 fields, so count new named controls before adding them. #}
+  <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+  <input type="hidden" name="request_key" value="{{ e.request_key }}">
+  <input type="hidden" name="tid" value="{{ e.tid }}">
+  <input type="hidden" name="root_pid" value="{{ e.root_pid }}">
+  <input type="hidden" name="reply_to_pid" value="{{ e.reply_to_pid }}">
+  <input type="hidden" name="quote_pid" value="{{ e.quote_pid }}">
+  <input type="hidden" name="view" value="{{ e.view }}">
+  <input type="hidden" name="location" value="{{ e.location }}">
+  <input type="hidden" name="return_to" value="{{ e.return_to }}">
+  <input type="hidden" name="attachment_ids" value="{{ e.attachment_ids }}">
+  <input type="hidden" name="edit_pid" value="{{ e.edit_pid }}">
+  <input type="hidden" name="edit_thread" value="{{ e.edit_thread }}">
+  <input type="hidden" name="expected_post_version" value="{{ e.expected_post_version }}">
+  <input type="hidden" name="expected_thread_version" value="{{ e.expected_thread_version }}">
+  {%- if !new_topic %}
+  <input type="hidden" name="fid" value="{{ e.fid }}">
+  {%- endif %}
+  {#- composer.js reads the first [data-error-message] / [role="alert"] of a failed response as the error text. #}
+  {%- if !e.message.is_empty() %}
+  <p class="form-feedback" role="alert" data-error-message>{{ e.message }}</p>
+  {%- endif %}
+  {%- if !e.current_body.is_empty() || !e.current_title.is_empty() %}
+  <details class="conflict-note">
+    <summary class="conflict-note__summary">{{ p.t.editor_conflict_summary() }}</summary>
+    {%- if !e.current_title.is_empty() %}
+    <h2 class="conflict-note__title">{{ e.current_title }}</h2>
+    {%- endif %}
+    {%- if !e.current_body.is_empty() %}
+    <pre class="conflict-note__text">{{ e.current_body }}</pre>
+    {%- endif %}
+    <a class="conflict-note__link" href="{{ crate::site::href(e.action) }}" hx-boost="false">{{ p.t.editor_conflict_reopen() }}</a>
+  </details>
+  {%- endif %}
+  {%- if !new_topic && e.reply_to_pid > 0 %}
+  <p class="editor__context"><span>{{ p.t.editor_replying() }}</span><a href="{{ crate::site::href(e.location) }}#reply-editor">{{ p.t.editor_cancel_reply() }}</a></p>
+  {%- endif %}
+  {%- if e.quote_pid > 0 %}
+  <p class="editor__context"><span>{{ p.t.editor_quoting() }}</span><a href="{{ crate::site::base() }}/posts/{{ e.quote_pid }}">{{ p.t.editor_quote_source() }}</a><a href="{{ crate::site::href(e.location) }}#reply-editor" hx-boost="false">{{ p.t.editor_cancel_quote() }}</a></p>
+  {%- endif %}
+  {%- if new_topic || e.edit_thread %}
+  <div class="field">
+    <label class="field__label" for="editor-title">{{ p.t.editor_title() }}</label>
+    <input id="editor-title" name="title" value="{{ e.title }}" maxlength="{{ crate::content::writes::MAX_TITLE_CHARS }}" required>
+  </div>
+  {%- endif %}
+  {#- With the script, the textarea moves into .composer-shell together with the preview; the status line and the
+      attachment list are moved after the shell, all still inside this block. #}
+  <div class="editor__body">
+    <label class="editor__label" for="editor-body-{{ e.draft }}">{{ p.t.editor_body() }}</label>
+    <textarea id="editor-body-{{ e.draft }}" aria-label="{{ p.t.editor_body() }}" name="body" rows="12" required>{{ e.body }}</textarea>
+    <div data-editor-preview class="prose write-preview">{{ e.preview|safe }}</div>
+    <p class="write-status" data-editor-status role="status"></p>
+    <div class="editor__attachments" data-attachments>{% for upload in attachments %}{% include "editor/attachment.html" %}{% endfor %}</div>
+    {#- composer.js hides .upload-plain (by class) and uploads by drop, paste or the toolbar instead. #}
+    <div class="upload-plain">
+      <div class="field">
+        <label class="field__label" for="editor-file">{{ p.t.editor_add_image() }}</label>
+        <input type="file" id="editor-file" name="file" accept="image/jpeg,image/png,image/webp,image/gif">
+      </div>
+      <button class="button button--secondary" type="submit" formaction="{{ crate::site::base() }}/api/media" formenctype="multipart/form-data" formnovalidate name="upload" value="1">{{ p.t.editor_upload_image() }}</button>
+    </div>
+  </div>
+  {%- if new_topic %}
+  <div class="field">
+    <label class="field__label" for="editor-fid">{{ p.t.editor_forum() }}</label>
+    {#- composer.js strips the child prefix and the members-only suffix from the option text to get the forum name. #}
+    <select id="editor-fid" name="fid" required>
+      <option value="">{{ p.t.editor_choose_forum() }}</option>
+      {%- for forum in forums %}
+      <option value="{{ forum.fid }}"{% if forum.fid == e.fid %} selected{% endif %}{% if forum.members_only %} data-members-only{% endif %}>{% if forum.child %}{{ crate::organization::CHILD_PREFIX }}{% endif %}{{ forum.name }}{% if forum.members_only %}{{ p.t.editor_forum_members_only() }}{% endif %}</option>
+      {%- endfor %}
+    </select>
+  </div>
+  {%- if crate::router::posting::guided(forums) %}
+  {#- Only the chosen forum's guide is shown; composer.js follows the select. #}
+  {%- for forum in forums %}
+  {%- if !forum.guidance.is_empty() %}
+  <section class="guide-box" data-forum-guidance="{{ forum.fid }}"{% if forum.fid != e.fid %} hidden{% endif %}><h2>{{ p.t.editor_guidance() }}</h2><p>{% for line in forum.guidance %}{% if !loop.first %}<br>{% endif %}{{ line }}{% endfor %}</p></section>
+  {%- endif %}
+  {%- endfor %}
+  <p class="form-note" data-forum-guidance-hint{% if e.fid != 0 %} hidden{% endif %}>{{ p.t.editor_guidance_hint() }}</p>
+  {%- endif %}
+  {%- endif %}
+  {%- if new_topic || e.edit_thread %}
+  {%- if e.edit_thread && !forum_scope_note.is_empty() %}
+  <p class="form-note">{{ p.t.editor_audience_note(forum_scope_note) }}</p>
+  {%- else %}
+  <fieldset class="option-group option-group--inline" aria-describedby="editor-visibility-hint">
+    <legend class="option-group__legend">{{ p.t.editor_audience() }}</legend>
+    <p class="option-group__hint" id="editor-visibility-hint">{{ p.t.editor_audience_help() }}</p>
+    <div class="option-group__options">
+      <div class="checkline">
+        <label class="checkline__label"><input type="radio" name="visibility" value="public"{% if e.visibility != "members" %} checked{% endif %} required><span>{{ p.t.editor_audience_forum() }}</span></label>
+      </div>
+      <div class="checkline">
+        <label class="checkline__label"><input type="radio" name="visibility" value="members"{% if e.visibility == "members" %} checked{% endif %} required><span>{{ p.t.editor_audience_members() }}</span></label>
+      </div>
+    </div>
+  </fieldset>
+  {%- endif %}
+  {%- endif %}
+  {%- if e.edit_pid > 0 && e.management %}
+  <div class="field">
+    <label class="field__label" for="editor-reason">{{ p.t.editor_moderation_reason() }}</label>
+    <textarea id="editor-reason" name="reason" rows="2" maxlength="500" required>{{ e.reason }}</textarea>
+  </div>
+  {%- endif %}
+  {%- if new_topic %}
+  <fieldset class="option-group option-group--inline">
+    <legend class="option-group__legend">{{ p.t.editor_category() }}</legend>
+    <div class="option-group__options">
+      {%- for name in crate::activities::labels() %}
+      <div class="checkline">
+        <label class="checkline__label"><input type="radio" name="category" value="{{ loop.index0 }}"{% if loop.index0 as i64 == e.category %} checked{% endif %} required><span>{{ name }}</span></label>
+      </div>
+      {%- endfor %}
+    </div>
+  </fieldset>
+  {#- Settings for the chosen thread type. composer.js shows only the children whose data-categories lists the chosen
+      type and disables every control in the others, so the type radios above must stay outside this block. #}
+  <div class="fields fields--two editor__activity">
+    <p class="form-note" id="editor-activity-note" data-categories="1 2 3">{{ p.t.editor_activity_note(p.credit()) }}</p>
+    {%- if p.frame.settings.growth.activity_level > 1 %}
+    <p class="form-note" data-categories="2 3" data-activity-level>{{ p.t.editor_activity_level(p.frame.settings.growth.level_label(*p.frame.settings.growth.activity_level)) }}</p>
+    {%- endif %}
+    {#- lottery-prizes.css hides the label that wraps `budget` and `shares` in custom-prize mode, so these two keep a
+        wrapping label instead of label[for]. #}
+    <label class="field" data-categories="1 2 3"><span class="field__label">{{ p.t.editor_budget(p.credit()) }}</span><input type="number" aria-describedby="editor-activity-note" name="budget" value="{{ e.budget }}" min="0"></label>
+    <label class="field" data-categories="2 3"><span class="field__label">{{ p.t.editor_shares() }}</span><input type="number" name="shares" value="{{ e.shares }}" min="0"></label>
+    <fieldset class="option-group" data-categories="2">
+      <legend class="option-group__legend">{{ p.t.editor_distribution() }}</legend>
+      <div class="option-group__options">
+        <div class="checkline">
+          <label class="checkline__label"><input type="radio" name="distribution" value="equal"{% if e.distribution != "random" %} checked{% endif %}><span>{{ p.t.editor_distribution_equal() }}</span></label>
+        </div>
+        <div class="checkline">
+          <label class="checkline__label"><input type="radio" name="distribution" value="random"{% if e.distribution == "random" %} checked{% endif %}><span>{{ p.t.editor_distribution_random() }}</span></label>
+        </div>
+      </div>
+      {#- red-packet.js reads this text as the rule note and rewrites it with the live split. #}
+      <output class="option-group__hint" data-packet-preview>{{ p.t.editor_packet_note(p.credit()) }}</output>
+    </fieldset>
+    <p class="form-note" data-categories="3" data-simple-lottery>{{ p.t.editor_simple_lottery(p.credit()) }}</p>
+    <fieldset class="option-group" data-categories="3">
+      <legend class="option-group__legend">{{ p.t.editor_entry_mode() }}</legend>
+      <div class="option-group__options">
+        <div class="checkline">
+          <label class="checkline__label"><input type="radio" name="entry_mode" value="reply"{% if e.entry_mode != "click" %} checked{% endif %}><span>{{ p.t.editor_entry_reply() }}</span></label>
+        </div>
+        <div class="checkline">
+          <label class="checkline__label"><input type="radio" name="entry_mode" value="click"{% if e.entry_mode == "click" %} checked{% endif %}><span>{{ p.t.editor_entry_click() }}</span></label>
+        </div>
+      </div>
+    </fieldset>
+    <div class="field field--wide" data-categories="3" data-click-requirements>
+      <label class="field__label" for="editor-requirements">{{ p.t.editor_requirements() }}</label>
+      <textarea id="editor-requirements" name="requirements" rows="3">{{ e.requirements }}</textarea>
+    </div>
+    <div class="checkline checkline--wide" data-categories="3">
+      <label class="checkline__label"><input type="checkbox" name="review" value="1"{% if !e.review.is_empty() %} checked{% endif %}><span>{{ p.t.editor_review() }}</span></label>
+    </div>
+    <div class="checkline checkline--wide" data-categories="3">
+      <label class="checkline__label"><input type="checkbox" name="early_draw" value="1"{% if !e.early_draw.is_empty() %} checked{% endif %}><span>{{ p.t.editor_early_draw() }}</span></label>
+    </div>
+    {% include "editor/lottery_prizes.html" %}
+    {% include "editor/deadline.html" %}
+    {% include "editor/poll.html" %}
+    <div class="field" data-categories="5">
+      <label class="field__label" for="editor-source_name">{{ p.t.editor_source_name() }}</label>
+      <input id="editor-source_name" name="source_name" value="{{ e.source_name }}" maxlength="255">
+    </div>
+    <div class="field" data-categories="5">
+      <label class="field__label" for="editor-source_url">{{ p.t.editor_source_url() }}</label>
+      <input type="url" id="editor-source_url" name="source_url" value="{{ e.source_url }}">
+    </div>
+    <div class="field" data-categories="5">
+      <label class="field__label" for="editor-source_author">{{ p.t.editor_source_author() }}</label>
+      <input id="editor-source_author" name="source_author" value="{{ e.source_author }}" maxlength="255">
+    </div>
+  </div>
+  {#- composer.js fills this in ("posting to X · who can see it") once a forum is chosen. #}
+  <p class="form-note" data-audience-summary aria-live="polite" hidden></p>
+  <noscript>
+    <p class="form-note">{{ p.t.editor_fallback_members() }}</p>
+    <p class="form-note">{{ p.t.editor_fallback_public() }}</p>
+  </noscript>
+  {%- endif %}
+  <div class="form-actions">
+    <button class="button" type="submit">{% if e.edit_pid > 0 %}{{ p.t.editor_save() }}{% else if e.tid == 0 %}{{ p.t.editor_submit_thread() }}{% else %}{{ p.t.editor_submit_reply() }}{% endif %}</button>
+    {#- composer.js finds this button by the exact formaction and turns it into the in-place preview toggle. #}
+    <button class="button button--secondary" type="submit" formaction="{{ crate::site::base() }}/api/preview" formnovalidate>{{ p.t.editor_preview() }}</button>
+  </div>
+</form>

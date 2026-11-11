@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="{{ p.t.tag() }}"{% if p.t.is_rtl() %} dir="rtl"{% endif %} data-base="{{ crate::site::base() }}" data-palette="default"{% if p.avatar_circle %} data-avatar-shape="circle"{% endif %}>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="htmx-config" content='{"allowEval":false,"includeIndicatorStyles":false,"historyCacheSize":0}'>
+  <meta name="csp-nonce" content="{{ p.nonce }}">
+  <meta name="composer-published" content="{{ p.published }}">
+  <title>{{ p.title }}</title>
+  {% if !p.description.is_empty() %}<meta name="description" content="{{ p.description }}">{% endif %}
+  <meta name="robots" content="{% if p.indexable %}index, follow{% else %}noindex, nofollow{% endif %}">
+  {%- for meta in p.verification %}
+  <meta name="{{ meta.0 }}" content="{{ meta.1 }}">
+  {%- endfor %}
+  {% if !p.canonical.is_empty() %}<link rel="canonical" href="{{ crate::site::href(p.canonical) }}">{% endif %}
+  <meta property="og:site_name" content="{{ p.frame.settings.site.name }}">
+  <meta property="og:locale" content="{{ p.t.og_locale() }}">
+  <meta property="og:title" content="{{ p.title }}">
+  {% if !p.description.is_empty() %}<meta property="og:description" content="{{ p.description }}">{% endif %}
+  {% if !p.canonical.is_empty() %}<meta property="og:url" content="{{ p.canonical }}">{% endif %}
+  <meta property="og:type" content="{{ p.og_type }}">
+  {% if !p.profile_username.is_empty() %}<meta property="profile:username" content="{{ p.profile_username }}">{% endif %}
+  {% if !p.share_image.is_empty() %}<meta property="og:image" content="{{ p.frame.site_url }}{{ p.share_image }}">{% if let Some(width) = p.share_width %}<meta property="og:image:width" content="{{ width }}">{% endif %}{% if let Some(height) = p.share_height %}<meta property="og:image:height" content="{{ height }}">{% endif %}{% endif %}
+  <meta name="twitter:card" content="{% if p.share_image.is_empty() %}summary{% else %}summary_large_image{% endif %}">
+  <meta name="twitter:title" content="{{ p.title }}">
+  {% if !p.description.is_empty() %}<meta name="twitter:description" content="{{ p.description }}">{% endif %}
+  {% if !p.share_image.is_empty() %}<meta name="twitter:image" content="{{ p.frame.site_url }}{{ p.share_image }}">{% endif %}
+  {%- for feed in p.feeds %}
+  <link rel="alternate" type="{{ feed.mime }}" title="{{ feed.title }}" href="{{ crate::site::href(feed.href) }}">
+  {%- endfor %}
+  {%- for block in p.json_ld %}
+  <script type="application/ld+json">{{ block|safe }}</script>
+  {%- endfor %}
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ crate::site::href(p.favicon) }}">
+  <link rel="apple-touch-icon" href="{{ crate::site::href(p.app_icon) }}">
+  <link rel="manifest" href="{{ crate::site::base() }}/site.webmanifest">
+  <script src="{{ crate::site::base() }}/static/i18n/{{ p.t.tag() }}.js?v={{ p.asset_version }}"></script>
+  <script src="{{ crate::site::base() }}/static/js/site.js?v={{ p.asset_version }}"></script>
+  <script src="{{ crate::site::base() }}/static/js/navigation.js?v={{ p.asset_version }}"></script>
+  <link rel="stylesheet" href="{{ crate::site::base() }}/static/css/fonts.css?v={{ p.asset_version }}">
+  <link rel="stylesheet" href="{{ crate::site::base() }}/static/css/forum.css?v={{ p.asset_version }}">
+  {# The member's own personal style: appears only on the member's own pages, and comes after the site styles so it
+     can override them (C1-A, C8-A). #}
+  {% if !p.custom_style.is_empty() %}<link rel="stylesheet" href="{{ crate::site::href(p.custom_style) }}" data-custom-style>{% endif %}
+  {# composer.js (about 95 KB / 32 KB gzipped) is loaded only on pages that actually render the editor.
+     The published branch cannot be dropped: mount() consumes the composer-published flash and discards the matching
+     local draft, and that flash is cleared on the first HTML response, so landing on a page without an editor would
+     leave the draft behind. #}
+  {% if p.needs_composer || !p.published.is_empty() %}<script src="{{ crate::site::base() }}/static/js/composer.js?v={{ p.asset_version }}" defer></script>{% endif %}
+  {% if p.debug_enabled %}
+  <link rel="stylesheet" href="{{ crate::site::base() }}/static/css/debug.css?v={{ p.asset_version }}">
+  <script src="{{ crate::site::base() }}/static/js/debug.js?v={{ p.asset_version }}" defer></script>
+  {% endif %}
+  <script src="{{ crate::site::base() }}/static/js/vendor/htmx.min.js?v={{ p.asset_version }}" defer></script>
+  <script src="{{ crate::site::base() }}/static/js/vendor/head-support.js?v={{ p.asset_version }}" defer></script>
+</head>
+<body hx-boost="true" hx-ext="head-support" hx-history="false">
+{#- Page frame for every front-end page: skip link, masthead, site notices, main region and footer.
+    Everything from <body> up to <main> is the frame header for tests/i18n_leaks_http.rs, so the notices stay above <main>.
+    The footer timing line must stay after the content block: processed_seconds() is read when the template reaches it. #}
+<a class="skip-link" href="#main">{{ p.t.frame_skip_to_content() }}</a>
+{% include "partials/header.html" %}
+{%- if !p.read_only_message.is_empty() %}
+<div class="banner-row banner-row--info">
+  <p class="banner container" role="status">{{ p.read_only_message }}</p>
+</div>
+{%- endif %}
+{%- if !p.mute_message.is_empty() %}
+<div class="banner-row banner-row--danger">
+  <p class="banner container" role="status" data-mute-banner>{{ p.mute_banner()|safe }}</p>
+</div>
+{%- endif %}
+{%- if p.needs_verification %}
+<div class="banner-row banner-row--warning">
+  <div class="banner banner--split container">
+    <p class="banner__text">
+      {%- if p.participation.google || p.participation.github %}{{ p.t.frame_verify_banner_external(p.participation.requirement_in(p.t)) }}
+      {%- else if p.participation.email && p.participation.mobile %}{{ p.t.frame_verify_banner_email_mobile() }}
+      {%- else if p.participation.mobile %}{{ p.t.frame_verify_banner_mobile() }}
+      {%- else %}{{ p.t.frame_verify_banner_email() }}
+      {%- endif -%}
+    </p>
+    {%- if p.participation.email || p.participation.mobile || p.participation.google || p.participation.github %}
+    <ul class="banner__actions">
+      {%- if p.participation.email %}
+      <li><a class="button button--small button--secondary" href="{{ crate::site::base() }}/verify-email" hx-boost="false">{{ p.t.frame_verify_email() }}</a></li>
+      {%- endif %}
+      {%- if p.participation.mobile %}
+      <li><a class="button button--small button--secondary" href="{{ crate::site::base() }}/my/account#mobile" hx-boost="false">{{ p.t.frame_bind_mobile() }}</a></li>
+      {%- endif %}
+      {%- if p.participation.google || p.participation.github %}
+      <li><a class="button button--small button--secondary" href="{{ crate::site::base() }}/my/account#external" hx-boost="false">{{ p.t.frame_bind_external() }}</a></li>
+      {%- endif %}
+    </ul>
+    {%- endif %}
+  </div>
+</div>
+{%- endif %}
+<main class="container site-main" id="main" tabindex="-1">
+{% block content %}{% endblock %}
+</main>
+<footer class="colophon">
+  <div class="colophon__inner container">
+    <nav class="colophon__nav" aria-label="{{ p.t.frame_footer_nav() }}">
+      <ul class="colophon__links">
+        <li><a href="{{ crate::site::base() }}/rules">{{ p.t.frame_footer_rules() }}</a></li>
+        <li><a href="{{ crate::site::base() }}/terms">{{ p.t.frame_footer_terms() }}</a></li>
+        <li><a href="{{ crate::site::base() }}/privacy">{{ p.t.frame_footer_privacy() }}</a></li>
+        <li><a href="{{ crate::site::base() }}/contact">{{ p.t.frame_footer_contact() }}</a></li>
+        <li><a href="{{ crate::site::base() }}/feeds">{{ p.t.frame_footer_feeds() }}</a></li>
+        <li><a href="{{ crate::site::base() }}/ranks">{{ p.t.frame_footer_ranks() }}</a></li>
+        <li><a href="{{ crate::site::base() }}/credits/rules">{{ p.t.frame_footer_credits() }}</a></li>
+        <li><a href="{{ crate::site::base() }}/verified">{{ p.t.frame_footer_verified() }}</a></li>
+        <li><a href="{{ crate::site::base() }}/links">{{ p.t.frame_footer_links() }}</a></li>
+      </ul>
+    </nav>
+    <p class="colophon__legal">Powered by <a class="colophon__brand" href="https://www.gono.forum" target="_blank" rel="noopener noreferrer">Gono Forum</a>{% if p.frame.settings.display.footer_metrics %}, Processed in {{ p.processed_seconds() }} second(s), {{ p.database }} {{ p.sql_queries() }} queries , Redis {{ p.redis_queries() }} queries{% endif %}.</p>
+  </div>
+</footer>
+</body>
+</html>

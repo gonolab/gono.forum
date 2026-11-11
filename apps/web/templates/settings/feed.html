@@ -1,0 +1,76 @@
+{% extends "layout/my.html" %}
+{% block panel %}
+<div class="narrow-page narrow-page--embedded" hx-boost="false">
+  <section class="panel">
+    <p class="intro">{{ p.t.settings_feed_lead() }}</p>
+    <p class="intro">{{ p.t.settings_feed_secret_lead() }}</p>
+    {%- if !message.is_empty() %}
+    <p class="form-feedback{% if success %} form-feedback--success{% endif %}" role="{% if success %}status{% else %}alert{% endif %}">{{ message }}</p>
+    {%- endif %}
+    {%- if !addresses.is_empty() %}
+    <p class="intro">{{ p.t.settings_feed_addresses() }}</p>
+    <ul class="rows feed-addresses" data-feed-addresses>
+      {%- for address in addresses %}
+      <li class="rows__item">
+        <div class="row-body">
+          <div class="row-headline"><strong>{{ address.label }}</strong></div>
+          {%- if !address.note.is_empty() %}
+          <p class="row-excerpt">{{ address.note }}</p>
+          {%- endif %}
+          <p class="row-meta"><span>RSS{{ p.t.common_colon() }}<code data-feed-address>{{ address.rss }}</code></span></p>
+          <p class="row-meta"><span>Atom{{ p.t.common_colon() }}<code>{{ address.atom }}</code></span></p>
+        </div>
+      </li>
+      {%- endfor %}
+    </ul>
+    {%- endif %}
+    {%- if let Some(token) = token %}
+    <p class="intro" data-feed-status>{{ p.t.settings_feed_on() }}</p>
+    <p class="intro">{{ p.t.settings_token() }}<code>{{ token.hint }}…</code> · {{ p.t.settings_created(token.created.as_str()) }} · {% if token.include_members %}{{ p.t.settings_feed_with_members() }}{% else %}{{ p.t.settings_feed_public_only() }}{% endif %}</p>
+    {%- else %}
+    <p class="intro" data-feed-status>{{ p.t.settings_feed_off() }}</p>
+    {%- endif %}
+  </section>
+  {%- if let Some(token) = token %}
+  <section class="panel">
+    <h2 class="panel__title">{{ p.t.settings_feed_members() }}</h2>
+    <p class="intro">{{ p.t.settings_feed_members_lead() }}</p>
+    <form class="fields" method="post" action="{{ crate::site::base() }}/my/feed/members">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <div class="checkline">
+        <label class="checkline__label">
+          <input type="checkbox" name="include_members" value="true"{% if token.include_members %} checked{% endif %}>
+          <span>{{ p.t.settings_feed_include_members() }}</span>
+        </label>
+      </div>
+      <button class="button button--block" type="submit">{{ p.t.settings_save() }}</button>
+    </form>
+  </section>
+  <section class="panel">
+    <h2 class="panel__title">{{ p.t.settings_feed_rotate() }}</h2>
+    <p class="intro">{{ p.t.settings_feed_rotate_lead() }}</p>
+    <form class="fields" method="post" action="{{ crate::site::base() }}/my/feed/rotate">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <button class="button button--block" type="submit">{{ p.t.settings_feed_rotate_submit() }}</button>
+    </form>
+  </section>
+  <section class="panel">
+    <h2 class="panel__title">{{ p.t.settings_feed_disable() }}</h2>
+    <p class="intro">{{ p.t.settings_feed_disable_lead() }}</p>
+    <form class="fields" method="post" action="{{ crate::site::base() }}/my/feed/disable">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <button class="button button--block" type="submit">{{ p.t.settings_feed_disable_submit() }}</button>
+    </form>
+  </section>
+  {%- else %}
+  <section class="panel">
+    <h2 class="panel__title">{{ p.t.settings_feed_enable() }}</h2>
+    <p class="intro">{{ p.t.settings_feed_enable_lead() }}</p>
+    <form class="fields" method="post" action="{{ crate::site::base() }}/my/feed/enable">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <button class="button button--block" type="submit">{{ p.t.settings_feed_enable_submit() }}</button>
+    </form>
+  </section>
+  {%- endif %}
+</div>
+{% endblock %}

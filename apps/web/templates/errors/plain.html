@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="{{ t.tag() }}"{% if !t.dir().is_empty() %} dir="{{ t.dir() }}"{% endif %}>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{{ status }} - {{ heading }}</title>
+  <link rel="stylesheet" href="{{ crate::site::base() }}/static/css/forum.css?v={{ asset_version }}">
+</head>
+<body>
+<main class="panel" data-plain-error="{{ status }}">
+<h1>{{ status }} · {{ heading }}</h1>
+<p>{{ message }}</p>
+{% if !key.is_empty() %}<dl data-settings-error>
+<dt>{{ t.common_plain_key() }}</dt><dd><code>{{ key }}</code>{{ t.common_plain_key_where(crate::i18n::Markup::trusted("<code>gonof_common_settings</code>"), crate::i18n::Markup::trusted("<code>skey</code>"))|safe }}</dd>
+<dt>{{ t.common_plain_found() }}</dt><dd>{{ found }}</dd>
+<dt>{{ t.common_plain_expected() }}</dt><dd>{{ expected }}</dd>
+</dl>
+<p>{{ t.common_plain_settings_hint() }}</p>{% endif %}
+<p><a href="{{ crate::site::base() }}/">{{ t.common_back_home() }}</a></p>
+</main>
+</body>
+</html>

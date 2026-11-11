@@ -1,0 +1,284 @@
+/* Topic listing pages (home, forum, topic search): listing, board-strip, crumbs, board-head, pane. */
+
+/* ------------------------------------------------------------------ */
+/* Page skeleton                                                       */
+/* ------------------------------------------------------------------ */
+
+.listing {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  min-inline-size: 0;
+}
+
+/* Blocks in the main column: forum head, list pane, pagination. */
+.listing__main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-content: start;
+}
+
+/* ------------------------------------------------------------------ */
+/* Phone board strip                                                   */
+/* ------------------------------------------------------------------ */
+
+/* Phone only: above 760px the header's board navigation does this job. */
+.board-strip {
+  display: none;
+}
+
+.board-strip__item {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  box-sizing: border-box;
+  min-block-size: 40px;
+  padding-inline: 12px;
+  border-block-end: 2px solid transparent;
+  border-start-start-radius: var(--r-sm);
+  border-start-end-radius: var(--r-sm);
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.4;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.board-strip__item:hover {
+  background: var(--panel-alt);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.board-strip__item[aria-current] {
+  border-block-end-color: var(--accent);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* Inset ring: the strip scrolls and would clip an outer one. */
+.board-strip__item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+  border-radius: var(--r-xs);
+}
+
+/* ------------------------------------------------------------------ */
+/* Breadcrumb trail (child board pages)                                */
+/* ------------------------------------------------------------------ */
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  min-inline-size: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.crumbs > a {
+  min-inline-size: 0;
+  color: var(--text-muted);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.crumbs > a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.crumbs > a:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+
+/* The separator points along the reading direction. */
+.crumbs > span {
+  color: var(--text-subtle);
+}
+
+.crumbs > span:dir(rtl) {
+  scale: -1 1;
+}
+
+/* ------------------------------------------------------------------ */
+/* Forum head (also the search heading)                                */
+/* ------------------------------------------------------------------ */
+
+/* Tighter than the usual panel rhythm: the head reads as one block. */
+.panel.board-head > * + * {
+  margin-block-start: 10px;
+}
+
+.board-head__top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-inline-size: 0;
+}
+
+.board-head__icon {
+  flex: none;
+  inline-size: 40px;
+  block-size: 40px;
+  border-radius: var(--r-sm);
+  object-fit: cover;
+}
+
+.board-head__title {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  margin: 0;
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+/* Follow and filter controls (social/control.html, social/forum_filter.html) and their notes. */
+.board-head__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  min-inline-size: 0;
+}
+
+.board-head__actions > p {
+  margin: 0;
+}
+
+.board-head__desc {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.board-head__mods {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.board-head__mods a {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.board-head__mods a:hover {
+  color: var(--link-hover);
+  text-decoration: underline;
+}
+
+.board-head__mods a:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+
+/* Posting guidance: a native disclosure, so it works without scripts. */
+.board-head__guide > summary {
+  inline-size: fit-content;
+  color: var(--link);
+  font-size: 13.5px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.board-head__guide > summary:hover {
+  color: var(--link-hover);
+}
+
+.board-head__guide > summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+
+.board-head__guide-body {
+  margin: 0;
+  margin-block-start: 8px;
+  padding-block: 10px;
+  padding-inline: 12px;
+  border-radius: var(--r-input);
+  background: var(--panel-alt);
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------------ */
+/* List pane                                                           */
+/* ------------------------------------------------------------------ */
+
+/* White main-column panel around tabs, the toolbar and the lists; rows and the toolbar bring their own inline padding. */
+.pane {
+  box-sizing: border-box;
+  min-inline-size: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  box-shadow: var(--shadow-base);
+}
+
+/* Search scope and child board tabs line up with the toolbar below them. */
+.pane > .tabs {
+  padding-inline: 16px;
+}
+
+/* Cross-board pins and the topic list are two lists in one pane. */
+.pane > .rows + .rows {
+  border-block-start: 1px solid var(--line);
+}
+
+/* ------------------------------------------------------------------ */
+/* Breakpoints (docs/styles.md, "Breakpoints")                         */
+/* ------------------------------------------------------------------ */
+
+@media (max-width: 760px) {
+  .board-strip {
+    display: flex;
+    gap: 2px;
+    min-inline-size: 0;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+    box-shadow: inset 0 -1px 0 var(--line);
+  }
+
+  .board-strip::-webkit-scrollbar {
+    display: none;
+  }
+
+  .board-head__title {
+    font-size: 19px;
+  }
+
+  .pane > .tabs {
+    padding-inline: 12px;
+  }
+}
+
+.board-head__name {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* A link that follows the description text in the same line (the friend-link page's "apply" entry). */
+.board-head__desc > a:not(:first-child) {
+  margin-inline-start: 0.5em;
+}

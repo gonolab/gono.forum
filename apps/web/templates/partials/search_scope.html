@@ -1,0 +1,3 @@
+{#- The threads / members scope tabs of the search page, shared by thread search (home/index.html) and user search
+    (search/users.html). -#}
+<nav class="tabs" aria-label="{{ p.t.home_search_scope() }}"><a class="tabs__item" href="{{ crate::site::href(scope.threads_href) }}"{% if !scope.members %} aria-current="page"{% endif %}>{{ p.t.home_search_threads() }}</a><a class="tabs__item" href="{{ crate::site::href(scope.members_href) }}"{% if scope.members %} aria-current="page"{% endif %}>{{ p.t.home_search_members() }}</a></nav>

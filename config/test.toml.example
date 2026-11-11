@@ -1,0 +1,38 @@
+# Optional: copy to config/test.toml and fill in a separate test server; that file is ignored by Git. The GONOF_TEST_*
+# environment variables below can replace it entirely (README, "Tests").
+# The tests create a random database for each fixture and drop it at the end, so the account needs CREATE / DROP
+# DATABASE privileges.
+# Minimum-version acceptance must run on a real MySQL 5.7.44; then switch to a newer MySQL connection for regression.
+# GONOF_TEST_CONFIG can point to another test configuration; the connection in development.toml is never read.
+[database]
+# For example mysql://username:url-encoded-password@host:3306/mysql
+# GONOF_TEST_MYSQL_URL takes precedence. The database in the URL is only the entry point for the admin connection
+# and is never dropped. With GONOF_TEST_BACKEND=sqlite this URL is not used: each fixture creates its own SQLite file.
+url = ""
+max_connections = 5
+acquire_timeout_seconds = 10
+
+[redis]
+# Fill in the full Redis 7.0+ connection URL; GONOF_TEST_REDIS_URL takes precedence.
+url = ""
+# The test helpers replace it with a separate namespace for each fixture automatically and never flush the whole
+# Redis database.
+namespace = "gonof:test"
+timeout_milliseconds = 2000
+
+[identity.cookie]
+# May be left empty: the test process then uses a random key, as for the two-factor key below.
+# To pin it, fill in 64 hex digits (openssl rand -hex 32); GONOF_TEST_AUTH_COOKIE_KEY takes precedence.
+# The development/production cookie key environment variables are not read; previous keys use
+# GONOF_TEST_AUTH_COOKIE_PREVIOUS_KEYS (comma-separated).
+active_key = ""
+previous_keys = []
+
+[identity.two_factor]
+# May be left empty: test databases are created fresh each run and dropped after use, and when it is empty the test
+# process uses a random key automatically.
+# To pin it, fill in 64 hex digits (32 bytes, openssl rand -hex 32); it must not equal the cookie key above;
+# GONOF_TEST_TWO_FACTOR_KEY takes precedence, previous keys use GONOF_TEST_TWO_FACTOR_PREVIOUS_KEYS (comma-separated).
+# The development/production GONOF_TWO_FACTOR_KEY is not read.
+active_key = ""
+previous_keys = []

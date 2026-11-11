@@ -1,0 +1,58 @@
+<div class="panel">{% if staff %}<h1 class="panel__title">{{ p.t.governance_manage_sanctions() }}</h1>{% else %}<h2 class="panel__title">{{ p.t.governance_my_sanctions() }}</h2>{% endif %}
+{% if staff %}
+<form class="fields fields--inline" method="get" action="{{ crate::site::base() }}/manage/sanctions">
+  <div class="field">
+    <label class="field__label" for="sanctions-uid">{{ p.t.governance_manage_member_uid_label() }}</label>
+    <input type="number" id="sanctions-uid" name="uid" value="{% if form.uid > 0 %}{{ form.uid }}{% endif %}" min="1" required>
+  </div>
+  <div class="form-actions"><button class="button" type="submit">{{ p.t.governance_manage_sanctions_view() }}</button></div>
+</form>
+{% endif %}
+{% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+{% if let Some(member) = member %}<h2 translate="no">{{ member.username }} · UID {{ member.uid }}</h2><p>{% if member.frozen %}{{ p.t.governance_manage_frozen() }}{% else %}{{ p.t.governance_manage_not_frozen() }}{% endif %} · {{ member.mute_state() }}</p>
+{% if member.uid != p.uid && member.role != 1 && (role == 1 || member.mutable()) %}
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/sanctions">
+  <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+  <input type="hidden" name="request_key" value="{{ form.request_key }}">
+  <input type="hidden" name="uid" value="{{ member.uid }}">
+  <input type="hidden" name="expected_version" value="{{ form.expected_version }}">
+  <div class="field">
+    <label class="field__label" for="sanction-kind">{{ p.t.governance_manage_sanction_kind() }}</label>
+    <select id="sanction-kind" name="kind">
+      {%- if role == 1 %}
+      <option value="warning"{% if form.kind == "warning" %} selected{% endif %}>{{ p.t.governance_sanction_warning() }}</option>
+      {%- endif %}
+      {%- if member.mutable() %}
+      <option value="mute"{% if form.kind == "mute" %} selected{% endif %}>{{ p.t.governance_sanction_mute() }}</option>
+      {%- endif %}
+      {%- if role == 1 %}
+      <option value="freeze"{% if form.kind == "freeze" %} selected{% endif %}>{{ p.t.governance_sanction_freeze() }}</option>
+      {%- endif %}
+    </select>
+  </div>
+  <div class="field">
+    <label class="field__label" for="sanction-hours">{{ p.t.governance_manage_sanction_hours() }}</label>
+    <input type="number" id="sanction-hours" aria-describedby="sanction-hours-hint" name="hours" value="{{ form.hours }}" min="0" max="8760" required>
+    <p class="field__hint" id="sanction-hours-hint">{% if role == 1 %}{{ p.t.governance_manage_hours_help_admin() }}{% else %}{{ p.t.governance_manage_hours_help() }}{% endif %}</p>
+  </div>
+  <div class="field">
+    <label class="field__label" for="sanction-reason">{{ p.t.governance_manage_sanction_reason() }}</label>
+    <textarea id="sanction-reason" name="reason" rows="4" maxlength="500" required>{{ form.reason }}</textarea>
+  </div>
+  <p class="form-note">{% if role == 1 %}{{ p.t.governance_manage_sanction_rules_admin() }}{% else %}{{ p.t.governance_manage_sanction_rules() }}{% endif %}</p>
+  <div class="form-actions"><button class="button" type="submit">{{ p.t.governance_manage_sanction_submit() }}</button></div>
+</form>
+{% endif %}{% endif %}</div>
+{% for s in rows %}<article class="panel" id="sanction-{{ s.id }}"><h2>{{ s.label() }} · {{ s.status() }}</h2><p class="governance-reason">{{ s.reason }}</p><p>{{ p.t.governance_sanction_period(s.start_time(), s.end_time()) }}</p>{% if s.revoked_at > 0 %}<p>{{ p.t.governance_sanction_ended(s.revoked_time()) }}</p>{% endif %}
+{% if !staff %}<p><a href="{{ crate::site::base() }}{% if p.authenticated %}/my/sanctions/{{ s.id }}/appeal{% else %}/appeals/sanctions/{{ s.id }}{% endif %}">{{ p.t.governance_sanction_appeal() }}</a></p>{% endif %}
+{% if staff && s.revocable_by(*role) %}
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/sanctions/{{ s.id }}/revoke">
+  <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+  <div class="field">
+    <label class="field__label" for="revoke-{{ s.id }}-reason">{{ p.t.governance_manage_revoke_reason() }}</label>
+    <textarea id="revoke-{{ s.id }}-reason" name="reason" rows="2" maxlength="500" required></textarea>
+  </div>
+  <div class="form-actions"><button class="button" type="submit">{{ p.t.governance_manage_sanction_revoke() }}</button></div>
+</form>
+{% endif %}</article>{% else %}{% if !staff || form.uid > 0 %}<p class="empty">{{ p.t.governance_sanctions_empty() }}</p>{% endif %}{% endfor %}
+{% if !next.is_empty() %}<div class="panel"><a href="{{ crate::site::href(next) }}">{{ p.t.common_next_page() }}</a></div>{% endif %}

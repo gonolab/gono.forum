@@ -1,0 +1,8 @@
+{% extends "layout/my.html" %}
+{% block panel %}
+<section class="pane private-collection" hx-boost="false">
+<div class="panel"><p>{{ p.t.activity_growth() }} <strong data-growth>{{ level.growth }}</strong> · <span class="tag tag--level" title="{{ level.name }}" data-level="{{ level.number }}">Lv{{ level.number }}</span> {{ level.name }}{% if let Some(next) = level.next %} · {{ p.t.activity_growth_next(level.remaining(), next) }}{% endif %}</p>
+<p>{{ p.t.activity_growth_intro(p.link("/credits/rules#growth", p.t.frame_footer_credits()))|safe }}</p></div>
+<ul class="rows">{% for row in rows %}<li class="rows__item" data-growth-kind="{{ row.entry.kind }}"><div class="row-body"><div class="row-headline"><strong>{{ row.label }}</strong><span>{% if row.entry.delta > 0 %}+{% endif %}{{ row.entry.delta }} · {{ p.t.activity_growth_after(row.entry.growth_after) }}</span></div>{% if !row.entry.reason.is_empty() %}<p class="row-excerpt">{{ row.entry.reason }}</p>{% endif %}{% if !row.href.is_empty() %}<p class="row-meta"><a href="{{ crate::site::href(row.href) }}">{{ p.t.activity_growth_view_post() }}</a></p>{% endif %}</div><span class="row-end"><span class="row-time">{{ row.time }}</span></span></li>{% else %}<li class="empty">{{ p.t.activity_growth_empty() }}</li>{% endfor %}</ul>
+{% if next_before > 0 %}<a class="pagination-link" href="{{ crate::site::base() }}/my/credits/growth?before={{ next_before }}">{{ p.t.activity_ledger_earlier() }}</a>{% endif %}</section>
+{% endblock %}

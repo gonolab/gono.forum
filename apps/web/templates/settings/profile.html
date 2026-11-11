@@ -1,0 +1,108 @@
+{% extends "layout/my.html" %}
+
+{% block panel %}
+{#- One form per block. Saves and errors of every block come back as the single page-level message at the top. #}
+<div class="narrow-page narrow-page--embedded" hx-boost="false">
+  {%- if !message.is_empty() %}
+  <p class="form-feedback{% if success %} form-feedback--success{% endif %}" role="{% if success %}status{% else %}alert{% endif %}">{{ message }}</p>
+  {%- endif %}
+
+  <div class="panel">
+    <form class="fields" method="post" action="{{ crate::site::base() }}/my/profile" data-profile-form>
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <div class="field">
+        <label class="field__label" for="profile-username">{{ p.t.account_username() }}</label>
+        {#- During the cooldown the name is read-only but still submitted; the server keeps it when unchanged. #}
+        <input type="text" id="profile-username" aria-describedby="profile-username-hint{% if !username_available %} profile-username-next-hint{% endif %}" name="username" value="{{ form.username }}" autocomplete="username" maxlength="50" required{% if !username_available %} readonly{% endif %}>
+        <p class="field__hint" id="profile-username-hint">{{ p.t.settings_username_hint(cooldown.as_str()) }}</p>
+        {%- if !username_available %}
+        <p class="field__hint" id="profile-username-next-hint">{{ p.t.settings_username_next(username_available_at.as_str()) }}</p>
+        {%- endif %}
+      </div>
+      <div class="field">
+        <label class="field__label" for="profile-bio">{{ p.t.settings_bio() }}</label>
+        <textarea id="profile-bio" aria-describedby="profile-bio-hint" name="bio" rows="4" maxlength="500">{{ form.bio }}</textarea>
+        <p class="field__hint" id="profile-bio-hint">{{ p.t.settings_bio_hint() }}</p>
+      </div>
+      <div class="form-actions">
+        <button class="button button--primary" type="submit">{{ p.t.settings_profile_save() }}</button>
+        <a class="button button--secondary" href="{{ crate::site::href(avatar.profile_href) }}">{{ p.t.settings_view_profile() }}</a>
+      </div>
+    </form>
+  </div>
+
+  <section class="panel">
+    <h2 class="panel__title">{{ p.t.settings_avatar() }}</h2>
+    <div class="person person--large">
+      <span class="person__avatar">{% include "partials/avatar.html" %}</span>
+      <p class="form-note">{{ p.t.settings_avatar_lead() }}</p>
+    </div>
+    {%- if can_upload %}
+    {#- The server reads the parts in order and checks the token before the file: both hidden fields stay first.
+        At most four parts, so the submit button has no name. #}
+    <form class="fields" method="post" action="{{ crate::site::base() }}/my/profile/avatar" enctype="multipart/form-data" data-avatar-upload>
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <input type="hidden" name="request_key" value="{{ request_key }}">
+      <div class="field">
+        <label class="field__label" for="avatar-file">{{ p.t.settings_avatar_choose() }}</label>
+        <input type="file" id="avatar-file" aria-describedby="avatar-file-hint" name="file" accept="image/png,image/jpeg,image/gif,image/webp" required>
+        <p class="field__hint" id="avatar-file-hint">{{ p.t.settings_avatar_hint(image_max_mb) }}</p>
+      </div>
+      <div class="form-actions">
+        <button class="button button--primary" type="submit">{{ p.t.settings_avatar_upload() }}</button>
+      </div>
+    </form>
+    {%- else %}
+    <p class="form-feedback form-feedback--info">{{ p.t.settings_avatar_need_email(p.link("/verify-email", p.t.frame_verify_email()))|safe }}</p>
+    {%- endif %}
+    {%- if has_avatar %}
+    <form method="post" action="{{ crate::site::base() }}/my/profile/avatar/remove">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <button class="button button--secondary" type="submit">{{ p.t.settings_avatar_remove() }}</button>
+    </form>
+    {%- endif %}
+  </section>
+
+  <section class="panel">
+    <h2 class="panel__title">{{ p.t.settings_privacy() }}</h2>
+    <form class="fields" method="post" action="{{ crate::site::base() }}/my/profile/privacy" data-space-privacy>
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <div class="field">
+        <label class="field__label" for="privacy-space_visibility">{{ p.t.settings_space_visibility() }}</label>
+        <select id="privacy-space_visibility" name="space_visibility">
+          <option value="public"{% if space_visibility == "public" %} selected{% endif %}>{{ p.t.settings_visibility_public() }}</option>
+          <option value="members"{% if space_visibility == "members" %} selected{% endif %}>{{ p.t.settings_visibility_members() }}</option>
+          <option value="private"{% if space_visibility == "private" %} selected{% endif %}>{{ p.t.settings_visibility_private() }}</option>
+        </select>
+      </div>
+      <div class="form-actions">
+        <button class="button button--primary" type="submit">{{ p.t.settings_privacy_save() }}</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2 class="panel__title">{{ p.t.settings_email_change() }}</h2>
+    <p class="intro">{{ p.t.settings_current_email(current_email.as_str()) }}</p>
+    {%- if !pending_email.is_empty() %}
+    <p class="form-feedback form-feedback--info" data-pending-email>{{ p.t.settings_pending_email(pending_email.as_str()) }}</p>
+    {%- endif %}
+    <p class="intro">{{ p.t.settings_email_change_lead() }}</p>
+    {%- include "partials/mail_paused.html" %}
+    <form class="fields" method="post" action="{{ crate::site::base() }}/my/profile/email" data-email-change>
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <div class="field">
+        <label class="field__label" for="email-change-email">{{ p.t.settings_new_email() }}</label>
+        <input type="email" id="email-change-email" name="email" autocomplete="email" maxlength="255" required>
+      </div>
+      <div class="field">
+        <label class="field__label" for="email-change-current_password">{{ p.t.settings_current_password() }}</label>
+        <input type="password" id="email-change-current_password" name="current_password" autocomplete="current-password" maxlength="128" required>
+      </div>
+      <div class="form-actions">
+        <button class="button button--primary" type="submit">{{ p.t.settings_email_change_submit() }}</button>
+      </div>
+    </form>
+  </section>
+</div>
+{% endblock %}

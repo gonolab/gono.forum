@@ -1,0 +1,164 @@
+//! Tools & maintenance › Version updates: the page, a check against a local release directory, and one-click
+//! upgrade refused with reasons in a source build. The download, digest check, unpacking and binary swap are covered
+//! by the unit tests in `updates.rs`.
+#[path = "support/http_auth.rs"]
+mod http_auth;
+use axum::{
+    Router,
+    body::Body,
+    http::{Request, StatusCode, header},
+};
+use gono_forum_web::{db, identity, test_support::TestFixture, updates};
+use http_body_util::BodyExt;
+use tower::ServiceExt;
+
+const ADMIN: i64 = 9911;
+const MEMBER: i64 = 9912;
+
+struct Fixture {
+    f: TestFixture,
+    app: Router,
+    admin: identity::SessionGrant,
+    member: identity::SessionGrant,
+    source: std::path::PathBuf,
+}
+
+impl Fixture {
+    async fn new() -> Self {
+        let mut f = TestFixture::migrated().await.unwrap();
+        for (uid, name, role) in [(ADMIN, "update-admin", 1), (MEMBER, "update-member", 0)] {
+            db::query("INSERT INTO gonof_common_member(uid,username,password,email,emailstatus,adminid,regdate) VALUES(?,?,'synthetic-hash',?,1,?,1)")
+                .bind(uid)
+                .bind(name)
+                .bind(format!("{name}@example.test"))
+                .bind(role)
+                .execute(f.db.executor())
+                .await
+                .unwrap();
+        }
+        let identity = identity::Identity::new(
+            f.db.clone(),
+            f.config.identity.clone(),
+            f.root.clone(),
+            f.global.clone(),
+        );
+        let admin = http_auth::login(&identity, &f.db, ADMIN).await;
+        let member = http_auth::login(&identity, &f.db, MEMBER).await;
+        // A release directory with the GitHub layout, listing a newer package for every platform.
+        let source = f.root.join("releases");
+        std::fs::create_dir_all(source.join("latest/download")).unwrap();
+        let digest = "ab".repeat(32);
+        std::fs::write(
+            source.join("latest/download/checksums.txt"),
+            format!(
+                "{digest}  gono-forum_99.0.0_linux_amd64.tar.gz\n{digest}  gono-forum_99.0.0_linux_arm64.tar.gz\n"
+            ),
+        )
+        .unwrap();
+        f.config.update.releases_url = format!("file://{}", source.display());
+        let app = gono_forum_web::router::build_with_global(
+            f.config.clone(),
+            &f.root,
+            f.db.clone(),
+            f.cache.clone(),
+            f.global.clone(),
+        );
+        Self {
+            f,
+            app,
+            admin,
+            member,
+            source,
+        }
+    }
+
+    async fn send(
+        &self,
+        grant: &identity::SessionGrant,
+        method: &str,
+        path: &str,
+    ) -> (StatusCode, String) {
+        let mut request = Request::builder().method(method).uri(path).header(
+            header::COOKIE,
+            format!("gonof_session={}", grant.session_token),
+        );
+        let body = if method == "POST" {
+            request = request.header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
+            url::form_urlencoded::Serializer::new(String::new())
+                .append_pair("_csrf", &grant.csrf_token)
+                .finish()
+        } else {
+            String::new()
+        };
+        let response = self
+            .app
+            .clone()
+            .oneshot(request.body(Body::from(body)).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        (status, String::from_utf8(body.to_vec()).unwrap())
+    }
+}
+
+#[tokio::test]
+async fn the_update_page_checks_a_release_source_and_explains_why_it_cannot_upgrade() {
+    let fixture = Fixture::new().await;
+    let (status, body) = fixture.send(&fixture.admin, "GET", "/manage/updates").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains(&format!("<code>{}</code>", gono_forum_web::VERSION)),
+        "{body}"
+    );
+    assert!(body.contains("Not checked yet."), "{body}");
+    assert!(body.contains(&fixture.source.display().to_string()));
+    // Only administrators.
+    let (status, _) = fixture
+        .send(&fixture.member, "GET", "/manage/updates")
+        .await;
+    assert_ne!(status, StatusCode::OK);
+    let (status, _) = fixture
+        .send(&fixture.member, "POST", "/manage/updates/check")
+        .await;
+    assert_ne!(status, StatusCode::SEE_OTHER);
+
+    let (status, _) = fixture
+        .send(&fixture.admin, "POST", "/manage/updates/check")
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, body) = fixture.send(&fixture.admin, "GET", "/manage/updates").await;
+    if updates::platform().is_some() {
+        assert!(
+            body.contains("version <code>99.0.0</code> is available"),
+            "{body}"
+        );
+        // A source build under the test runner: the upgrade section explains why it is unavailable and offers no
+        // button.
+        assert!(
+            body.contains("This instance cannot upgrade in one click")
+                && body.contains("built from source"),
+            "{body}"
+        );
+        assert!(!body.contains("<button>Upgrade to 99.0.0</button>"));
+    } else {
+        assert!(
+            body.contains("failed: There are no release packages for this platform"),
+            "{body}"
+        );
+    }
+    let (status, body) = fixture
+        .send(&fixture.admin, "POST", "/manage/updates/apply")
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(body.contains("built from source"), "{body}");
+
+    // A source that cannot be read reports the error instead of a version.
+    std::fs::remove_file(fixture.source.join("latest/download/checksums.txt")).unwrap();
+    fixture
+        .send(&fixture.admin, "POST", "/manage/updates/check")
+        .await;
+    let (_, body) = fixture.send(&fixture.admin, "GET", "/manage/updates").await;
+    assert!(body.contains(" failed: "), "{body}");
+    fixture.f.cleanup().await.unwrap();
+}

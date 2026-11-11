@@ -1,0 +1,84 @@
+# The deployment configuration holds only deployment facts and functional settings of the same kind (database, Redis,
+# mail, attachments). Site name, description, forum domain, debug panel, posting quotas, growth points, member API,
+# account security, retention periods, leaderboard refresh interval and the like are admin-area settings (the settings
+# pages under /manage) and are read only from the database. Initial forums are not here either: a fresh install starts
+# from an empty database, and the administrator creates them by hand at /manage/forums.
+listen = "127.0.0.1:58833"
+
+[database]
+# Set the MySQL 5.7.44+ connection in config/development.toml or GONOF_DATABASE_URL.
+url = ""
+max_connections = 5
+acquire_timeout_seconds = 10
+
+[redis]
+# enabled is the deployment-shape switch: off for a single process on one machine, on for multiple processes or
+# multiple processes on multiple machines.
+# When off, the startup connection is skipped, Redis cache reads and writes all fall through to MySQL, and background
+# jobs no longer wait for Redis; the in-process global cache keeps working, and a save clears only this process.
+# When on, Redis 7.0+ is a hard dependency: startup verifies the connection and subscribes to the global cache
+# invalidation channel ({namespace}:global-cache), and refuses to start if the subscription fails; if Redis becomes
+# unavailable at runtime, requests return 503. Set the connection string in the private configuration or in
+# GONOF_REDIS_URL.
+# Cache lifetimes are admin-area settings (global settings › search and performance), not here; to profile SQL
+# locally, set settings.cache.ttl_seconds to 0 and turn enabled off.
+enabled = true
+url = ""
+namespace = "gonof"
+timeout_milliseconds = 2000
+
+[identity]
+# Local private directory (local mail when SMTP is not enabled, initialization logs, data exports); may be a path
+# relative to the project root.
+local_directory = ".local"
+
+[identity.cookie]
+# Generate a separate 32-byte random key (64 hex digits) and keep it long-term; never commit a real value.
+# GONOF_AUTH_COOKIE_KEY takes precedence; when rotating, put old keys in previous_keys (at most 3), used only for
+# decryption.
+# Once an old key is removed, cookies it issued that have not been renewed yet become invalid immediately.
+# The digests of SMS verification codes are keyed with a key derived from it: codes sent under a removed key stop
+# working as well.
+active_key = ""
+previous_keys = []
+
+[identity.two_factor]
+# Key that encrypts members' authenticator (TOTP) secrets: 32 random bytes as 64 lowercase hex digits, for example
+# the output of openssl rand -hex 32.
+# Required; startup fails if it is missing or malformed. It must not equal any [identity.cookie] key; never commit a
+# real value.
+# GONOF_TWO_FACTOR_KEY takes precedence; previous keys go in GONOF_TWO_FACTOR_PREVIOUS_KEYS (comma-separated; an
+# empty value clears them).
+# Keep it long-term and back it up with the private configuration: if it is lost, members who have turned on
+# two-step verification can only sign in with recovery codes.
+# Rotation: put the new key in active_key, move the old key to previous_keys (at most 3, used only for decryption),
+# then run gono-forum-cli rekey-two-factor; delete the old key only after it reports 0 rows that could not be
+# decrypted and the switch to the current key has finished.
+active_key = ""
+previous_keys = []
+
+# Attachment count limit (attachments are a functional setting of the same kind, so not in the admin area); posting
+# quotas, the body length limit and the edit time window are in the admin area under
+# "Security › Anti-spam & governance".
+[content]
+max_attachments = 20
+
+# Private isolated directory and image processing limits (file_max_bytes is the limit for GIFs converted from
+# animations); the S3 connection is managed at /manage/storage.
+[media]
+local_directory = ".local/media"
+image_max_bytes = 10485760
+file_max_bytes = 26214400
+daily_max_bytes = 209715200
+image_max_pixels = 40000000
+animation_max_frames = 100
+animation_max_pixels = 200000000
+processing_timeout_seconds = 30
+orphan_seconds = 604800
+trash_seconds = 2592000
+
+# Release source for "Check for updates" and one-click upgrade in the admin area (Tools & maintenance › Updates):
+# GitHub Releases, or a mirror with the same layout (latest/download/checksums.txt, download/v<version>/<package>),
+# including a local directory written as file:///absolute/path.
+[update]
+releases_url = "https://github.com/gonolab/gono.forum/releases"

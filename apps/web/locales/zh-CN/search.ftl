@@ -1,0 +1,10 @@
+search-members = 用户搜索
+search-members-heading = 搜索用户：{ $query }
+search-members-label = 用户名开头
+search-members-placeholder = 输入用户名开头
+search-members-submit = 搜索用户
+search-members-list = 用户列表
+search-members-prompt = 输入用户名开头查找会员。
+search-members-empty = 没有用户名以“{ $query }”开头的可见会员。
+search-error-query = 搜索参数不正确
+search-members-description = 按用户名开头查找会员

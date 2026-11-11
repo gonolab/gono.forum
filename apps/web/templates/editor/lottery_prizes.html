@@ -1,0 +1,50 @@
+{#- Custom lottery prizes (thread type 3). The server only reads `prizes` (one prize per line, five `|` columns) and
+    `lottery_codes`. lottery-prizes.js turns them into editable rows when it can read them losslessly, and writes the
+    two textareas back on every change; otherwise it leaves the plain fields alone. Redemption codes never go into
+    the local draft or any DOM attribute. #}
+<div class="prize-setup" data-categories="3" data-lottery-prizes data-max-prizes="{{ crate::activities::MAX_PRIZES }}">
+  <div class="prize-setup__fallback" data-prize-fallback>
+    <div class="field">
+      <label class="field__label" for="editor-prizes">{{ p.t.editor_prizes() }}</label>
+      <textarea id="editor-prizes" aria-describedby="editor-prizes-hint" name="prizes" rows="4" placeholder="{{ p.t.editor_prizes_example_code(p.t.editor_prize_kind_code()) }}&#10;{{ p.t.editor_prizes_example_credit(p.credit()) }}&#10;{{ p.t.editor_prizes_example_item(p.t.editor_prize_kind_item()) }}">{{ e.prizes }}</textarea>
+      <p class="field__hint" id="editor-prizes-hint">{{ p.t.editor_prizes_help(p.credit(), crate::activities::MAX_PRIZES) }}</p>
+    </div>
+    <div class="field">
+      <label class="field__label" for="editor-lottery_codes">{{ p.t.editor_codes() }}</label>
+      <textarea id="editor-lottery_codes" aria-describedby="editor-lottery_codes-hint" name="lottery_codes" rows="3" autocomplete="off">{{ e.lottery_codes }}</textarea>
+      <p class="field__hint" id="editor-lottery_codes-hint">{{ p.t.editor_codes_help() }}</p>
+    </div>
+  </div>
+  <div class="prize-setup__editor" data-prize-editor hidden>
+    <p class="prize-setup__title">{{ p.t.editor_prizes() }}</p>
+    <p data-prize-mode></p>
+    <div class="prize-setup__rows" data-prize-rows></div>
+    <button class="button button--small button--secondary prize-setup__add" type="button" data-add-prize>{{ p.t.editor_add_custom_prize() }}</button>
+    {#- One prize row; the script takes the first <template> in this block. Rules it relies on: the row is a
+        fieldset whose own legend comes first; each type radio sits in a label holding only it and the type name
+        (the label text becomes the third `prizes` column); the amount and the codes each sit in their own label
+        (hidden by type); the remove button is in the row but outside the nested type fieldset. Template rows
+        carry no ids because they are cloned. #}
+    <template data-prize-template>
+      <fieldset class="lottery-prize-row">
+        <legend></legend>
+        <div class="lottery-prize-fields">
+          <label class="field"><span class="field__label">{{ p.t.editor_prize_name() }}</span><input data-prize-name required></label>
+          <label class="field"><span class="field__label">{{ p.t.editor_prize_winners() }}</span><input type="number" data-prize-winners value="1" min="1" max="10000" required></label>
+          <fieldset class="option-group option-group--inline lottery-prize-wide" data-prize-kind>
+            <legend class="option-group__legend">{{ p.t.editor_prize_kind() }}</legend>
+            <div class="option-group__options">
+              <div class="checkline"><label class="checkline__label"><input type="radio" value="credit"><span>{{ p.credit() }}</span></label></div>
+              <div class="checkline"><label class="checkline__label"><input type="radio" value="code"><span>{{ p.t.editor_prize_kind_code() }}</span></label></div>
+              <div class="checkline"><label class="checkline__label"><input type="radio" value="item"><span>{{ p.t.editor_prize_kind_item() }}</span></label></div>
+            </div>
+          </fieldset>
+          <label class="field"><span class="field__label">{{ p.t.editor_prize_amount(p.credit()) }}</span><input type="number" data-prize-amount min="1" max="{{ crate::activities::MAX_CREDIT }}" required></label>
+          <label class="field lottery-prize-wide" hidden><span class="field__label">{{ p.t.editor_codes() }}</span><textarea data-prize-codes rows="2" autocomplete="off" spellcheck="false"></textarea><span class="field__hint">{{ p.t.editor_prize_codes_help() }}</span></label>
+          <label class="field lottery-prize-wide"><span class="field__label">{{ p.t.editor_prize_note() }}</span><input data-prize-note></label>
+        </div>
+        <button class="button button--small button--secondary" type="button" data-remove-prize>{{ p.t.editor_remove_prize() }}</button>
+      </fieldset>
+    </template>
+  </div>
+</div>

@@ -1,0 +1,405 @@
+[hidden] {
+  display: none !important;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.avatar--initials {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--avatar-text);
+  background: var(--avatar-bg);
+}
+.avatar-1, .avatar-4 {
+  background: var(--avatar-green-bg);
+  color: var(--avatar-green-text);
+}
+.avatar-2, .avatar-5 {
+  background: var(--avatar-amber-bg);
+  color: var(--avatar-amber-text);
+}
+/* List avatars are served by uid: a text tile underneath with the image on top; without
+   an avatar the image is transparent. */
+.avatar-stack {
+  position: relative;
+}
+.avatar-stack > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+.board-head__name {
+  overflow-wrap: anywhere;
+}
+main#main {
+  scroll-margin-top: calc(72px + var(--safe-top));
+}
+@media (prefers-reduced-motion: reduce) {
+*, *::before, *::after {
+  animation: none !important;
+  scroll-behavior: auto !important;
+  transition: none !important;
+}
+}
+.view-switch a {
+  padding: 4px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--panel);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.view-switch a[aria-current="page"] {
+  border-color: var(--selected-border);
+  background: var(--selected-bg);
+  color: var(--selected-text);
+}
+.invite-shell {
+  max-width: 760px;
+  margin: 0 auto;
+  padding-top: 28px;
+}
+.invites__quota {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.invites {
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  overflow: hidden;
+}
+.invites__item {
+  padding: 16px 18px;
+  border-top: 1px solid var(--line-soft);
+}
+.invites__item:first-child {
+  border-top: 0;
+}
+.invite-item-head, .invite-item-foot, .invite-code-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.invite-item-head {
+  justify-content: space-between;
+  font-size: 14px;
+}
+.invites__status, .invite-item-foot, .invite-copy-status {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.invite-code-row {
+  margin: 12px 0;
+}
+.invites__code {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 8px 10px;
+  background: var(--panel-alt);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  user-select: all;
+}
+.invite-item-foot {
+  justify-content: space-between;
+}
+.invite-copy-status {
+  flex-basis: 100%;
+}
+@media (max-width: 760px) {
+.invite-shell {
+  padding-top: 8px;
+}
+}
+.notification-title button {
+  font: inherit;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+}
+.interaction-disabled:where([data-active="true"]) {
+  color: var(--accent);
+}
+.notification-title form {
+  margin: 0;
+}
+
+.feed-addresses code {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+@media (max-width:760px) {
+.notification-title {
+  align-items: center;
+}
+}
+.profile-settings>.box:first-of-type {
+  border-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.profile-settings input[type=file] {
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+/* Keep stale history content hidden while the server revalidates the full page. */
+:root[data-history-revalidating] body { visibility: hidden; }
+.member-search-bar {
+  padding: 8px 14px;
+}
+.member-search-form {
+  display: flex;
+  flex: auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.member-search-form .member-search-input {
+  flex: 0 1 320px;
+  min-width: 0;
+}
+/* Check-in stats and this month's calendar on the credits page. */
+.signin-title {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.signin-stats {
+  display: grid;
+  grid-template-columns: repeat(4,minmax(0,1fr));
+  gap: 8px;
+  margin: 0 0 16px;
+  text-align: center;
+}
+.signin-stats dt {
+  color: var(--text-subtle);
+  font-size: 12px;
+}
+.signin-stats dd {
+  margin: 2px 0 0;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 16px;
+}
+.signin-calendar {
+  width: 100%;
+  max-width: 420px;
+  border-collapse: separate;
+  border-spacing: 4px;
+  table-layout: fixed;
+}
+.signin-calendar caption {
+  padding: 0 4px 4px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: left;
+}
+.signin-calendar th {
+  color: var(--text-subtle);
+  font-size: 12px;
+  font-weight: 500;
+}
+.signin-day {
+  height: 34px;
+  border-radius: var(--r-sm);
+  background: var(--panel-alt);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  text-align: center;
+}
+.signin-day.is-blank {
+  background: transparent;
+}
+.signin-day.is-checked {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.signin-day.is-today {
+  box-shadow: inset 0 0 0 1px var(--accent-border);
+}
+.signin-note {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+@media (max-width:420px) {
+.signin-stats {
+  grid-template-columns: repeat(2,minmax(0,1fr));
+}
+.signin-day {
+  height: 30px;
+}
+}
+/* Back-to-top / go-to-bottom buttons at the bottom right of long pages, created by site.js. Their z-index is below
+   the header (30), the mobile drawer (50) and the full-screen editor (60), so they are covered when the drawer or
+   the editor is open. */
+.page-jump {
+  position: fixed;
+  right: calc(20px + var(--safe-right));
+  bottom: calc(24px + var(--safe-bottom));
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+button.page-jump-btn {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--panel);
+  box-shadow: var(--shadow-base);
+  color: var(--text-muted);
+}
+button.page-jump-btn[hidden] {
+  display: none;
+}
+button.page-jump-btn:hover {
+  border-color: var(--line-strong);
+  background: var(--panel-hover);
+  color: var(--text);
+}
+button.page-jump-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.page-jump-btn svg {
+  width: 18px;
+  height: 18px;
+}
+@media (max-width:760px) {
+.page-jump {
+  right: calc(12px + var(--safe-right));
+  bottom: calc(16px + var(--safe-bottom));
+}
+button.page-jump-btn {
+  width: 36px;
+  height: 36px;
+}
+}
+@media print {
+.page-jump {
+  display: none;
+}
+}
+.today-gains {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 12px;
+  margin: 0 0 12px;
+}
+.today-gains dl {
+  margin: 0;
+}
+.today-gains dt {
+  color: var(--text-subtle);
+  font-size: 12px;
+}
+.today-gains dd {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.rank-note {
+  margin: 10px 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+@media (max-width: 760px) {
+  .today-gains {
+    grid-template-columns: minmax(0,1fr);
+  }
+}
+/* Verified-member directory and friend-link directory: one section per category. */
+.directory-section {
+  margin-top: 16px;
+}
+.directory-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.directory-count {
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+}
+.directory-more,.directory-contact {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.directory-contact a {
+  color: var(--accent);
+}
+.directory-explainer {
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+}
+.link-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill,minmax(180px,1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.link-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+}
+.link-tile:hover {
+  background: var(--panel-hover);
+}
+.link-name {
+  color: var(--text);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.link-domain,.link-desc {
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.link-domain {
+  font-family: var(--font-mono);
+}

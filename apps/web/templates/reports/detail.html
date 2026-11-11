@@ -1,0 +1,27 @@
+{% extends "layout/manage.html" %}
+{% block panel %}
+<div class="panel"><h1 class="panel__title">{{ p.t.governance_report_heading(r.id.to_string(), r.status_label()) }}</h1><p>{{ r.target.label() }} #{{ r.target.target_id }} · {{ r.time() }}</p><h2>{{ p.t.governance_report_reason() }}</h2><p class="governance-reason">{{ r.reason }}</p>
+{% if let Some(target) = target %}<h2>{{ p.t.governance_report_current_target() }}</h2><p>{{ target.title }}</p>{% if staff && !target.body.is_empty() %}<div class="prose"><pre><code>{{ target.body }}</code></pre></div>{% endif %}<p>{% if !target.href.is_empty() %}<a href="{{ crate::site::href(target.href) }}">{{ p.t.governance_report_view_current() }}</a> {% endif %}{% if staff && !target.manage_href.is_empty() %}<a href="{{ crate::site::href(target.manage_href) }}">{{ p.t.governance_manage_report_moderate() }}</a>{% endif %}{% if staff && p.is_admin %}{% if let Some(uid) = target.owner %} · <a href="{{ crate::site::base() }}/manage/sanctions?uid={{ uid }}">{{ p.t.governance_manage_report_sanction_author() }}</a>{% endif %}{% endif %}</p>{% else %}<p>{{ p.t.governance_report_target_gone() }}</p>{% endif %}
+{% if !r.resolution.is_empty() %}<h2>{{ p.t.governance_resolution() }}</h2><p class="governance-reason">{{ r.resolution }}</p><p class="row-time">{{ r.handled_time() }}</p>{% endif %}
+{% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+{% if staff && r.status == "pending" && recuse %}<p class="form-feedback form-feedback--warning">{{ p.t.governance_manage_report_recuse() }}</p>{% else if staff && r.status == "pending" %}
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/reports/{{ r.id }}">
+  <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+  <div class="field">
+    <label class="field__label" for="report-status">{{ p.t.governance_manage_report_result() }}</label>
+    <select id="report-status" name="status" required>
+      <option value="">{{ p.t.governance_manage_report_choose() }}</option>
+      <option value="resolved"{% if selected == "resolved" %} selected{% endif %}>{{ p.t.governance_report_resolved() }}</option>
+      <option value="dismissed"{% if selected == "dismissed" %} selected{% endif %}>{{ p.t.governance_report_dismissed() }}</option>
+    </select>
+  </div>
+  <div class="field">
+    <label class="field__label" for="report-resolution">{{ p.t.governance_manage_report_resolution() }}</label>
+    <textarea id="report-resolution" name="resolution" rows="4" maxlength="1000" required>{{ resolution }}</textarea>
+  </div>
+  <p class="form-note">{{ p.t.governance_manage_report_rules() }}</p>
+  <div class="form-actions"><button class="button" type="submit">{{ p.t.governance_manage_report_submit() }}</button></div>
+</form>
+{% endif %}
+<p><a href="{{ crate::site::base() }}{% if staff %}/manage/reports{% else %}/my/reports{% endif %}">{{ p.t.governance_report_back() }}</a></p></div>
+{% endblock %}

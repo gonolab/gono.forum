@@ -1,0 +1,20 @@
+{% extends "layout/base.html" %}
+
+{% block content %}
+<div class="layout">
+  <div class="layout__main">
+    {#- The form targets #topic-replies; a reply that lands on the same thread page swaps this region for the reply list. #}
+    <div class="panel editor-page" id="topic-replies">
+      <h1 class="panel__title editor-page__title">{{ e.heading() }}</h1>
+      {% include "editor/form.html" %}
+    </div>
+  </div>
+  <aside class="layout__aside" aria-labelledby="editor-sidebar-title">
+    <section class="panel panel--aside">
+      <h2 class="panel__title" id="editor-sidebar-title">{{ p.t.editor_sidebar_title() }}</h2>
+      <p class="panel__note">{{ p.t.editor_sidebar_markdown() }}</p>
+      <p class="panel__note">{{ p.t.editor_sidebar_limits() }}</p>
+    </section>
+  </aside>
+</div>
+{% endblock %}

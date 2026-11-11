@@ -1,0 +1,41 @@
+{% extends "layout/manage.html" %}
+{% block panel %}
+<div class="panel"><h1 class="panel__title">{{ p.t.governance_appeal_title() }}</h1><p>{% if member %}<a href="{{ crate::site::base() }}/my/sanctions">{{ p.t.governance_appeal_back_records() }}</a>{% else %}<a href="{{ crate::site::base() }}{% if staff %}/manage/appeals{% else %}/appeals{% endif %}">{{ p.t.governance_appeal_back_list() }}</a>{% endif %}</p>
+{% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+<p>{{ p.t.governance_account_uid(case.sanction.uid.to_string()) }}</p><h2>{{ case.sanction.label() }} · {{ case.sanction.status() }}</h2><p class="governance-reason">{{ case.sanction.reason }}</p><p>{{ p.t.governance_sanction_period(case.sanction.start_time(), case.sanction.end_time()) }}</p>
+{% if staff %}<p>{{ p.t.governance_manage_member_uid(case.sanction.uid.to_string()) }} · <a href="{{ crate::site::base() }}/manage/sanctions?uid={{ case.sanction.uid }}">{{ p.t.governance_manage_appeal_sanctions_link() }}</a></p>{% endif %}
+{% if let Some(appeal) = case.appeal %}<h2>{{ p.t.governance_appeal_state(appeal.label()) }}</h2><p class="governance-reason">{{ appeal.reason }}</p><p>{{ p.t.governance_appeal_received(appeal.submitted_time()) }}</p>
+{% if appeal.status == "pending" %}<p>{{ p.t.governance_due(appeal.due_time(p.frame.settings.governance.appeal_handling_days)) }}{% if appeal.overdue(p.frame.settings.governance.appeal_handling_days) %} · {{ p.t.governance_appeal_overdue() }}{% endif %}</p>
+{% if staff %}
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/appeals/{{ appeal.id }}">
+  <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+  <div class="field">
+    <label class="field__label" for="appeal-status">{{ p.t.governance_manage_result() }}</label>
+    <select id="appeal-status" name="status" required>
+      <option value="">{{ p.t.common_choose() }}</option>
+      <option value="accepted"{% if form.status == "accepted" %} selected{% endif %}>{{ p.t.governance_manage_appeal_accept() }}</option>
+      <option value="rejected"{% if form.status == "rejected" %} selected{% endif %}>{{ p.t.governance_manage_appeal_reject() }}</option>
+    </select>
+  </div>
+  <div class="field">
+    <label class="field__label" for="appeal-resolution">{{ p.t.governance_resolution() }}</label>
+    <textarea id="appeal-resolution" name="resolution" rows="5" maxlength="1000" required>{{ form.resolution }}</textarea>
+  </div>
+  <p class="form-note">{{ p.t.governance_manage_appeal_rules() }}</p>
+  <div class="form-actions"><button class="button" type="submit">{{ p.t.governance_manage_appeal_submit() }}</button></div>
+</form>
+{% else %}<p>{{ p.t.governance_appeal_result_note() }}</p>{% endif %}
+{% else %}<h2>{{ p.t.governance_resolution() }}</h2><p class="governance-reason">{{ appeal.resolution }}</p><p>{{ p.t.governance_appeal_handled(appeal.handled_time()) }}</p>{% if !staff %}<p>{{ p.t.governance_appeal_login_again(p.link("/login", p.t.governance_appeal_login_link()))|safe }}</p>{% endif %}{% endif %}
+{% else %}{% if case.can_submit && !staff %}
+<form class="fields" method="post" action="{{ crate::site::base() }}{% if member %}/my/sanctions/{{ case.sanction.id }}/appeal{% else %}/appeals/sanctions/{{ case.sanction.id }}{% endif %}">
+  <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+  <input type="hidden" name="request_key" value="{{ form.request_key }}">
+  <div class="field">
+    <label class="field__label" for="appeal-reason">{{ p.t.governance_appeal_reason() }}</label>
+    <textarea id="appeal-reason" name="reason" rows="6" maxlength="1000" required>{{ form.reason }}</textarea>
+  </div>
+  <p class="form-note">{{ p.t.governance_appeal_rules(case.deadline()) }}</p>
+  <div class="form-actions"><button class="button" type="submit">{{ p.t.governance_appeal_submit() }}</button></div>
+</form>
+{% else %}<p>{{ p.t.governance_appeal_none(case.deadline()) }}</p>{% endif %}{% endif %}</div>
+{% endblock %}

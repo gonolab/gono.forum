@@ -1,0 +1,25 @@
+{% extends "layout/my.html" %}
+{% block panel %}<section class="invite-shell profile-settings" hx-boost="false" hx-history="false">
+<div class="panel">
+{% if !message.is_empty() %}<p class="form-feedback{% if success %} form-feedback--success{% endif %}" role="{% if success %}status{% else %}alert{% endif %}" data-style-message>{{ message }}</p>{% endif %}
+<p>{{ p.t.settings_style_lead() }}</p>
+<form class="fields" method="post" action="{{ crate::site::base() }}/my/style" data-style-form>
+  <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+  <input type="hidden" name="version" value="{{ version }}">
+  <div class="field field--code">
+    <label class="field__label" for="style-css">CSS</label>
+    <textarea id="style-css" aria-describedby="style-css-hint" name="css" rows="16" autocomplete="off" autocapitalize="off" spellcheck="false">{{ css }}</textarea>
+    <p class="field__hint" id="style-css-hint">{{ p.t.settings_style_max(max_kib) }}</p>
+  </div>
+  <div class="form-actions"><button class="button" type="submit">{{ p.t.settings_style_save() }}</button></div>
+</form>
+{% if has_css %}<form class="custom-style-reset" method="post" action="{{ crate::site::base() }}/my/style/reset" data-style-reset><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="version" value="{{ version }}"><button class="button button--secondary" type="submit">{{ p.t.settings_style_reset() }}</button></form>{% endif %}
+</div>
+<div class="panel" data-style-rules><h2 class="panel__title">{{ p.t.settings_style_rules() }}</h2><ul class="custom-style-rules">
+<li>{{ p.t.settings_style_rule_size(max_kib, crate::i18n::Markup::tag("code", "@media"))|safe }}</li>
+<li>{{ p.t.settings_style_rule_resources(crate::i18n::Markup::tag("code", "url()"), crate::i18n::Markup::tag("code", "image-set()"), crate::i18n::Markup::tag("code", "@import"), crate::i18n::Markup::tag("code", "@font-face"), crate::i18n::Markup::tag("code", "@media"))|safe }}</li>
+<li>{{ p.t.settings_style_rule_values(crate::i18n::Markup::tag("code", "position: fixed"), crate::i18n::Markup::tag("code", "content"), crate::i18n::Markup::tag("code", "none"), crate::i18n::Markup::tag("code", "normal"), crate::i18n::Markup::tag("code", "z-index"), crate::i18n::Markup::tag("code", "auto"))|safe }}</li>
+<li>{{ p.t.settings_style_rule_functions(crate::i18n::Markup::tag("code", "expression()"), crate::i18n::Markup::tag("code", "behavior"), crate::i18n::Markup::tag("code", "var()"), crate::i18n::Markup::tag("code", "calc()"))|safe }}</li>
+<li>{{ p.t.settings_style_rule_errors(crate::i18n::Markup::tag("code", ":root { --r-sm: 0; }"))|safe }}</li>
+</ul></div>
+</section>{% endblock %}

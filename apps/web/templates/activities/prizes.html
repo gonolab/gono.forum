@@ -1,0 +1,9 @@
+{% extends "layout/my.html" %}
+{% block panel %}
+<section class="pane private-collection" hx-boost="false" data-my-prizes>
+<div class="panel"><p>{{ p.t.activity_prizes_intro(p.credit()) }}</p></div>
+<ul class="rows">{% for row in items %}{% let item = row.item %}<li class="rows__item"><div class="row-body"><div class="row-headline"><strong>{{ item.prize }}</strong><a class="row-title" href="{{ crate::site::base() }}/thread-{{ item.tid }}">{{ item.subject }}</a></div>
+{% if item.kind == "code" %}{% if let Some(code) = item.code %}<p class="row-meta"><span>{{ p.t.activity_prizes_code() }}<code data-prize-code>{{ code }}</code></span></p>{% else if item.unreadable %}<p class="row-meta"><span>{{ p.t.activity_prizes_unreadable() }}</span></p>{% endif %}{% if item.revised_at > 0 %}<p class="row-meta"><span>{{ p.t.activity_prizes_revised(row.revised) }}</span></p>{% endif %}{% else %}<p class="row-meta"><span>{{ p.t.activity_prizes_item() }}</span></p>{% endif %}
+{% if !item.note.is_empty() %}<p class="row-excerpt">{{ item.note }}</p>{% endif %}</div><span class="row-end"><span class="row-time">{{ row.assigned }}</span></span></li>{% else %}<li class="empty">{{ p.t.activity_prizes_empty() }}</li>{% endfor %}</ul>
+{% if let Some(before) = next_before %}<a class="pagination-link" href="{{ crate::site::base() }}/my/prizes?before={{ before }}">{{ p.t.activity_prizes_earlier() }}</a>{% endif %}</section>
+{% endblock %}

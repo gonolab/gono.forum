@@ -1,0 +1,15 @@
+{#- Follow / block toggle. Included by the topic head, the board head, the profile head (twice) and the rows of the
+    follow and block lists; the caller binds `control` (social::Control). The server answers an htmx request with
+    HX-Redirect to `control.location`, so nothing on the page is swapped. Renders nothing when the relation cannot
+    change and there is no notice to show. #}
+{%- if control.can_change %}
+<form class="social-control" method="post" action="{{ crate::site::href(control.action) }}" hx-post="{{ crate::site::href(control.action) }}" hx-boost="false" hx-disabled-elt="find button">
+  <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+  <input type="hidden" name="request_key" value="{{ control.request_key }}">
+  <input type="hidden" name="desired" value="{% if control.active %}false{% else %}true{% endif %}">
+  <input type="hidden" name="location" value="{{ control.location }}">
+  <button class="button button--small button--secondary" type="submit" aria-pressed="{% if control.active %}true{% else %}false{% endif %}" data-social-target="{{ control.target }}">{{ control.label }}</button>
+</form>
+{%- else if !control.notice.is_empty() %}
+<span class="button button--small button--secondary social-control" aria-disabled="true" data-social-notice="{{ control.target }}">{{ control.notice }}</span>
+{%- endif %}

@@ -1,0 +1,122 @@
+{% extends "layout/manage.html" %}{% block panel %}
+<form method="post" action="{{ crate::site::base() }}/manage/settings/search/seo">
+<input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<section class="panel" id="section-seo" aria-labelledby="section-seo-title">
+  <h1 class="panel__title" id="section-seo-title">{{ p.t.config_seo_heading() }}</h1>
+  {%- if seo.saved %}
+  <p class="form-feedback form-feedback--success" role="status">{{ p.t.config_seo_saved() }}</p>
+  {%- else if !seo.message.is_empty() %}
+  <p class="form-feedback" role="alert">{{ seo.message }}</p>
+  {%- endif %}
+  {%- if !seo.notice.is_empty() %}
+  <p class="form-feedback form-feedback--warning" role="status">{{ seo.notice }}</p>
+  {%- endif %}
+  <p class="form-note">{{ p.t.config_seo_intro() }}</p>
+  <div class="fields fields--two">
+    <div class="checkline">
+      <label class="checkline__label">
+        <input type="checkbox" aria-describedby="seo-indexing_enabled-hint" name="indexing_enabled" value="true"{% if settings.seo.indexing %} checked{% endif %}>
+        <span>{{ p.t.config_seo_indexing() }}</span>
+      </label>
+      <p class="checkline__hint" id="seo-indexing_enabled-hint">{{ p.t.config_seo_indexing_help() }}</p>
+    </div>
+    <div class="field field--wide">
+      <label class="field__label" for="seo-description">{{ p.t.config_seo_description() }}</label>
+      <textarea id="seo-description" aria-describedby="seo-description-hint" name="description" rows="4" maxlength="500">{{ settings.site.description }}</textarea>
+      <p class="field__hint" id="seo-description-hint">{{ p.t.config_seo_description_help() }}</p>
+    </div>
+    <div class="field field--wide">
+      <label class="field__label" for="seo-robots">robots.txt</label>
+      <textarea id="seo-robots" aria-describedby="seo-robots-hint" name="robots" rows="12" spellcheck="false" maxlength="4000">{{ settings.seo.robots }}</textarea>
+      <p class="field__hint" id="seo-robots-hint">{{ p.t.config_seo_robots_help() }}</p>
+    </div>
+    {%- if !robots_merge.is_empty() %}
+    <div class="field field--wide" data-robots-merge>
+      <label class="field__label" for="seo-robots_merge">{{ p.t.config_seo_robots_merge() }}</label>
+      <textarea id="seo-robots_merge" aria-describedby="seo-robots_merge-hint" rows="8" spellcheck="false" readonly>{{ robots_merge }}</textarea>
+      <p class="field__hint" id="seo-robots_merge-hint">{{ p.t.config_seo_robots_merge_help() }}</p>
+    </div>
+    {%- endif %}
+    <div class="field field--wide">
+      <label class="field__label" for="seo-verification">{{ p.t.config_seo_verification() }}</label>
+      <textarea id="seo-verification" aria-describedby="seo-verification-hint" name="verification" rows="4" spellcheck="false" maxlength="2000">{{ settings.seo.verification }}</textarea>
+      <p class="field__hint" id="seo-verification-hint">{{ p.t.config_seo_verification_help(crate::router::manage_settings::verification_sample(p.t), reserved.join(p.t.common_list_separator()))|safe }}</p>
+    </div>
+  </div>
+</section>
+<div class="form-actions form-actions--sticky"><button class="button" type="submit">{{ p.t.config_seo_save() }}</button></div>
+</form>
+
+<form method="post" action="{{ crate::site::base() }}/manage/settings/search/feed">
+<input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<section class="panel" id="section-feed" aria-labelledby="section-feed-title">
+  <h2 class="panel__title" id="section-feed-title">{{ p.t.config_feed_heading() }}</h2>
+  {%- if feed.saved %}
+  <p class="form-feedback form-feedback--success" role="status">{{ p.t.config_feed_saved() }}</p>
+  {%- else if !feed.message.is_empty() %}
+  <p class="form-feedback" role="alert">{{ feed.message }}</p>
+  {%- endif %}
+  <div class="fields fields--two">
+    <div class="field">
+      <label class="field__label" for="feed-feed_items">{{ p.t.config_feed_items() }}</label>
+      <input type="number" id="feed-feed_items" aria-describedby="feed-feed_items-hint" name="feed_items" value="{{ settings.feed.items }}" min="10" max="100" required>
+      <p class="field__hint" id="feed-feed_items-hint">{{ p.t.config_feed_items_help() }}</p>
+    </div>
+  </div>
+</section>
+<div class="form-actions form-actions--sticky"><button class="button" type="submit">{{ p.t.config_feed_save() }}</button></div>
+</form>
+
+<form method="post" action="{{ crate::site::base() }}/manage/settings/search/cache">
+<input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<section class="panel" id="section-cache" aria-labelledby="section-cache-title">
+  <h2 class="panel__title" id="section-cache-title">{{ p.t.config_cache_heading() }}</h2>
+  {%- if cache.saved %}
+  <p class="form-feedback form-feedback--success" role="status">{{ p.t.config_cache_saved() }}</p>
+  {%- else if !cache.message.is_empty() %}
+  <p class="form-feedback" role="alert">{{ cache.message }}</p>
+  {%- endif %}
+  <p class="form-note">{% if redis_enabled %}{{ p.t.config_cache_intro_shared(p.credit()) }}{% else %}{{ p.t.config_cache_intro(p.credit()) }}{% endif %}</p>
+  <div class="fields fields--two">
+    <div class="field">
+      <label class="field__label" for="cache-ttl_seconds">{{ p.t.config_cache_ttl() }}</label>
+      <input type="number" id="cache-ttl_seconds" aria-describedby="cache-ttl_seconds-hint" name="ttl_seconds" value="{{ settings.cache.ttl_seconds }}" min="0" max="86400" required>
+      <p class="field__hint" id="cache-ttl_seconds-hint">{% if redis_enabled %}{{ p.t.config_cache_ttl_help_shared() }}{% else %}{{ p.t.config_cache_ttl_help() }}{% endif %}</p>
+    </div>
+    <div class="field">
+      <label class="field__label" for="cache-page_ttl_seconds">{{ p.t.config_cache_page_ttl() }}</label>
+      <input type="number" id="cache-page_ttl_seconds" aria-describedby="cache-page_ttl_seconds-hint" name="page_ttl_seconds" value="{{ settings.cache.page_ttl_seconds }}" min="1" max="3600" required>
+      <p class="field__hint" id="cache-page_ttl_seconds-hint">{{ p.t.config_cache_page_ttl_help() }}{% if !redis_enabled %}{{ p.t.config_cache_no_redis() }}{% endif %}</p>
+    </div>
+    <div class="field">
+      <label class="field__label" for="cache-list_ttl_seconds">{{ p.t.config_cache_list_ttl() }}</label>
+      <input type="number" id="cache-list_ttl_seconds" aria-describedby="cache-list_ttl_seconds-hint" name="list_ttl_seconds" value="{{ settings.cache.list_ttl_seconds }}" min="1" max="3600" required>
+      <p class="field__hint" id="cache-list_ttl_seconds-hint">{{ p.t.config_cache_list_ttl_help() }}{% if !redis_enabled %}{{ p.t.config_cache_no_redis() }}{% endif %}</p>
+    </div>
+    <div class="field">
+      <label class="field__label" for="cache-statistics_seconds">{{ p.t.config_cache_statistics() }}</label>
+      <input type="number" id="cache-statistics_seconds" aria-describedby="cache-statistics_seconds-hint" name="statistics_seconds" value="{{ settings.cache.statistics_seconds }}" min="30" max="86400" required>
+      <p class="field__hint" id="cache-statistics_seconds-hint">{{ p.t.config_cache_statistics_help() }}</p>
+    </div>
+    <div class="field">
+      <label class="field__label" for="cache-forum_statistics_seconds">{{ p.t.config_cache_forum_statistics() }}</label>
+      <input type="number" id="cache-forum_statistics_seconds" aria-describedby="cache-forum_statistics_seconds-hint" name="forum_statistics_seconds" value="{{ settings.cache.forum_statistics_seconds }}" min="30" max="86400" required>
+      <p class="field__hint" id="cache-forum_statistics_seconds-hint">{{ p.t.config_cache_forum_statistics_help() }}</p>
+    </div>
+  </div>
+</section>
+<div class="form-actions form-actions--sticky"><button class="button" type="submit">{{ p.t.config_cache_save() }}</button></div>
+</form>
+
+<form method="post" action="{{ crate::site::base() }}/manage/settings/search/cache/refresh">
+<input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<section class="panel" id="section-cache-refresh" aria-labelledby="section-cache-refresh-title">
+  <h2 class="panel__title" id="section-cache-refresh-title">{{ p.t.config_cache_refresh() }}</h2>
+  {%- if !cache.notice.is_empty() %}
+  <p class="form-feedback form-feedback--success" role="status">{{ cache.notice }}</p>
+  {%- endif %}
+  <p class="form-note">{% if redis_enabled %}{{ p.t.config_cache_refresh_intro_shared() }}{% else %}{{ p.t.config_cache_refresh_intro() }}{% endif %}</p>
+</section>
+<div class="form-actions form-actions--sticky"><button class="button" type="submit">{{ p.t.config_cache_refresh() }}</button></div>
+</form>
+{% endblock %}

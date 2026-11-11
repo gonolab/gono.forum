@@ -1,0 +1,48 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<div class="layout reader-layout"><div class="layout__main"><div class="pane">
+  <section class="panel" aria-labelledby="link-apply-title">
+    <h1 class="panel__title" id="link-apply-title">{{ p.t.site_links_apply() }}</h1>
+    {% if !notice.is_empty() %}<p class="form-feedback form-feedback--success" role="status">{{ notice }}</p>{% endif %}
+    {% if !message.is_empty() %}<p class="form-feedback" role="alert" data-link-apply-error>{{ message }}</p>{% endif %}
+    <div class="prose"><h2>{{ explainer.title }}</h2>{{ explainer.body|safe }}</div>
+    {% if !applications_open %}<p class="form-feedback form-feedback--info" data-link-apply-closed>{{ p.t.site_links_closed() }}</p>
+    {% else if !p.authenticated %}<div class="form-actions"><a class="button button--primary" href="{{ crate::site::base() }}/login?return_to=%2Flinks%2Fapply" hx-boost="false">{{ p.t.site_links_login() }}</a></div>
+    {% else %}
+    <form class="fields" method="post" action="{{ crate::site::base() }}/links/apply" hx-boost="false" data-link-apply-form>
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="request_key" value="{{ form.request_key }}">
+      <div class="field">
+        <label class="field__label" for="link-apply-name">{{ p.t.site_links_name() }}</label>
+        <input id="link-apply-name" name="name" value="{{ form.name }}" maxlength="30" required>
+      </div>
+      <div class="field">
+        <label class="field__label" for="link-apply-category">{{ p.t.site_links_category() }}</label>
+        <select id="link-apply-category" name="category" required><option value="">{{ p.t.common_choose() }}</option>{% for item in categories %}<option value="{{ item.slug }}"{% if item.selected %} selected{% endif %}>{{ item.label }}</option>{% endfor %}</select>
+      </div>
+      <div class="field">
+        <label class="field__label" for="link-apply-url">{{ p.t.site_links_url() }}</label>
+        <input type="url" id="link-apply-url" name="url" value="{{ form.url }}" placeholder="https://" maxlength="500" required>
+      </div>
+      <div class="field">
+        <label class="field__label" for="link-apply-backlink_url">{{ p.t.site_links_backlink() }}</label>
+        <input type="url" id="link-apply-backlink_url" aria-describedby="link-apply-backlink_url-hint" name="backlink_url" value="{{ form.backlink_url }}" placeholder="{{ p.t.site_links_backlink_placeholder() }}" maxlength="500">
+        <p class="field__hint" id="link-apply-backlink_url-hint">{{ p.t.site_links_backlink_hint() }}</p>
+      </div>
+      <div class="field">
+        <label class="field__label" for="link-apply-note">{{ p.t.site_links_note() }}</label>
+        <input id="link-apply-note" aria-describedby="link-apply-note-hint" name="note" value="{{ form.note }}" maxlength="200">
+        <p class="field__hint" id="link-apply-note-hint">{{ p.t.site_links_note_hint() }}</p>
+      </div>
+      <div class="form-actions"><button class="button button--primary" type="submit">{{ p.t.site_links_submit() }}</button></div>
+    </form>
+    {% endif %}
+  </section>
+  {% if p.authenticated %}
+  <section class="panel" aria-labelledby="link-mine-title">
+    <h2 class="panel__title" id="link-mine-title">{{ p.t.site_links_mine() }}</h2>
+    {% for link in mine %}<article class="admin-row" data-my-link="{{ link.status.slug() }}"><h3>{{ link.name }} · {{ link.status_label() }}</h3><p>{{ link.category_label() }} · {{ link.domain }}</p>{% if !link.resolution.is_empty() %}<p>{{ p.t.site_links_reason(link.resolution) }}</p>{% endif %}{% if link.is_pending() || link.is_active() %}<form class="form-actions" method="post" action="{{ crate::site::base() }}/links/apply/{{ link.id }}/withdraw" hx-boost="false"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><button class="button button--secondary" type="submit">{% if link.is_pending() %}{{ p.t.site_links_withdraw() }}{% else %}{{ p.t.site_links_take_down() }}{% endif %}</button></form>{% endif %}</article>{% else %}<p>{{ p.t.site_links_none() }}</p>{% endfor %}
+  </section>
+  {% endif %}
+  <p class="form-actions"><a href="{{ crate::site::base() }}/links">{{ p.t.site_links_back() }}</a></p>
+</div></div></div>
+{% endblock %}

@@ -1,0 +1,147 @@
+/* Element defaults (docs/styles.md, "Style files"). Colours are theme tokens, so dark mode follows them. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+::selection {
+  background: var(--selection);
+}
+
+/* Links take the colour of their surroundings; components and running text give them their own look. */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Plain links without a class of their own (in forms, notes and panels) only change colour on hover. Zero
+   specificity, so every component rule wins. */
+:where(a:not([class]):hover) {
+  color: var(--link-hover);
+}
+
+/* Headings keep the browser sizes; components set their own. */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+p {
+  margin-block: 0 0.85em;
+}
+
+dd {
+  margin-inline-start: 0;
+}
+
+hr {
+  block-size: 0;
+  border: 0;
+  border-block-start: 1px solid var(--line);
+}
+
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+}
+
+pre {
+  overflow: auto;
+  line-height: 1.6;
+}
+
+pre code {
+  font-size: inherit;
+}
+
+img,
+video {
+  max-inline-size: 100%;
+  block-size: auto;
+}
+
+iframe {
+  max-inline-size: 100%;
+  border: 0;
+}
+
+svg {
+  flex-shrink: 0;
+}
+
+/* Form controls: only the font here; their look is in controls.css. */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+button {
+  font-weight: 500;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+textarea {
+  line-height: 1.7;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Rounds the ring on elements that have no radius of their own; zero specificity, so component radii win. */
+:where(:focus-visible) {
+  border-radius: var(--r-sm);
+}
+
+/* Form fields take no ring: text fields, selects and textareas show focus by darkening their own border to
+   --input-focus, in the rule of the component that draws that border. File inputs look like buttons and keep the
+   ring. See docs/styles.md, "HTML conventions". */
+:is(input:not([type="checkbox"], [type="radio"], [type="file"], [type="range"], [type="color"], [type="submit"], [type="reset"], [type="button"], [type="image"]), select, textarea):focus-visible {
+  outline: none;
+}
+
+/* Checkboxes and radios keep the native look, whose border cannot be restyled, so a 1px line in --input-focus is
+   drawn around the box's own shape and the edge reads darker, like a focused field's. It is a filter because
+   browsers reset the radius of native boxes: an outline or box-shadow would be square around a round radio. */
+input:is([type="checkbox"], [type="radio"]):focus-visible {
+  outline: none;
+  filter:
+    drop-shadow(1px 0 0 var(--input-focus))
+    drop-shadow(-1px 0 0 var(--input-focus))
+    drop-shadow(0 1px 0 var(--input-focus))
+    drop-shadow(0 -1px 0 var(--input-focus));
+}

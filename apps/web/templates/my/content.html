@@ -1,0 +1,22 @@
+{% extends "layout/my.html" %}
+{% block panel %}
+<section class="pane private-collection" hx-history="false">
+  <p class="intro">{{ p.t.my_content_lead(total, page) }}</p>
+  <ul class="rows">
+    {%- for row in rows %}
+    <li class="rows__item">
+      <div class="row-body">
+        <div class="row-headline">{% if row.status != p.t.common_status_public() %}<span class="tag">{{ row.status }}</span>{% endif %}<a class="row-title" href="{{ crate::site::href(row.post.href) }}">{{ row.post.subject }}</a></div>
+        {%- if !row.post.message.is_empty() %}
+        <p class="row-excerpt">{{ row.post.message }}</p>
+        {%- endif %}
+        <p class="row-meta"><span><a href="{{ crate::site::base() }}/{{ row.post.forum_slug }}">{{ row.post.forum_name }}</a></span><span>{{ row.post.time }}</span>{% if !row.restore_href.is_empty() %}<span><a href="{{ crate::site::href(row.restore_href) }}">{{ row.restore_label }}</a></span>{% endif %}</p>
+      </div>
+    </li>
+    {%- else %}
+    <li class="empty">{{ p.t.my_content_empty() }}</li>
+    {%- endfor %}
+  </ul>
+  <nav class="form-actions" aria-label="{{ p.t.common_pagination() }}">{% if !previous.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(previous) }}">{{ p.t.common_previous_page() }}</a>{% endif %}{% if !next.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(next) }}">{{ p.t.common_next_page() }}</a>{% endif %}</nav>
+</section>
+{% endblock %}

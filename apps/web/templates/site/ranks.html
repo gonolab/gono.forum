@@ -1,0 +1,24 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<div class="layout layout--stack"><div class="layout__main"><div class="pane">
+  <div class="board-head"><h1 class="board-head__name">{{ p.t.site_ranks() }}</h1></div>
+  <nav class="tabs" aria-label="{{ p.t.site_ranks_boards() }}">{% for tab in boards %}<a class="tabs__item" href="{{ crate::site::href(tab.href) }}"{% if tab.active %} aria-current="page"{% endif %}>{{ tab.label }}</a>{% endfor %}</nav>
+  <nav class="tabs" aria-label="{{ p.t.site_ranks_periods() }}">{% for tab in periods %}<a class="tabs__item" href="{{ crate::site::href(tab.href) }}"{% if tab.active %} aria-current="page"{% endif %}>{{ tab.label }}</a>{% endfor %}</nav>
+  <p class="rank-note">{{ p.t.site_ranks_title(board_label, period_label) }}{% if !updated.is_empty() %} · {{ p.t.site_ranks_updated(updated) }}{% endif %}{{ p.t.site_ranks_note(refresh_seconds, p.link("/credits/rules#ranks", p.t.site_ranks_rules()))|safe }}</p>
+  <ol class="rows rows--ranks" aria-label="{{ p.t.site_ranks_board(board_label) }}">
+  {% for row in rows %}
+    <li class="rows__item" data-rank="{{ row.rank }}" data-member="{{ row.username }}">
+      <span class="row-rank" aria-label="{{ p.t.site_ranks_rank(row.rank) }}">{{ row.rank }}</span>
+      <span class="row-avatar">{% let avatar = row.avatar %}{% include "partials/avatar.html" %}</span>
+      <div class="row-body"><div class="row-headline"><a class="row-title" href="{{ crate::site::href(row.avatar.profile_href) }}" translate="no">{{ row.username }}</a><span class="tag tag--level" title="{{ row.level.name }}" data-level="{{ row.level.number }}">Lv{{ row.level.number }}</span></div><p class="row-meta"><span>{{ row.level.name }}</span></p></div>
+      <span class="row-end"><span class="row-stat" data-score="{{ row.score }}"><strong>{{ row.score }}</strong> {{ unit }}</span></span>
+    </li>
+  {% else %}<li class="empty">{% if updated.is_empty() %}{{ p.t.site_ranks_pending() }}{% else %}{{ p.t.site_ranks_empty() }}{% endif %}</li>{% endfor %}
+  </ol>
+</div></div>
+<aside class="layout__aside" aria-label="{{ p.t.home_sidebar() }}">
+  {% include "partials/user_card.html" %}
+  {% include "partials/sidebar.html" %}
+</aside>
+</div>
+{% endblock %}

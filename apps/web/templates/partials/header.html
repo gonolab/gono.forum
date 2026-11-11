@@ -1,0 +1,127 @@
+{#- Sticky site header: phone drawer, brand, board navigation with "More", search, theme switch, notifications and the account
+    menu (or the log-in buttons). router/nav_fit.rs estimates the board navigation against the sizes in frame.css (docs/styles.md,
+    "Header navigation widths"); keep the two in step. The board navigation must not carry anything that changes from page to page other than
+    aria-current (tests/browsing.rs compares it byte for byte). #}
+<header class="masthead">
+  <div class="masthead__inner container">
+    <details class="mobile-nav">
+      <summary class="drawer-toggle" aria-label="{{ p.t.frame_menu_open() }}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </summary>
+      {#- site.js focuses [data-close-menu] and traps Tab inside .drawer, so both stay inside this details element. #}
+      <nav class="drawer" aria-label="{{ p.t.frame_menu_drawer() }}">
+        <div class="drawer__head">
+          <p class="drawer__title">{{ p.t.frame_menu() }}</p>
+          <button class="drawer__close" type="button" data-close-menu hidden aria-label="{{ p.t.frame_menu_close() }}">×</button>
+        </div>
+        <ul class="drawer__list drawer__list--primary">
+          <li><a class="drawer__link" data-compose-entry href="{{ crate::site::href(p.post_href()) }}" hx-boost="false">{{ p.t.frame_new_thread() }}</a></li>
+        </ul>
+        <p class="drawer__label" id="drawer-forums">{{ p.t.frame_menu_forums() }}</p>
+        <ul class="drawer__list" aria-labelledby="drawer-forums">
+          <li><a class="drawer__link" href="{{ crate::site::base() }}/">{{ p.t.frame_all_threads() }}</a></li>
+          {%- for link in p.navigation %}
+          <li><a class="drawer__link" href="{{ crate::site::href(link.href) }}">{{ link.label }}</a></li>
+          {%- endfor %}
+          <li><a class="drawer__link" href="{{ crate::site::href(p.directory.href) }}" data-directory-link>{{ p.directory.label }}</a></li>
+        </ul>
+        <p class="drawer__label" id="drawer-mine">{{ p.t.frame_menu_mine() }}</p>
+        <ul class="drawer__list" aria-labelledby="drawer-mine">
+          {%- if p.authenticated %}
+          <li><a class="drawer__link" href="{{ crate::site::base() }}/my">{{ p.t.frame_my_center() }}</a></li>
+          <li><a class="drawer__link" href="{{ crate::site::base() }}/my/notifications">{{ p.t.frame_notifications() }}</a></li>
+          <li><a class="drawer__link" href="{{ crate::site::href(p.avatar.profile_href) }}">{{ p.t.frame_public_profile() }}</a></li>
+          <li><a class="drawer__link" href="{{ crate::site::base() }}/my/account" hx-boost="false">{{ p.t.frame_account_security() }}</a></li>
+          {%- else %}
+          <li><a class="drawer__link" href="{{ crate::site::base() }}/login" hx-boost="false">{{ p.t.frame_log_in() }}</a></li>
+          {%- if p.registration_open() %}
+          <li><a class="drawer__link" href="{{ crate::site::base() }}/register" hx-boost="false">{{ p.t.frame_register() }}</a></li>
+          {%- endif %}
+          {%- endif %}
+          {#- Shown only where a logo pushes the header's own theme switch out (frame.css, 420px and below). #}
+          <li class="drawer__theme"><button class="drawer__button" type="button" data-theme-toggle hidden>{{ p.t.frame_theme_toggle_mobile() }}</button></li>
+        </ul>
+      </nav>
+    </details>
+    <a class="masthead__brand" href="{{ crate::site::base() }}/" translate="no">{% if !p.logo.is_empty() %}<img class="masthead__logo" src="{{ crate::site::href(p.logo) }}" alt="">{% endif %}{{ p.brand_name }}</a>
+    {#- Each board may appear twice, inline and in "More"; data-fit (the lowest width tier that keeps it inline) and data-until
+        let frame.css show exactly one copy at any width. #}
+    <nav class="masthead__boards" aria-label="{{ p.t.frame_forum_nav() }}">
+      <ul class="masthead__board-list">
+        {%- for link in p.navigation %}{% if link.fit > 0 %}
+        <li{% if !link.always_inline() %} data-fit="{{ link.fit }}"{% endif %}><a class="masthead__board" href="{{ crate::site::href(link.href) }}"{% if link.active %} aria-current="page"{% endif %}>{{ link.label }}</a></li>
+        {%- endif %}{% endfor %}
+        {%- if p.directory.fit > 0 %}
+        <li{% if !p.directory.always_inline() %} data-fit="{{ p.directory.fit }}"{% endif %}><a class="masthead__board" href="{{ crate::site::href(p.directory.href) }}" data-directory-link{% if p.directory.active %} aria-current="page"{% endif %}>{{ p.directory.label }}</a></li>
+        {%- endif %}
+      </ul>
+      {%- if p.nav_more() %}
+      <details class="forum-more"{% if p.nav_more_until() > 0 %} data-until="{{ p.nav_more_until() }}"{% endif %}>
+        <summary class="masthead__board forum-more__toggle">{{ p.t.frame_more() }}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></summary>
+        <ul class="forum-more__menu">
+          {%- for link in p.navigation %}{% if !link.always_inline() %}
+          <li{% if link.fit > 0 %} data-fit="{{ link.fit }}"{% endif %}><a class="forum-more__link" href="{{ crate::site::href(link.href) }}"{% if link.active %} aria-current="page"{% endif %}>{{ link.label }}</a></li>
+          {%- endif %}{% endfor %}
+          {%- if !p.directory.always_inline() %}
+          <li{% if p.directory.fit > 0 %} data-fit="{{ p.directory.fit }}"{% endif %}><a class="forum-more__link" href="{{ crate::site::href(p.directory.href) }}" data-directory-link{% if p.directory.active %} aria-current="page"{% endif %}>{{ p.directory.label }}</a></li>
+          {%- endif %}
+        </ul>
+      </details>
+      {%- endif %}
+    </nav>
+    <form class="masthead__search" role="search" method="get" action="{{ crate::site::base() }}/search" hx-push-url="true">
+      <label class="sr-only" for="site-search">{{ p.t.frame_search_label() }}</label>
+      <input class="masthead__query" id="site-search" type="search" name="q" placeholder="{{ p.t.frame_search_placeholder() }}" maxlength="{{ p.search_max_length() }}" value="{{ p.query }}">
+      <button class="masthead__search-button" type="submit" aria-label="{{ p.t.frame_search_submit() }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4"/></svg></button>
+    </form>
+    <div class="masthead__tools">
+      {#- site.js removes hidden and rewrites aria-label and title for the current theme; frame.css shows the matching icon. #}
+      <button class="theme-switch" type="button" data-theme-toggle aria-label="{{ p.t.frame_theme_system() }}" title="{{ p.t.frame_theme_toggle_title() }}" hidden>
+        <svg class="theme-switch__auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16Z" fill="currentColor"/></svg>
+        <svg class="theme-switch__light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></svg>
+        <svg class="theme-switch__dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 13.2A8 8 0 1 1 10.8 4a6.2 6.2 0 0 0 9.2 9.2Z"/></svg>
+      </button>
+      {%- if p.authenticated %}
+      {#- The account toggle below names this link in aria-describedby, and frame.css reads its data-unread-count for the dot. #}
+      {% let fragment = false %}{% include "partials/notification_link.html" %}
+      <details class="account-nav">
+        <summary class="account-nav__toggle" aria-label="{{ p.t.frame_account_menu() }}" aria-describedby="notification-link" title="{{ p.username }}" translate="no">
+          <span class="account-nav__avatar">{% let avatar = p.avatar %}{% include "partials/avatar.html" %}</span>
+          <span class="sr-only" data-current-user>{{ p.username }}</span>
+          <svg class="account-nav__caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg>
+        </summary>
+        <div class="account-menu">
+          <p class="account-menu__name" translate="no">{{ p.username }}</p>
+          <ul class="account-menu__list">
+            <li><a class="account-menu__link" href="{{ crate::site::base() }}/my">{{ p.t.frame_my_center() }}</a></li>
+            <li><a class="account-menu__link" href="{{ crate::site::base() }}/my/notifications">{{ p.t.frame_notifications() }}</a></li>
+            <li><a class="account-menu__link" href="{{ crate::site::href(p.avatar.profile_href) }}">{{ p.t.frame_public_profile() }}</a></li>
+            <li><a class="account-menu__link" href="{{ crate::site::base() }}/my/profile" hx-boost="false">{{ p.t.frame_my_profile() }}</a></li>
+            <li><a class="account-menu__link" href="{{ crate::site::base() }}/my/account" hx-boost="false">{{ p.t.frame_account_security() }}</a></li>
+            {%- if p.is_staff %}
+            <li><a class="account-menu__link" href="{{ crate::site::base() }}/manage" hx-boost="false">{{ p.t.frame_manage() }}</a></li>
+            {%- endif %}
+            {%- if p.needs_verification %}
+            {%- if p.participation.email %}
+            <li><a class="account-menu__link" href="{{ crate::site::base() }}/verify-email" hx-boost="false">{{ p.t.frame_verify_email() }}</a></li>
+            {%- endif %}
+            {%- if p.participation.mobile %}
+            <li><a class="account-menu__link" href="{{ crate::site::base() }}/my/account#mobile" hx-boost="false">{{ p.t.frame_bind_mobile() }}</a></li>
+            {%- endif %}
+            {%- endif %}
+          </ul>
+          <form class="account-menu__logout" method="post" action="{{ crate::site::base() }}/logout" hx-boost="false">
+            <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+            <button class="button button--secondary account-menu__submit" type="submit">{{ p.t.frame_log_out() }}</button>
+          </form>
+        </div>
+      </details>
+      {%- else %}
+      <a class="masthead__action" href="{{ crate::site::base() }}/login" hx-boost="false">{{ p.t.frame_log_in() }}</a>
+      {%- if p.registration_open() %}
+      <a class="masthead__action masthead__action--register" href="{{ crate::site::base() }}/register" hx-boost="false">{{ p.t.frame_register() }}</a>
+      {%- endif %}
+      {%- endif %}
+    </div>
+  </div>
+</header>

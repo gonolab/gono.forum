@@ -1,0 +1,24 @@
+{% extends "layout/manage.html" %}{% block panel %}
+<section class="panel"><h1 class="panel__title">{{ p.t.mail_templates_title() }}</h1>
+<nav class="tabs" aria-label="{{ p.t.mail_templates_kinds() }}">
+  {%- for (name,label) in kinds %}
+  <a class="tabs__item" href="{{ crate::site::base() }}/manage/mail/templates/{{ name }}{{ lang_query }}"{% if kind.as_str() == *name %} aria-current="page"{% endif %}>{{ label }}</a>
+  {%- endfor %}
+</nav>
+<nav class="tabs" aria-label="{{ p.t.mail_templates_languages() }}" data-language-tabs>
+  {%- for tab in languages %}
+  <a class="tabs__item" href="{{ crate::site::base() }}/manage/mail/templates/{{ kind }}?lang={{ tab.tag }}"{% if tab.current %} aria-current="page"{% endif %} lang="{{ tab.tag }}">{{ tab.name }}{% if tab.customized %}{{ p.t.mail_templates_customized() }}{% endif %}</a>
+  {%- endfor %}
+</nav>
+<p>{{ p.t.mail_templates_help(variables) }}</p>{% if !message.is_empty() %}<p class="form-feedback form-feedback--info" role="status">{{ message }}</p>{% endif %}
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/mail/templates/{{ kind }}{{ lang_query }}"><input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<div class="field">
+  <label class="field__label" for="template-subject">{{ p.t.mail_templates_subject() }}</label>
+  <input id="template-subject" name="subject" value="{{ value.subject }}" maxlength="120">
+</div>
+<div class="field">
+  <label class="field__label" for="template-body">{{ p.t.mail_templates_body() }}</label>
+  <textarea id="template-body" name="body" rows="14" maxlength="16000">{{ value.body }}</textarea>
+</div>
+<div class="form-actions"><button class="button button--secondary" type="submit" name="operation" value="preview">{{ p.t.mail_templates_preview() }}</button><button class="button" type="submit" name="operation" value="save">{{ p.t.mail_templates_save() }}</button><button class="button button--secondary" type="submit" name="operation" value="reset">{{ p.t.mail_templates_reset() }}</button></div>
+</form>{% if !preview_subject.is_empty() %}<section class="panel"><h2 class="panel__title">{{ preview_subject }}</h2><pre class="admin-pre">{{ preview_body }}</pre></section>{% endif %}</section>{% endblock %}

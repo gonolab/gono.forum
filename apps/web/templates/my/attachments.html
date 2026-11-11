@@ -1,0 +1,47 @@
+{% extends "layout/my.html" %}
+{% block panel %}
+<section class="pane private-collection" hx-history="false" data-attachment-library="{% if trash_view %}trash{% else %}kept{% endif %}">
+  <div class="panel">
+    <h2 class="panel__title">{{ p.t.media_usage() }}</h2>
+    <table class="quota-table">
+      <thead><tr><th scope="col">{{ p.t.media_usage_kind() }}</th><th scope="col">{{ p.t.media_usage_files() }}</th><th scope="col">{{ p.t.media_usage_size() }}</th><th scope="col">{{ p.t.media_usage_note() }}</th></tr></thead>
+      <tbody>
+      {% for line in usage %}<tr><th scope="row">{{ line.label }}</th><td>{{ line.files }}</td><td>{{ line.size }}</td><td>{{ line.note }}</td></tr>{% endfor %}
+      <tr class="quota-table__total"><th scope="row">{{ p.t.media_usage_total() }}</th><td data-usage-files="{{ total_files }}">{{ total_files }}</td><td>{{ total_size }}</td><td>{{ p.t.media_usage_total_note() }}</td></tr>
+      </tbody>
+    </table>
+    <p class="intro">{{ p.t.media_daily_quota(daily_used, daily_max, p.site_zone()) }}</p>
+  </div>
+  {% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+  {% if trash_view %}<p class="intro">{{ p.t.media_trash_note(trash_days, p.t.media_unused()) }}</p>{% else %}<p class="intro">{{ p.t.media_kept_note(total, p.link("/my/attachments/trash", p.t.media_trash_link()))|safe }}</p>{% endif %}
+  <ul class="rows attachment-list">
+    {%- for row in rows %}
+    <li class="rows__item" data-attachment-row="{{ row.aid }}">
+      <div class="row-body">
+        <div class="row-headline">{% if let Some(href) = row.href %}<a class="row-title" href="{{ crate::site::href(href) }}" hx-boost="false">{{ row.filename }}</a>{% else %}<span class="row-title">{{ row.filename }}</span>{% endif %}</div>
+        <p class="row-meta"><span data-attachment-state>{{ row.state }}</span><span>{{ row.size }}</span><span>{{ p.t.media_uploaded(row.uploaded) }}</span>{% if !row.expires.is_empty() %}<span>{{ p.t.media_expires(row.expires) }}</span>{% endif %}{% if let Some(href) = row.post_href %}<a href="{{ crate::site::href(href) }}">{{ p.t.activity_growth_view_post() }}</a>{% endif %}</p>
+        {%- if !row.blocked.is_empty() %}
+        <p class="row-meta"><span class="file-blocked">{{ row.blocked }}</span></p>
+        {%- endif %}
+      </div>
+      {%- if row.can_trash || trash_view || row.can_delete %}
+      <div class="row-actions">
+        {%- if row.can_trash %}
+        <form method="post" action="{{ crate::site::base() }}/my/attachments/{{ row.aid }}/trash" hx-boost="false"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="page" value="{{ page }}"><button class="button button--small button--secondary" type="submit">{{ p.t.media_trash() }}</button></form>
+        {%- endif %}
+        {%- if trash_view %}
+        <form method="post" action="{{ crate::site::base() }}/my/attachments/{{ row.aid }}/restore" hx-boost="false"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="page" value="{{ page }}"><input type="hidden" name="from" value="trash"><button class="button button--small button--secondary" type="submit">{{ p.t.media_restore() }}</button></form>
+        {%- endif %}
+        {%- if row.can_delete %}
+        <form method="post" action="{{ crate::site::base() }}/my/attachments/{{ row.aid }}/delete" hx-boost="false"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="page" value="{{ page }}">{% if trash_view %}<input type="hidden" name="from" value="trash">{% endif %}<button class="button button--small button--danger" type="submit">{{ p.t.media_delete() }}</button></form>
+        {%- endif %}
+      </div>
+      {%- endif %}
+    </li>
+    {%- else %}
+    <li class="empty">{% if trash_view %}{{ p.t.media_trash_empty() }}{% else %}{{ p.t.media_empty() }}{% endif %}</li>
+    {%- endfor %}
+  </ul>
+  <nav class="form-actions" aria-label="{{ p.t.common_pagination() }}">{% if !previous.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(previous) }}">{{ p.t.common_previous_page() }}</a>{% endif %}{% if !next.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(next) }}">{{ p.t.common_next_page() }}</a>{% endif %}</nav>
+</section>
+{% endblock %}

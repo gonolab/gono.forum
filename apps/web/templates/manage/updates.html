@@ -1,0 +1,41 @@
+{% extends "layout/manage.html" %}{% block panel %}
+{% if !running.is_empty() %}<meta http-equiv="refresh" content="3">{% endif %}
+<section class="panel" id="section-version" aria-labelledby="section-version-title"><h1 class="panel__title" id="section-version-title">{{ p.t.maintenance_updates_title() }}</h1>
+{% if !notice.is_empty() %}<p class="form-feedback form-feedback--success" role="status">{{ notice }}</p>{% endif %}
+{% if !alert.is_empty() %}<p class="form-feedback" role="alert">{{ alert }}</p>{% endif %}
+{% if !running.is_empty() %}<p class="form-feedback form-feedback--info" role="status">{{ p.t.maintenance_updates_running(running) }}</p>{% endif %}
+{% if !failure.is_empty() %}<p class="form-feedback" role="alert">{{ p.t.maintenance_updates_failure(failure) }}</p>{% endif %}
+<p>{{ p.t.maintenance_updates_version(crate::i18n::Markup::tag("code", version))|safe }}{% if !platform.is_empty() %}{{ p.t.maintenance_updates_parenthesized(platform) }}{% endif %}</p>
+<p>{{ p.t.maintenance_updates_source(crate::i18n::Markup::tag("code", releases_url), crate::i18n::Markup::tag("code", "[update] releases_url"))|safe }}</p>
+{% if let Some(last) = last %}<p>{% if last.switched %}{{ p.t.maintenance_updates_last_switched(last.from, last.to) }}{% else if last.rolled_back %}{{ p.t.maintenance_updates_last_rolled_back(last.from, last.to) }}{% else %}{{ p.t.maintenance_updates_last_upgraded(last.from, last.to) }}{% endif %}{% if !last.at.is_empty() %}{{ p.t.maintenance_updates_parenthesized(last.at) }}{% endif %}</p>{% endif %}
+</section>
+
+<form method="post" action="{{ crate::site::base() }}/manage/updates/check">
+<input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<section class="panel" id="section-check" aria-labelledby="section-check-title"><h2 class="panel__title" id="section-check-title">{{ p.t.maintenance_updates_check() }}</h2>
+{% if checked_at.is_empty() %}<p>{{ p.t.maintenance_updates_never_checked() }}</p>
+{% else if !check_error.is_empty() %}<p class="form-feedback" role="alert">{{ p.t.maintenance_updates_check_failed(checked_at, check_error) }}</p>
+{% else if latest.is_empty() %}<p>{{ p.t.maintenance_updates_check_no_package(checked_at) }}</p>
+{% else if newer %}<p class="form-feedback form-feedback--success" role="status">{{ p.t.maintenance_updates_check_newer(checked_at, crate::i18n::Markup::tag("code", latest))|safe }}</p>
+{% else %}<p>{{ p.t.maintenance_updates_check_latest(checked_at, crate::i18n::Markup::tag("code", latest))|safe }}</p>{% endif %}
+</section>
+<div class="form-actions form-actions--sticky"><button class="button" type="submit">{{ p.t.maintenance_updates_check() }}</button></div>
+</form>
+
+{% if newer %}
+<form method="post" action="{{ crate::site::base() }}/manage/updates/apply">
+<input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<section class="panel" id="section-apply" aria-labelledby="section-apply-title"><h2 class="panel__title" id="section-apply-title">{{ p.t.maintenance_updates_apply(latest) }}</h2>
+{% if blockers.is_empty() %}
+<p>{% if previous %}{{ p.t.maintenance_updates_apply_lead_previous() }}{% else %}{{ p.t.maintenance_updates_apply_lead() }}{% endif %}</p>
+<p>{{ p.t.maintenance_updates_backup() }}</p>
+{% else %}
+<p>{{ p.t.maintenance_updates_blocked() }}</p>
+<ul>{% for reason in blockers %}<li>{{ reason }}</li>{% endfor %}</ul>
+<p>{{ p.t.maintenance_updates_blocked_hint(crate::i18n::Markup::tag("code", "forum.install.sh upgrade"))|safe }}</p>
+{% endif %}
+</section>
+{% if blockers.is_empty() && running.is_empty() %}<div class="form-actions form-actions--sticky"><button class="button" type="submit">{{ p.t.maintenance_updates_apply(latest) }}</button></div>{% endif %}
+</form>
+{% endif %}
+{% endblock %}

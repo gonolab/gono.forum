@@ -1,0 +1,7 @@
+{#- Page links under a list: a centred row of numbered links, a gap mark where numbers are skipped. -#}
+{% if pages.len() > 1 %}<nav class="pager" aria-label="{{ p.t.common_pagination() }}">
+  {%- for page in pages %}{% if !loop.first && page.number > pages[loop.index0 - 1].number + 1 %}
+  <span class="pager__gap" aria-hidden="true"></span>{% endif %}
+  <a class="pager__item" href="{{ crate::site::href(page.href) }}" aria-label="{{ p.t.common_page_number(page.number) }}"{% if page.active %} aria-current="page"{% endif %}>{{ page.number }}</a>
+  {%- endfor %}
+</nav>{% endif %}

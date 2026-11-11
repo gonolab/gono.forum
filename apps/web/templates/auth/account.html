@@ -1,0 +1,123 @@
+{% extends "layout/base.html" %}
+{% block content %}
+{# Log in and register share this page; `register` picks the mode. hx-boost="false" on the root makes every form and link here a full page load (cookies, redirects, password managers). #}
+<div class="narrow-page" hx-boost="false">
+  <section class="panel panel--auth">
+    <h1 class="sr-only">{% if register %}{{ p.t.frame_register() }}{% else %}{{ p.t.frame_log_in() }}{% endif %}</h1>
+    {# Keep each tab's href followed directly by aria-current or the closing bracket: tests match the tab markup literally. #}
+    <nav class="tabs tabs--auth" aria-label="{{ p.t.account_tabs() }}">
+      <a class="tabs__item" href="{{ crate::site::base() }}/login{{ form.return_query() }}"{% if !register %} aria-current="page"{% endif %}>{{ p.t.frame_log_in() }}</a>
+      {%- if register || p.registration_open() %}
+      <a class="tabs__item" href="{{ crate::site::base() }}/register{{ form.return_query() }}"{% if register %} aria-current="page"{% endif %}>{{ p.t.frame_register() }}</a>
+      {%- endif %}
+      {%- if sms_login %}
+      <a class="tabs__item" href="{{ crate::site::base() }}/login/sms{{ form.return_query() }}">{{ p.t.account_sms_login() }}</a>
+      {%- endif %}
+    </nav>
+    {%- if !message.is_empty() %}
+    {%- if success %}
+    <p class="form-feedback form-feedback--info" role="status">{{ message }}</p>
+    {%- else %}
+    <p class="form-feedback" role="alert">{{ message }}</p>
+    {%- endif %}
+    {%- endif %}
+    {%- if register && registration_closed %}
+    <p class="form-feedback form-feedback--info">{{ p.t.account_registration_closed() }}</p>
+    {%- else %}
+    {# scripts/ui-measure.mjs logs in through this form: the action must end in the log-in path and the button keeps type=submit. #}
+    <form class="fields" method="post" action="{{ crate::site::base() }}{% if register %}/register{% else %}/login{% endif %}">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <input type="hidden" name="return_to" value="{{ form.return_to }}">
+      {%- if register %}
+      <div class="field">
+        <label class="field__label" for="register-invite">{{ p.t.account_invite() }}</label>
+        <input type="text" id="register-invite" aria-describedby="register-invite-hint" name="invite" value="{{ form.invite }}" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="64"{% if invitation_required %} required{% endif %}>
+        <p class="field__hint" id="register-invite-hint">{% if invitation_required %}{{ p.t.account_invite_required() }}{% else %}{{ p.t.account_invite_optional() }}{% endif %}</p>
+      </div>
+      <div class="field">
+        <label class="field__label" for="register-username">{{ p.t.account_username() }}</label>
+        <input type="text" id="register-username" aria-describedby="register-username-hint" name="username" value="{{ form.username }}" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="50" required>
+        <p class="field__hint" id="register-username-hint">{{ p.t.account_username_hint() }}</p>
+      </div>
+      <div class="field">
+        <label class="field__label" for="register-email">{{ p.t.account_email() }}</label>
+        <input type="email" id="register-email" aria-describedby="register-email-hint" name="email" value="{{ form.email }}" autocomplete="email" maxlength="255" required>
+        <p class="field__hint" id="register-email-hint">{{ p.t.account_email_hint() }}</p>
+      </div>
+      {# Passwords are never written back into the page. #}
+      <div class="field">
+        <label class="field__label" for="register-password">{{ p.t.account_password() }}</label>
+        <input type="password" id="register-password" aria-describedby="register-password-hint" name="password" autocomplete="new-password" minlength="{{ p.frame.settings.account.password_min_length }}" maxlength="128" required>
+        <p class="field__hint" id="register-password-hint">{{ p.t.account_password_hint(p.frame.settings.account.password_min_length) }}</p>
+      </div>
+      <div class="field">
+        <label class="field__label" for="register-password2">{{ p.t.account_password_confirm() }}</label>
+        <input type="password" id="register-password2" name="password2" autocomplete="new-password" minlength="{{ p.frame.settings.account.password_min_length }}" maxlength="128" required>
+      </div>
+      <div class="checkline">
+        <label class="checkline__label">
+          <input type="checkbox" name="accept_terms" value="1"{% if form.accept_terms == "1" %} checked{% endif %} required>
+          <span>{{ p.t.account_consent(p.link_with("/terms", "", " target=\"_blank\" rel=\"noopener\"", p.t.account_consent_terms()), p.link_with("/privacy", "", " target=\"_blank\" rel=\"noopener\"", p.t.account_consent_privacy()))|safe }}</span>
+        </label>
+      </div>
+      <button class="button button--block" type="submit">{{ p.t.frame_register() }}</button>
+      {%- else %}
+      <div class="field">
+        <label class="field__label" for="login-username">{{ p.t.account_login_name() }}</label>
+        <input type="text" id="login-username" name="username" value="{{ form.username }}" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="255" required>
+      </div>
+      <div class="field">
+        <label class="field__label" for="login-password">{{ p.t.account_password() }}</label>
+        <input type="password" id="login-password" name="password" autocomplete="current-password" maxlength="128" required>
+      </div>
+      <button class="button button--block" type="submit">{{ p.t.frame_log_in() }}</button>
+      {%- endif %}
+    </form>
+    {%- if !providers.is_empty() %}
+    <div class="provider-list" data-auth-providers>
+      {%- for provider in providers %}
+      <a class="button button--secondary button--block" href="{{ crate::site::base() }}/auth/{{ provider.value() }}{{ form.return_query() }}" hx-boost="false" data-auth-provider="{{ provider.value() }}">{% if register %}{{ p.t.account_provider_register(provider.label()) }}{% else %}{{ p.t.account_provider_login(provider.label()) }}{% endif %}</a>
+      {%- endfor %}
+    </div>
+    {%- endif %}
+    {%- endif %}
+    {%- if !register %}
+    <ul class="panel__links panel__links--center">
+      <li><a href="{{ crate::site::base() }}/forgot-password" hx-boost="false">{{ p.t.account_forgot() }}</a></li>
+      <li><a href="{{ crate::site::base() }}/data/access" hx-boost="false">{{ p.t.account_data_request() }}</a></li>
+      <li><a href="{{ crate::site::base() }}/appeals" hx-boost="false">{{ p.t.account_appeal() }}</a></li>
+    </ul>
+    {%- endif %}
+  </section>
+  {# SMS links (tab and notes) appear only when SMS log-in is on; tests check the whole page for them. #}
+  <section class="callout">
+    {%- if register %}
+    <h2 class="callout__title">{{ p.t.account_register_notes() }}</h2>
+    <ul class="callout__list">
+      <li>{{ p.t.account_note_invite_once() }}</li>
+      {%- if sms_login %}
+      <li>{{ p.t.account_note_mobile(p.link_with("/login/sms", form.return_query().as_str(), "", p.t.account_note_mobile_link()))|safe }}</li>
+      {%- endif %}
+      {%- if !providers.is_empty() %}
+      <li>{{ p.t.account_note_external() }}</li>
+      {%- endif %}
+      <li>{{ p.t.account_note_verify() }}</li>
+      <li>{{ p.t.account_note_read(p.link_with("/rules", "", " target=\"_blank\" rel=\"noopener\"", p.t.account_link_rules()), p.link_with("/terms", "", " target=\"_blank\" rel=\"noopener\"", p.t.account_link_terms()), p.link_with("/privacy", "", " target=\"_blank\" rel=\"noopener\"", p.t.account_link_privacy()))|safe }}</li>
+    </ul>
+    {%- else %}
+    <h2 class="callout__title">{{ p.t.account_login_notes() }}</h2>
+    <ul class="callout__list">
+      <li>{{ p.t.account_note_login_name() }}</li>
+      {%- if sms_login %}
+      <li>{{ p.t.account_note_sms(p.link_with("/login/sms", form.return_query().as_str(), "", p.t.account_note_sms_link()))|safe }}</li>
+      {%- endif %}
+      {%- if !providers.is_empty() %}
+      <li>{{ p.t.account_note_external_login() }}</li>
+      {%- endif %}
+      <li>{{ p.t.account_note_case() }}</li>
+      <li>{{ p.t.account_note_public_device() }}</li>
+    </ul>
+    {%- endif %}
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,26 @@
+{# Always rendered, even when empty and hidden, so a like response can replace it out of band. It must not repeat floor-* or reaction-* ids. #}
+<section class="spotlight" id="topic-highlights" aria-label="{{ p.t.topic_highlights() }}"{% if highlights.rows.is_empty() %} hidden{% endif %}{% if highlights.oob %} hx-swap-oob="outerHTML"{% endif %}>
+  {%- if !highlights.rows.is_empty() %}
+  <h2 class="spotlight__title">{{ p.t.topic_highlights() }}</h2>
+  <ol class="highlight-list">
+    {%- for row in highlights.rows %}
+    <li class="highlight-item" data-highlight-pid="{{ row.pid }}" data-highlight-count="{{ row.count }}">
+      <span class="row-avatar">{% let avatar = row.avatar %}{% include "partials/avatar.html" %}</span>
+      <div class="highlight-item__body">
+        <p class="highlight-item__meta">
+          {%- if row.avatar.profile_href.is_empty() %}
+          <span class="row-author" translate="no">{{ row.author }}</span>
+          {%- else %}
+          <a class="row-author" href="{{ crate::site::href(row.avatar.profile_href) }}" translate="no">{{ row.author }}</a>
+          {%- endif %}
+          <span class="row-time">{{ row.time }}</span>
+          <span class="highlight-count">{% include "partials/reaction_icon.html" %}{{ p.t.topic_highlight_likes(row.count) }}</span>
+        </p>
+        <p class="highlight-excerpt">{{ row.summary|safe }}</p>
+        <a class="highlight-permalink" href="{{ crate::site::href(row.href) }}" hx-boost="false">#{{ row.position }} · {{ p.t.topic_highlight_view() }}</a>
+      </div>
+    </li>
+    {%- endfor %}
+  </ol>
+  {%- endif %}
+</section>

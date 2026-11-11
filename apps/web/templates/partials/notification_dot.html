@@ -1,0 +1,4 @@
+{#- The unread dot on the member center card's notifications link (needs `fragment`). It is always there, hidden when
+    nothing is unread, so that user/notifications.html can send it again as an out-of-band swap after marking
+    notifications read: the list alone is swapped, and the card keeps its place. -#}
+<span class="person-card__dot" id="my-card-unread" role="img" aria-label="{{ p.t.my_card_unread() }}"{% if p.unread_notifications == 0 %} hidden{% endif %}{% if fragment %} hx-swap-oob="true"{% endif %}></span>

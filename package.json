@@ -1,0 +1,20 @@
+{
+  "name": "gonof-browser-checks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:editor": "node scripts/build-editor.mjs",
+    "test:e2e": "playwright test",
+    "build:styles": "node scripts/build-styles.mjs",
+    "build": "npm run build:styles && npm run build:editor",
+    "test:screens": "playwright test tests/e2e/screens.spec.js",
+    "test:checks": "playwright test tests/e2e/checks.spec.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "esbuild": "0.28.2"
+  },
+  "dependencies": {
+    "@lezer/markdown": "1.7.2"
+  }
+}

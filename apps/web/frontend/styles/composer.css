@@ -1,0 +1,324 @@
+/* The post editor: toolbar, body field, preview, pickers, attachments, the full-screen mode and the choice
+   fields of the posting form. composer.js builds the shell, toolbar, pickers and attachment rows. See
+   docs/styles.md, "Style files". */
+
+.composer-shell {
+  margin-block: 8px;
+}
+
+/* Formatting toolbar: a tinted strip joined to the top of the body field. */
+.write-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-block-end: 0;
+  border-start-start-radius: var(--r);
+  border-start-end-radius: var(--r);
+  background: var(--panel-alt);
+}
+
+.write-toolbar > button {
+  display: grid;
+  place-items: center;
+  flex: 0 0 30px;
+  inline-size: 30px;
+  block-size: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.write-toolbar > button:hover {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
+.write-toolbar > button[aria-pressed="true"] {
+  background: var(--toolbar-selected-bg);
+  color: var(--toolbar-selected-text);
+}
+
+/* Emoji and mention show a character; every other tool shows an icon drawn on a 24px grid (1.8 stroke; bold
+   uses a heavier one), tinted by the text colour through a mask. */
+.write-toolbar > :is(.tool-emoji, .tool-mention) {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 28px;
+}
+
+.write-toolbar > button:not(.tool-emoji, .tool-mention)::after {
+  content: "";
+  display: block;
+  inline-size: 15px;
+  block-size: 15px;
+  background-color: currentColor;
+  mask-position: center;
+  mask-size: contain;
+  mask-repeat: no-repeat;
+}
+
+.tool-bold::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 5h5.5a3.5 3.5 0 0 1 0 7H7zM7 12h6.5a3.5 3.5 0 0 1 0 7H7z'/%3E%3C/svg%3E");
+}
+
+.tool-italic::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 5h8M6 19h8M14.5 5l-5 14'/%3E%3C/svg%3E");
+}
+
+.tool-strike::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.5 12h15M16.3 7.4C15.8 5.9 14.2 5 12 5c-2.5 0-4.3 1.3-4.3 3.2 0 1.3.8 2.2 2.4 2.8M14.9 14.3c.9.6 1.4 1.4 1.4 2.4 0 1.6-1.7 2.8-4.3 2.8-2.3 0-4-1-4.6-2.6'/%3E%3C/svg%3E");
+}
+
+.tool-heading::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6.5 5v14M17.5 5v14M6.5 12h11'/%3E%3C/svg%3E");
+}
+
+.tool-quote::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5h4.5V17H5v-4.5c0-2.8 1.4-4.6 4.2-5.3M14.5 12.5H19V17h-4.5v-4.5c0-2.8 1.4-4.6 4.2-5.3'/%3E%3C/svg%3E");
+}
+
+.tool-ul::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9.5 7h10M9.5 12h10M9.5 17h10'/%3E%3Cpath d='M5 7h.01M5 12h.01M5 17h.01' stroke-width='2.8'/%3E%3C/svg%3E");
+}
+
+.tool-ol::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.5 7h9M10.5 12h9M10.5 17h9M4.5 5.5 6 4.5v5M4.5 15.5c.2-.7.8-1 1.5-1 .8 0 1.4.5 1.4 1.2 0 1.1-2.9 1.9-2.9 3.8h3'/%3E%3C/svg%3E");
+}
+
+.tool-code::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8.5 7.5 4 12l4.5 4.5M15.5 7.5 20 12l-4.5 4.5M13.5 5l-3 14'/%3E%3C/svg%3E");
+}
+
+.tool-link::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.6 13.4a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-1 1M13.4 10.6a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l1-1'/%3E%3C/svg%3E");
+}
+
+/* Uploads are images only, so the tool shows a picture. */
+.tool-attach::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3.5' y='4.5' width='17' height='15' rx='2'/%3E%3Ccircle cx='15' cy='9.5' r='1.5'/%3E%3Cpath d='m3.5 16 4.5-4.5 4.5 4.5 2.5-2.5 4.5 4.5'/%3E%3C/svg%3E");
+}
+
+.tool-spoiler::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 12c1.9-3.7 5.4-6 9.5-6s7.6 2.3 9.5 6c-1.9 3.7-5.4 6-9.5 6s-7.6-2.3-9.5-6zM4.5 4.5l15 15'/%3E%3C/svg%3E");
+}
+
+.tool-preview::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 12c1.9-3.7 5.4-6 9.5-6s7.6 2.3 9.5 6c-1.9 3.7-5.4 6-9.5 6s-7.6-2.3-9.5-6z'/%3E%3Ccircle cx='12' cy='12' r='2.8'/%3E%3C/svg%3E");
+}
+
+.tool-fullscreen::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 9V5.5C4 4.7 4.7 4 5.5 4H9M15 4h3.5c.8 0 1.5.7 1.5 1.5V9M20 15v3.5c0 .8-.7 1.5-1.5 1.5H15M9 20H5.5c-.8 0-1.5-.7-1.5-1.5V15'/%3E%3C/svg%3E");
+}
+
+/* While full screen is on, the same tool shows the corners turned inwards. */
+.tool-fullscreen[aria-pressed="true"]::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 4v3.5C9 8.3 8.3 9 7.5 9H4M15 4v3.5c0 .8.7 1.5 1.5 1.5H20M20 15h-3.5c-.8 0-1.5.7-1.5 1.5V20M4 15h3.5c.8 0 1.5.7 1.5 1.5V20'/%3E%3C/svg%3E");
+}
+
+@media (max-width: 760px) {
+  .write-toolbar {
+    gap: 3px;
+    padding: 6px;
+  }
+}
+
+/* Body field: square top corners where the toolbar sits on it. */
+.composer-shell > textarea {
+  display: block;
+  inline-size: 100%;
+  block-size: 260px;
+  min-block-size: 260px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  border-end-start-radius: var(--r);
+  border-end-end-radius: var(--r);
+  background: var(--editor-bg);
+  color: var(--editor-text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.8;
+  resize: vertical;
+}
+
+.composer-shell > textarea::placeholder {
+  color: var(--input-placeholder);
+  opacity: 1;
+}
+
+/* 16px keeps phones from zooming into the field. */
+@media (max-width: 760px) {
+  .composer-shell > textarea {
+    font-size: 16px;
+  }
+}
+
+.composer-shell > textarea:focus-visible {
+  border-color: var(--input-focus);
+}
+
+/* Files dragged over the editor. */
+.composer-shell.is-drop-target > textarea {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* Emoji and mention picker: a strip between the toolbar and the body field. */
+.emoji-menu {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel-alt);
+}
+
+.emoji-menu > button {
+  inline-size: 36px;
+  block-size: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.emoji-menu > button:hover {
+  background: var(--panel-hover);
+}
+
+.emoji-menu > input {
+  flex: 1 1 100%;
+  min-inline-size: 0;
+}
+
+.mention-menu {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.mention-menu > button {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+.mention-menu > button:is(:hover, :focus-visible) {
+  background: var(--panel-hover);
+}
+
+/* Preview of the rendered post, under the body field. */
+.write-preview {
+  margin-block-start: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel-alt);
+  line-height: 1.8;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* Attachment rows: the script's upload rows and the server's rows for pages without scripts. */
+.write-attachment {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-block-start: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-input);
+  background: var(--panel);
+  font-size: 13px;
+}
+
+.write-attachment > span:first-child {
+  min-inline-size: 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.write-attachment > progress {
+  inline-size: 120px;
+  block-size: 6px;
+  accent-color: var(--accent);
+}
+
+.write-status {
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.write-attachment:is([data-state="error"], [data-state="rejected"]) {
+  border-color: var(--danger-border);
+}
+
+.write-attachment:is([data-state="error"], [data-state="rejected"]) .write-status {
+  color: var(--danger-text);
+}
+
+.write-attachment > button {
+  padding: 2px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.write-attachment > button:hover {
+  background: var(--panel-hover);
+}
+
+/* Full screen: the whole form covers the viewport above the header and drawer; the page behind stops
+   scrolling. */
+.write-fullscreen {
+  position: fixed;
+  inset-block: 0;
+  inset-inline: 0;
+  z-index: 60;
+  overflow-y: auto;
+  padding-block: calc(16px + var(--safe-top)) calc(16px + var(--safe-bottom));
+  padding-inline: calc(16px + max(var(--safe-left), var(--safe-right)));
+  background: var(--panel);
+}
+
+.write-fullscreen .composer-shell > textarea {
+  block-size: max(260px, 70dvh);
+}
+
+.has-write-fullscreen {
+  overflow: hidden;
+}
+
+.conflict-note--draft > textarea {
+  display: block;
+  inline-size: 100%;
+  margin-block: 8px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}

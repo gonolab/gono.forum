@@ -1,0 +1,19 @@
+{% extends "layout/manage.html" %}{% block panel %}
+<section class="panel"><h1 class="panel__title">{{ p.t.site_manage_verified() }}</h1>
+{% if !notice.is_empty() %}<p class="form-feedback form-feedback--success" role="status">{{ notice }}</p>{% endif %}
+<p>{{ p.t.site_manage_verified_lead(p.link("/verified", "/verified"))|safe }}</p>
+<form class="fields fields--inline" method="get" action="{{ crate::site::base() }}/manage/verifications">
+<div class="field">
+  <label class="field__label" for="lookup-uid">{{ p.t.site_manage_member_uid() }}</label>
+  <input type="number" id="lookup-uid" name="uid" min="1" required>
+</div>
+<div class="form-actions"><button class="button" type="submit">{{ p.t.site_manage_grant_or_edit() }}</button></div>
+</form>
+<nav class="tabs" aria-label="{{ p.t.site_manage_filters() }}">
+  {%- for tab in filters %}
+  <a class="tabs__item" href="{{ crate::site::href(tab.href) }}"{% if tab.active %} aria-current="page"{% endif %}>{{ tab.label }}</a>
+  {%- endfor %}
+</nav>
+{% for row in rows %}<article class="admin-row" data-verification="{{ row.uid }}"><h2><a href="{{ crate::site::base() }}/manage/verifications/{{ row.uid }}" translate="no">{{ row.username }}</a> · {{ row.label }}</h2><p>UID {{ row.uid }} · {{ row.title }}{% if !row.site_host.is_empty() %} · {{ row.site_host }}{% endif %}</p><p>{{ p.t.site_manage_granted(row.granted) }} · {{ p.t.site_manage_reviewed(row.reviewed) }} · {{ p.t.site_manage_expires(row.expires) }} · {{ row.state }}</p></article>{% else %}<p>{{ p.t.site_manage_empty() }}</p>{% endfor %}
+<nav class="form-actions" aria-label="{{ p.t.site_manage_pages() }}">{% if !previous.is_empty() %}<a href="{{ crate::site::href(previous) }}">{{ p.t.common_previous_page() }}</a>{% endif %}{% if !next.is_empty() %}<a href="{{ crate::site::href(next) }}">{{ p.t.common_next_page() }}</a>{% endif %}</nav>
+</section>{% endblock %}

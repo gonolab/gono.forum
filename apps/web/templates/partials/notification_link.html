@@ -1,0 +1,5 @@
+{#- Header notifications link (needs `fragment`). The masthead includes it with fragment = false; user/notifications.html sends
+    it again with fragment = true as an out-of-band swap after marking notifications read, so both copies come from this
+    file. The id is the swap target and the account toggle's aria-describedby; frame.css reads data-unread-count (digits only)
+    to draw the unread dot on the account toggle. -#}
+<a class="masthead__notifications" id="notification-link" href="{{ crate::site::base() }}/my/notifications" data-unread-count="{{ p.unread_notifications }}" aria-label="{{ p.t.frame_notifications_unread(p.unread_notifications) }}"{% if fragment %} hx-swap-oob="true"{% endif %}>{{ p.t.frame_notifications() }}{% if p.unread_notifications > 0 %} <span class="unread-dot">{% if p.unread_notifications > 99 %}99+{% else %}{{ p.unread_notifications }}{% endif %}</span>{% endif %}</a>

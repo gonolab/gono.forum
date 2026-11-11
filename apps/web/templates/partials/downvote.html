@@ -1,0 +1,17 @@
+{# Downvotes on the opening post only. Each branch has one root with id downvote-{pid} so it can be replaced out of band. #}
+{%- if downvote.can_change %}
+<form class="interaction-form downvote-control" id="downvote-{{ downvote.pid }}" method="post" action="{{ crate::site::base() }}/api/comments/{{ downvote.pid }}/downvote" hx-post="{{ crate::site::base() }}/api/comments/{{ downvote.pid }}/downvote" hx-target="this" hx-swap="outerHTML" hx-boost="false" hx-disabled-elt="find button"{% if downvote.oob %} hx-swap-oob="true"{% endif %}>
+  <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+  <input type="hidden" name="request_key" value="{{ downvote.request_key }}">
+  <input type="hidden" name="desired" value="{% if downvote.active %}false{% else %}true{% endif %}">
+  <input type="hidden" name="location" value="{{ downvote.location }}">
+  <button class="icon-button" type="submit" aria-pressed="{{ downvote.active }}" data-downvote="{{ downvote.active }}" aria-label="{% if downvote.active %}{{ p.t.topic_undownvote() }}{% else %}{{ p.t.topic_downvote() }}{% endif %}" title="{% if downvote.active %}{{ p.t.topic_undownvote() }}{% else %}{{ p.t.topic_downvote() }}{% endif %}">
+    {%- include "partials/downvote_icon.html" %}
+  </button>
+</form>
+{%- else if let Some(count) = downvote.count %}
+<button class="icon-button interaction-disabled downvote-control" id="downvote-{{ downvote.pid }}" type="button" aria-label="{{ p.t.topic_downvote_count(count) }}" title="{{ p.t.topic_downvote_private() }}"{% if downvote.oob %} hx-swap-oob="true"{% endif %} disabled>
+  {%- include "partials/downvote_icon.html" %}
+  <span class="actions-bar__count" data-downvote-count>{{ count }}</span>
+</button>
+{%- endif %}

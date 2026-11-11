@@ -1,0 +1,392 @@
+/* Profile page (profile, profile__*, and the profile classes kept from site.css: message-entry-*, profile-verification, public-bio, growth-progress), the follow / block toggle (social-control), and the policy pages (reader-layout, reader, reader__*, policy-nav). */
+
+/* ------------------------------------------------------------------ */
+/* Profile: main column                                                */
+/* ------------------------------------------------------------------ */
+
+.profile__main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--gap);
+  align-content: start;
+}
+
+.profile__head.panel {
+  padding: 20px;
+}
+
+/* Identity on the start side, the visitor's actions on the end side; they wrap under it when space runs out. */
+.profile__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 16px;
+}
+
+.profile__top > .person {
+  flex: 1 1 260px;
+}
+
+.profile__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The stat grid is set off from the identity, bio and actions above it. */
+.profile__head > .tally {
+  padding-block-start: 14px;
+  border-block-start: 1px solid var(--line);
+}
+
+/* "Posted" / "Replied to" in front of a title in the recent activity view. */
+.profile__verb {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* The board link in the row meta duplicates the board chip at the row end; only one of them is shown at a time. */
+.row-meta > .profile__meta-board {
+  display: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Profile classes whose names are kept from site.css                  */
+/* (reconcile with the site.css rules at integration)                  */
+/* ------------------------------------------------------------------ */
+
+/* Messages entry that cannot be used: the reason sits inside the disabled button and may wrap. */
+.button.message-entry-disabled {
+  white-space: normal;
+  text-align: start;
+}
+
+.message-entry-reason {
+  font-weight: 400;
+}
+
+/* Verified line: badge link, verification title, the member's site; separators are drawn, not read. */
+.profile-verification {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.profile-verification > * + *::before {
+  content: "·";
+  content: "·" / "";
+  margin-inline: 6px;
+  color: var(--text-muted);
+}
+
+.profile-verification a,
+.public-bio a,
+.growth-progress__note a {
+  color: var(--link);
+  text-decoration: none;
+}
+
+.profile-verification a:hover,
+.public-bio a:hover,
+.growth-progress__note a:hover {
+  color: var(--link-hover);
+  text-decoration: underline;
+}
+
+.profile-verification a:focus-visible,
+.public-bio a:focus-visible,
+.growth-progress__note a:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+
+/* The bio arrives escaped with its line breaks; long addresses must not widen the page. */
+.public-bio {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.growth-progress {
+  display: grid;
+  gap: 6px;
+}
+
+.growth-progress > progress {
+  display: block;
+  inline-size: 100%;
+  block-size: 6px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--panel-alt);
+  overflow: hidden;
+  appearance: none;
+}
+
+.growth-progress > progress::-webkit-progress-bar {
+  border-radius: var(--r-pill);
+  background: var(--panel-alt);
+}
+
+.growth-progress > progress::-webkit-progress-value {
+  border-radius: var(--r-pill);
+  background: var(--accent);
+}
+
+.growth-progress > progress::-moz-progress-bar {
+  border-radius: var(--r-pill);
+  background: var(--accent);
+}
+
+.growth-progress__note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.growth-progress__note > * + *::before {
+  content: "·";
+  content: "·" / "";
+  margin-inline: 6px;
+  color: var(--text-muted);
+}
+
+/* ------------------------------------------------------------------ */
+/* Follow / block toggle (social/control.html)                         */
+/* ------------------------------------------------------------------ */
+
+/* The form sits in a row of buttons wherever it is included; it adds no box of its own. */
+form.social-control {
+  display: inline-flex;
+  margin: 0;
+}
+
+/* The "cannot follow right now" notice may be longer than a button label. */
+span.social-control {
+  white-space: normal;
+  text-align: start;
+}
+
+/* ------------------------------------------------------------------ */
+/* Policy pages: reading column plus the policy navigation             */
+/* ------------------------------------------------------------------ */
+
+.reader-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--gap);
+  align-items: start;
+}
+
+.reader-layout--with-nav {
+  grid-template-columns: minmax(0, 1fr) 220px;
+  max-inline-size: 1040px;
+  margin-inline: auto;
+}
+
+/* The navigation is first in the source (it sits above the text on narrow screens) and moves beside it here. */
+.reader-layout--with-nav > .reader {
+  grid-column: 1;
+  grid-row: 1;
+  max-inline-size: none;
+  margin-inline: 0;
+}
+
+.reader-layout--with-nav > .policy-nav {
+  grid-column: 2;
+  grid-row: 1;
+  position: sticky;
+  inset-block-start: calc(var(--sticky-top) + 16px);
+}
+
+/* Reading width shared by the explanatory pages. */
+.reader {
+  box-sizing: border-box;
+  inline-size: 100%;
+  max-inline-size: 800px;
+  margin-inline: auto;
+}
+
+.reader.panel {
+  padding-block: 24px 28px;
+  padding-inline: 28px;
+}
+
+.reader__head {
+  display: grid;
+  gap: 4px;
+}
+
+.reader__head > h1 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.reader__lede {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* Contact channels on /contact, after the policy text. */
+.reader__channels {
+  padding-block-start: 16px;
+  border-block-start: 1px solid var(--line);
+}
+
+.policy-nav__list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.policy-nav__link {
+  display: block;
+  padding-block: 6px;
+  padding-inline: 10px;
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  text-decoration: none;
+}
+
+.policy-nav__link:hover {
+  background: var(--panel-alt);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.policy-nav__link[aria-current] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.policy-nav__link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Breakpoints (docs/styles.md, "Breakpoints")                         */
+/* ------------------------------------------------------------------ */
+
+@media (max-width: 900px) {
+  /* The policy navigation moves above the text, two links per row. */
+  .reader-layout--with-nav {
+    grid-template-columns: minmax(0, 1fr);
+    max-inline-size: 800px;
+    gap: 16px;
+  }
+
+  .reader-layout--with-nav > .reader,
+  .reader-layout--with-nav > .policy-nav {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .reader-layout--with-nav > .policy-nav {
+    position: static;
+  }
+
+  .policy-nav__list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .profile__main {
+    gap: 16px;
+  }
+}
+
+@media (max-width: 760px) {
+  .profile__head.panel {
+    padding: 14px;
+  }
+
+  /* Actions get their own row, lined up with the name (64px avatar plus the 14px gap of person--large). */
+  .profile__top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .profile__top > .person {
+    flex: none;
+  }
+
+  .profile__actions {
+    padding-inline-start: calc(64px + 14px);
+  }
+
+  .reader.panel {
+    padding: 16px;
+  }
+
+  .reader__head > h1 {
+    font-size: 19px;
+  }
+}
+
+@media (max-width: 640px) {
+  /* The policy links become one wrapping row of pills. */
+  .policy-nav__list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .policy-nav__link {
+    padding-block: 3px;
+    padding-inline: 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-pill);
+    font-size: 13px;
+  }
+
+  .policy-nav__link[aria-current] {
+    border-color: var(--accent-border);
+  }
+}
+
+@media (max-width: 420px) {
+  /* The actions fill the row and share it. */
+  .profile__actions {
+    padding-inline-start: 0;
+  }
+
+  .profile__actions > * {
+    flex: 1 1 auto;
+  }
+
+  .profile__actions .button {
+    inline-size: 100%;
+  }
+
+  /* The board chip is hidden here (components.css), so the board link in the meta takes its place. */
+  .row-meta > .profile__meta-board {
+    display: inline-flex;
+  }
+}

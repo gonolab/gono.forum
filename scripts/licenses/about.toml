@@ -1,0 +1,28 @@
+# cargo-about configuration for the third-party license file in the release packages (scripts/package-release.sh).
+# Only the crates linked into the musl release binaries count: build and dev dependencies are left out.
+targets = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"]
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+# Licenses the release may ship under; a dependency with anything else makes the build fail until it is reviewed.
+accepted = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Unlicense",
+    "Zlib",
+]
+
+# Gono Forum itself (publish = false) is covered by LICENSE-MIT, LICENSE-APACHE and NOTICE.
+[private]
+ignore = true

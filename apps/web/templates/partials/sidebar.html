@@ -1,0 +1,21 @@
+{#- Hot and latest topics for the aside. Topic links end in /thread-{id}" and the cards carry no data-thread-id, row-title or aria-current: tests count those on the page. #}
+{%- if let Some(sidebar) = p.sidebar %}
+<section class="panel panel--aside">
+  <h2 class="panel__title">{{ p.t.common_hot_threads() }}</h2>
+  <ol class="mini-list">
+    {%- for thread in sidebar.hot %}
+    <li><a href="{{ crate::site::base() }}/thread-{{ thread.id }}"><span class="mini-list__title">{{ thread.title }}</span></a><span class="mini-list__count" aria-label="{{ p.t.common_reply_count(thread.reply_count) }}">{{ thread.reply_count }}</span></li>
+    {%- else %}
+    <li class="mini-list__empty">{{ p.t.common_hot_empty(p.frame.settings.display.hot_days) }}</li>
+    {%- endfor %}
+  </ol>
+</section>
+<section class="panel panel--aside">
+  <h2 class="panel__title">{{ p.t.common_latest_threads() }}</h2>
+  <ol class="mini-list">
+    {%- for thread in sidebar.latest %}
+    <li><a href="{{ crate::site::base() }}/thread-{{ thread.id }}"><span class="mini-list__title">{{ thread.title }}</span></a></li>
+    {%- endfor %}
+  </ol>
+</section>
+{%- endif %}

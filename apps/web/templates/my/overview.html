@@ -1,0 +1,22 @@
+{% extends "layout/my.html" %}
+{% block panel %}
+<section class="pane private-collection" hx-history="false">
+  <div class="panel">
+    <p class="intro">{{ p.t.my_overview_greeting(crate::router::my::username_markup(p.username), joined)|safe }}</p>
+    {% if !bio.is_empty() %}<p class="overview-bio">{{ bio|safe }}</p>{% endif %}
+    <p class="intro"><a href="{{ crate::site::href(profile_href) }}">{{ p.t.my_overview_public_profile() }}</a> · <a href="{{ crate::site::base() }}/my/profile" hx-boost="false">{{ p.t.profile_edit() }}</a></p>
+  </div>
+  <div class="panel">
+    <h2 class="panel__title">{{ p.t.my_overview_stats() }}</h2>
+    <dl class="tally">
+      <div class="tally__item"><dt class="tally__label">{{ p.t.home_stats_threads() }}</dt><dd class="tally__value"><a href="{{ crate::site::base() }}/my/threads">{{ threads }}</a></dd></div>
+      <div class="tally__item"><dt class="tally__label">{{ p.t.home_stats_replies() }}</dt><dd class="tally__value"><a href="{{ crate::site::base() }}/my/posts">{{ replies }}</a></dd></div>
+      <div class="tally__item"><dt class="tally__label">{{ p.t.home_card_favorites() }}</dt><dd class="tally__value"><a href="{{ crate::site::base() }}/my/favorites">{{ favorites }}</a></dd></div>
+      <div class="tally__item"><dt class="tally__label">{{ p.credit() }}</dt><dd class="tally__value"><a href="{{ crate::site::base() }}/my/credits" hx-boost="false">{{ available }}</a></dd></div>
+      <div class="tally__item"><dt class="tally__label">{{ p.t.my_overview_frozen(p.credit()) }}</dt><dd class="tally__value"><a href="{{ crate::site::base() }}/my/credits" hx-boost="false">{{ frozen }}</a></dd></div>
+      <div class="tally__item"><dt class="tally__label">{{ p.t.my_page_following_threads() }}</dt><dd class="tally__value"><a href="{{ crate::site::base() }}/my/following/threads">{{ following_threads }}</a></dd></div>
+      <div class="tally__item"><dt class="tally__label">{{ p.t.my_page_following_forums() }}</dt><dd class="tally__value"><a href="{{ crate::site::base() }}/my/following/forums">{{ following_forums }}</a></dd></div>
+    </dl>
+  </div>
+</section>
+{% endblock %}

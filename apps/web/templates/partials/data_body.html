@@ -1,0 +1,50 @@
+<div class="pane manage-shell" hx-boost="false"><section class="panel"><h2 class="panel__title">{{ p.t.governance_data() }}</h2>
+<p>{{ p.t.governance_data_summary(uid.to_string(), posts, balance, p.credit()) }}</p>
+{% if restricted %}<p class="form-feedback form-feedback--warning">{{ p.t.governance_data_restricted() }}</p><form method="post" action="{{ crate::site::base() }}/data/exit"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><button class="button button--secondary" type="submit">{{ p.t.governance_data_exit() }}</button></form>{% endif %}
+{% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+<h2>{{ p.t.governance_data_request() }}</h2><p>{{ p.t.governance_data_export_note() }}</p>
+<p>{{ p.t.governance_data_cooling_note(p.credit()) }}</p>
+<p>{{ p.t.governance_data_close_note(p.credit(), p.frame.settings.username.history_days) }}</p>
+<p>{{ p.t.governance_data_erase_note() }}</p>
+<form class="fields" method="post" action="{{ crate::site::base() }}/my/data/requests">
+  <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+  <input type="hidden" name="request_key" value="{{ request_key }}">
+  <div class="field">
+    <label class="field__label" for="data-kind">{{ p.t.governance_data_kind() }}</label>
+    <select id="data-kind" name="kind">
+      <option value="export"{% if selected_kind == "export" %} selected{% endif %}>{{ p.t.governance_data_kind_export() }}</option>
+      <option value="erase"{% if selected_kind == "erase" %} selected{% endif %}>{{ p.t.governance_data_kind_erase() }}</option>
+      {%- if !admin %}
+      <option value="close"{% if selected_kind == "close" %} selected{% endif %}>{{ p.t.governance_data_kind_close() }}</option>
+      {%- endif %}
+    </select>
+  </div>
+  <div class="field">
+    <label class="field__label" for="data-content_mode">{{ p.t.governance_data_mode() }}</label>
+    <select id="data-content_mode" name="content_mode">
+      <option value="retain"{% if selected_mode == "retain" %} selected{% endif %}>{{ p.t.governance_data_mode_retain() }}</option>
+      <option value="erase"{% if selected_mode == "erase" %} selected{% endif %}>{{ p.t.governance_data_mode_erase() }}</option>
+    </select>
+  </div>
+  {%- if admin %}
+  <p class="form-note">{{ p.t.governance_data_admin() }}</p>
+  {%- endif %}
+  {%- if !restricted %}
+  <div class="field">
+    <label class="field__label" for="data-password">{{ p.t.governance_data_password() }}</label>
+    <input type="password" id="data-password" name="password" autocomplete="current-password" maxlength="128" required>
+  </div>
+  {%- endif %}
+  <div class="checkline">
+    <label class="checkline__label">
+      <input type="checkbox" name="confirm" value="yes" required>
+      <span>{{ p.t.governance_data_confirm() }}</span>
+    </label>
+  </div>
+  <div class="form-actions"><button class="button" type="submit">{{ p.t.governance_data_submit() }}</button></div>
+</form>
+<h2>{{ p.t.governance_data_history() }}</h2>{% for row in rows %}<article class="panel"><h3>#{{ row.id }} · {{ row.label() }}</h3><p>{{ row.status_label() }} · {{ row.time() }}</p>{% if row.kind != "export" %}<p>{{ p.t.governance_data_due(row.due()) }}</p>{% endif %}{% if !row.last_error.is_empty() %}<p>{{ p.t.governance_data_failed() }}</p>{% endif %}
+{% if row.can_download() %}<a class="button" href="{{ crate::site::base() }}/my/data/requests/{{ row.id }}/download">{{ p.t.governance_data_download() }}</a>{% endif %}
+{% if row.can_cancel() %}<form method="post" action="{{ crate::site::base() }}/my/data/requests/{{ row.id }}/cancel"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><button class="button button--secondary" type="submit">{{ p.t.governance_data_cancel() }}</button></form>{% endif %}</article>{% else %}<p>{{ p.t.governance_data_empty() }}</p>{% endfor %}
+{% if !next.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(next) }}">{{ p.t.common_next_page() }}</a>{% endif %}
+</section></div>

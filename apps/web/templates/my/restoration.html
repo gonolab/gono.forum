@@ -1,0 +1,9 @@
+{% extends "layout/my.html" %}
+{% block panel %}
+<section class="pane manage-shell" hx-boost="false"><div class="panel"><h2 class="panel__title">{{ p.t.governance_restoration_heading(r.id.to_string(), r.status_label()) }}</h2>
+<p>{{ p.t.governance_restoration_submitted(r.state_label(), r.time()) }}</p>
+{% if let Some(target) = target %}<p>{{ target.subject }} · {{ target.forum_name }} · {{ p.t.governance_current_state(target.state_label()) }}</p>{% endif %}
+<h3>{{ p.t.governance_request_reason() }}</h3><p class="governance-reason">{{ r.reason }}</p>
+{% if r.status == "pending" %}<p>{{ p.t.governance_due(r.due_time(p.frame.settings.governance.restoration_due_days)) }}{% if r.overdue(p.frame.settings.governance.restoration_due_days) %} · {{ p.t.governance_overdue_waiting() }}{% endif %}</p>{% else %}<h3>{{ p.t.governance_resolution() }}</h3><p class="governance-reason">{{ r.resolution }}</p><p class="row-time">{{ r.handled_time() }}</p>{% endif %}
+<p><a href="{{ crate::site::base() }}/my/restorations">{{ p.t.governance_restorations_back() }}</a></p></div></section>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends "layout/base.html" %}
+{% block content %}
+{#- The policy navigation comes first in the source: below 900px it sits above the text, beside it on wider screens. #}
+<div class="reader-layout reader-layout--with-nav">
+  <nav class="panel panel--aside policy-nav" aria-labelledby="policy-nav-title">
+    <p class="panel__title" id="policy-nav-title">{{ p.t.policy_nav() }}</p>
+    <ul class="policy-nav__list">
+      <li><a class="policy-nav__link" href="{{ crate::site::base() }}/rules"{% if p.canonical.ends_with("/rules") %} aria-current="page"{% endif %}>{{ p.t.frame_footer_rules() }}</a></li>
+      <li><a class="policy-nav__link" href="{{ crate::site::base() }}/terms"{% if p.canonical.ends_with("/terms") %} aria-current="page"{% endif %}>{{ p.t.frame_footer_terms() }}</a></li>
+      <li><a class="policy-nav__link" href="{{ crate::site::base() }}/privacy"{% if p.canonical.ends_with("/privacy") %} aria-current="page"{% endif %}>{{ p.t.frame_footer_privacy() }}</a></li>
+      <li><a class="policy-nav__link" href="{{ crate::site::base() }}/contact"{% if p.canonical.ends_with("/contact") %} aria-current="page"{% endif %}>{{ p.t.frame_footer_contact() }}</a></li>
+    </ul>
+  </nav>
+  <article class="panel reader">
+    <div class="reader__head">
+      <h1>{{ title }}</h1>
+      {%- if updated_at > 0 %}
+      <p class="reader__lede">{{ p.t.policy_updated(updated) }}</p>
+      {%- endif %}
+    </div>
+    <div class="prose">{{ body|safe }}</div>
+    {%- if contact %}
+    <section class="prose reader__channels" data-contact-channels>
+      <h2>{{ p.t.policy_channels() }}</h2>
+      <ul>
+        {%- if !contact_email.is_empty() %}
+        <li>{{ p.t.site_contact_email() }}{{ p.t.common_colon() }}<a href="mailto:{{ contact_email }}" data-contact-email>{{ contact_email }}</a></li>
+        {%- endif %}
+        <li>{{ p.t.policy_channel_report(p.link("/my/reports", p.t.policy_channel_report_link()))|safe }}</li>
+        <li>{{ p.t.policy_channel_appeal(p.link("/my/sanctions", p.t.policy_channel_appeal_records()), p.link_with("/appeals", "", " hx-boost=\"false\"", p.t.account_appeal()))|safe }}</li>
+        <li>{{ p.t.policy_channel_data(p.link("/my/data", p.t.policy_channel_data_requests()), p.link_with("/data/access", "", " hx-boost=\"false\"", p.t.account_data_request()))|safe }}</li>
+      </ul>
+    </section>
+    {%- endif %}
+  </article>
+</div>
+{% endblock %}

@@ -1,0 +1,121 @@
+{% extends "layout/manage.html" %}{% block panel %}
+{% if let Some(c) = confirm %}<section class="panel" id="section-domain-confirm" data-domain-confirm aria-labelledby="section-domain-confirm-title"><h2 class="panel__title" id="section-domain-confirm-title">{{ p.t.domain_confirm_title() }}</h2><p class="form-feedback" role="alert">{{ message }}</p>
+<table><thead><tr><th>{{ p.t.domain_confirm_page() }}</th><th>{{ p.t.domain_confirm_current() }}</th><th>{{ p.t.domain_confirm_new() }}</th></tr></thead><tbody>{% for (label, old, new) in c.rows %}<tr><td>{{ label }}</td><td><code>{{ old }}</code></td><td><code>{{ new }}</code></td></tr>{% endfor %}</tbody></table>
+<p>{{ p.t.domain_confirm_nginx(c.to_label) }}</p><pre><code>{{ c.nginx }}</code></pre>
+{% if !c.redirect.is_empty() %}<p>{{ p.t.domain_confirm_redirect(c.from_label) }}</p><pre><code>{{ c.redirect }}</code></pre>{% endif %}
+<ol><li>{{ p.t.domain_confirm_step_nginx() }}</li><li>{{ p.t.domain_confirm_step_type() }}</li><li>{{ p.t.domain_confirm_step_check() }}</li><li>{% if c.redirect.is_empty() %}{{ p.t.domain_confirm_step_root() }}{% else %}{{ p.t.domain_confirm_step_redirect() }}{% endif %}</li></ol>
+</section>{% endif %}
+<section class="panel" data-domain-form><h1 class="panel__title">{% if domain_id == 0 %}{{ p.t.domain_add() }}{% else if main %}{{ p.t.domain_main() }}{% else %}{{ p.t.domain_edit() }}{% endif %}</h1>
+{% if confirm.is_none() && !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/domains"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain_id" value="{{ domain_id }}"><input type="hidden" name="version" value="{{ version }}">
+{% if main %}<input type="hidden" name="main" value="1"><input type="hidden" name="site_url" value="{{ site_url }}">
+<p class="form-note">{{ p.t.domain_main_lead(crate::i18n::Markup::tag("code", site_url), p.link("/manage/settings", p.t.domain_link_settings_site()), p.link("/manage/settings", p.t.domain_link_site()), p.link("/manage/branding", p.t.domain_link_branding()), p.link("/manage/settings/search", p.t.domain_link_search()))|safe }}</p>
+{% else %}
+<div class="field field--wide">
+  <label class="field__label" for="domain-site_url">{{ p.t.domain_field_url() }}</label>
+  <input id="domain-site_url" aria-describedby="domain-site_url-hint" name="site_url" value="{{ site_url }}" placeholder="{{ p.t.domain_field_url_placeholder() }}" autocomplete="off" spellcheck="false" maxlength="255" required>
+  <p class="field__hint" id="domain-site_url-hint">{{ p.t.domain_field_url_help() }}</p>
+</div>
+<div class="field field--wide">
+  <label class="field__label" for="domain-site_name">{{ p.t.domain_field_name() }}</label>
+  <input id="domain-site_name" aria-describedby="domain-site_name-hint" name="site_name" value="{{ site_name }}" maxlength="80" required>
+  <p class="field__hint" id="domain-site_name-hint">{{ p.t.domain_field_name_help() }}</p>
+</div>
+<div class="field">
+  <label class="field__label" for="domain-canonical">{{ p.t.domain_field_canonical() }}</label>
+  <select id="domain-canonical" aria-describedby="domain-canonical-hint" name="canonical"><option value="self"{% if canonical == "self" %} selected{% endif %}>{{ p.t.domain_canonical_own() }}</option><option value="main"{% if canonical == "main" %} selected{% endif %}>{{ p.t.domain_canonical_main() }}</option></select>
+  <p class="field__hint" id="domain-canonical-hint">{{ p.t.domain_field_canonical_help() }}</p>
+</div>
+<div class="field">
+  <label class="field__label" for="domain-logo_aid">Logo</label>
+  <select id="domain-logo_aid" name="logo_aid"><option value="0"{% if logo_aid == 0 %} selected{% endif %}>{{ p.t.domain_field_use_main() }}</option>{% if logo_aid > 0 %}<option value="{{ logo_aid }}" selected>{{ p.t.domain_field_current_image(logo_aid.to_string()) }}</option>{% endif %}{% for (aid, name) in images %}{% if *aid != logo_aid %}<option value="{{ aid }}">#{{ aid }} {{ name }}</option>{% endif %}{% endfor %}</select>
+</div>
+<div class="field">
+  <label class="field__label" for="domain-favicon_aid">{{ p.t.domain_field_favicon() }}</label>
+  <select id="domain-favicon_aid" aria-describedby="domain-favicon_aid-hint" name="favicon_aid"><option value="0"{% if favicon_aid == 0 %} selected{% endif %}>{{ p.t.domain_field_use_main() }}</option>{% if favicon_aid > 0 %}<option value="{{ favicon_aid }}" selected>{{ p.t.domain_field_current_image(favicon_aid.to_string()) }}</option>{% endif %}{% for (aid, name) in images %}{% if *aid != favicon_aid %}<option value="{{ aid }}">#{{ aid }} {{ name }}</option>{% endif %}{% endfor %}</select>
+  <p class="field__hint" id="domain-favicon_aid-hint">{{ p.t.domain_field_favicon_help(p.link("/manage/branding", p.t.domain_link_branding()))|safe }}</p>
+</div>
+<div class="field field--wide">
+  <label class="field__label" for="domain-verification">{{ p.t.domain_field_verification() }}</label>
+  <textarea id="domain-verification" aria-describedby="domain-verification-hint" name="verification" rows="3">{{ verification }}</textarea>
+  <p class="field__hint" id="domain-verification-hint">{{ p.t.domain_field_verification_help() }}</p>
+</div>
+<div class="field">
+  <label class="field__label" for="domain-language">{{ p.t.domain_field_language() }}</label>
+  <select id="domain-language" aria-describedby="domain-language-hint" name="language"><option value=""{% if row_language.is_empty() %} selected{% endif %}>{{ p.t.domain_field_language_site(site_language) }}</option>{% for (tag, name, chosen) in languages %}<option value="{{ tag }}"{% if *chosen %} selected{% endif %} lang="{{ tag }}">{{ name }}</option>{% endfor %}</select>
+  <p class="field__hint" id="domain-language-hint">{{ p.t.domain_field_language_help() }}</p>
+</div>
+<fieldset class="option-group" data-domain-login aria-describedby="domain-login-hint">
+  <legend class="option-group__legend">{{ p.t.domain_field_login() }}</legend>
+  <p class="option-group__hint" id="domain-login-hint">{{ p.t.domain_field_login_help() }}</p>
+  <div class="option-group__options">
+    <div class="checkline">
+      <label class="checkline__label">
+        <input type="checkbox" name="login_custom" value="1"{% if login_custom %} checked{% endif %}>
+        <span>{{ p.t.domain_field_custom(p.link("/manage/login", p.t.domain_link_site_settings()))|safe }}</span>
+      </label>
+    </div>
+    {%- for (value, label, checked) in login_items %}
+    <div class="checkline">
+      <label class="checkline__label">
+        <input type="checkbox" name="login_{{ value }}" value="1"{% if *checked %} checked{% endif %}>
+        <span>{{ label }}</span>
+      </label>
+    </div>
+    {%- endfor %}
+  </div>
+</fieldset>
+<fieldset class="option-group" data-domain-participation aria-describedby="domain-participation-hint">
+  <legend class="option-group__legend">{{ p.t.domain_field_participation() }}</legend>
+  <p class="option-group__hint" id="domain-participation-hint">{{ p.t.domain_field_participation_help() }}</p>
+  <div class="option-group__options">
+    <div class="checkline">
+      <label class="checkline__label">
+        <input type="checkbox" name="participation_custom" value="1"{% if participation_custom %} checked{% endif %}>
+        <span>{{ p.t.domain_field_custom(p.link("/manage/login", p.t.domain_link_site_settings()))|safe }}</span>
+      </label>
+    </div>
+    {%- for (value, label, checked) in participation_items %}
+    <div class="checkline">
+      <label class="checkline__label">
+        <input type="checkbox" name="participation_{{ value }}" value="1"{% if *checked %} checked{% endif %}>
+        <span>{{ label }}</span>
+      </label>
+    </div>
+    {%- endfor %}
+  </div>
+</fieldset>
+<div class="checkline">
+  <label class="checkline__label">
+    <input type="checkbox" aria-describedby="domain-enabled-hint" name="enabled" value="1"{% if enabled %} checked{% endif %}>
+    <span>{{ p.t.domain_field_enabled() }}</span>
+  </label>
+  <p class="checkline__hint" id="domain-enabled-hint">{{ p.t.domain_field_enabled_help() }}</p>
+</div>
+{% endif %}
+<fieldset class="option-group" aria-describedby="domain-forums-hint">
+  <legend class="option-group__legend">{{ p.t.domain_field_forums() }}</legend>
+  <p class="option-group__hint" id="domain-forums-hint">{{ p.t.domain_field_forums_help() }}</p>
+  {%- if forums.is_empty() %}
+  <p class="form-note">{{ p.t.domain_field_forums_empty() }}</p>
+  {%- else %}
+  <div class="option-group__options">
+    {%- for (fid, name, checked) in forums %}
+    <div class="checkline">
+      <label class="checkline__label">
+        <input type="checkbox" name="forum_{{ fid }}" value="1"{% if *checked %} checked{% endif %}>
+        <span>{{ name }}</span>
+      </label>
+    </div>
+    {%- endfor %}
+  </div>
+  {%- endif %}
+</fieldset>
+{% if let Some(c) = confirm %}<input type="hidden" name="confirmed_from" value="{{ c.from_prefix }}"><input type="hidden" name="confirmed_url" value="{{ c.from_url }}">
+<div class="field">
+  <label class="field__label" for="domain-confirm">{{ p.t.domain_field_confirm() }}</label>
+  <input id="domain-confirm" name="confirm" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+</div>
+{% endif %}
+<div class="form-actions form-actions--sticky"><button class="button button--primary" type="submit">{{ p.t.domain_save() }}</button><a href="{{ crate::site::base() }}/manage/domains">{{ p.t.domain_back() }}</a></div>
+</form></section>{% endblock %}

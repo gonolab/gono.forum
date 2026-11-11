@@ -1,0 +1,137 @@
+<details id="gonof-debug" class="gonof-debug" open data-debug-queries="{{ sql_count }}" hx-boost="false">
+  <summary class="gonof-debug-heading">
+    <span class="gonof-debug-brand">{{ crate::i18n::PRODUCT_NAME }}</span>
+    <strong>{{ t.debug_title() }}</strong>
+    <span class="gonof-debug-summary">{{ duration }} · {{ t.debug_summary_sql(sql_count) }}{% if redis_enabled %} · {{ t.debug_summary_redis(redis_count) }}{% endif %}</span>
+    <span class="gonof-debug-switch" aria-hidden="true">{{ t.debug_toggle() }}</span>
+  </summary>
+  <div class="gonof-debug-body">
+    <div class="gonof-debug-request" data-debug-request>
+      <span class="gonof-debug-method">{{ method }}</span>
+      <code>{{ request_path }}</code>
+      <span class="gonof-debug-response" data-debug-status>HTTP {{ status }}</span>
+    </div>
+    <dl class="gonof-debug-metrics">
+      <div>
+        <dt>{{ t.debug_metric_duration() }}</dt>
+        <dd>{{ duration }}<p>{{ t.debug_metric_duration_note() }}</p></dd>
+      </div>
+      <div>
+        <dt>{{ t.debug_metric_sql() }}</dt>
+        <dd>{{ t.debug_records(sql_count) }} <span>· {{ sql_duration }}</span><p>{{ t.debug_metric_sql_note() }}</p></dd>
+      </div>
+      <div>
+        <dt>{{ t.debug_metric_rss() }}</dt>
+        <dd>{{ rss }}<p>{{ t.debug_metric_rss_change(rss_change.as_str()) }}</p></dd>
+      </div>
+      <div>
+        <dt>{{ t.debug_metric_cpu() }}</dt>
+        <dd>{{ cpu }}<p>{{ t.debug_metric_cpu_split(cpu_user.as_str(), cpu_system.as_str()) }}</p></dd>
+      </div>
+    </dl>
+    <p class="gonof-debug-note">{{ t.debug_note_timing() }}</p>
+    <p class="gonof-debug-note">{{ t.debug_note_index(index_duration.as_str()) }}</p>
+    <div class="gonof-debug-section-heading">
+      <h2>{{ t.debug_blocks_heading() }} <span>{{ blocks.len() }}</span></h2>
+      <p>{{ t.debug_blocks_note(block_hits) }}</p>
+    </div>
+    {% if blocks.is_empty() %}
+    <p class="gonof-debug-empty">{{ t.debug_blocks_empty() }}</p>
+    {% else %}
+    <ol class="gonof-debug-queries" data-debug-blocks>
+      {% for block in blocks %}
+      <li class="gonof-debug-query" data-debug-block="{{ block.block }}" data-debug-block-hit="{{ block.hit }}">
+        <div class="gonof-debug-query-heading">
+          <strong class="gonof-debug-sequence">#{{ block.sequence }}</strong>
+          <span class="gonof-debug-database">{{ t.debug_block_source() }}</span>
+          <span class="gonof-debug-query-time">{{ block.age }}</span>
+          <span class="gonof-debug-query-state">{{ block.outcome }}</span>
+        </div>
+        <pre class="gonof-debug-sql"><code>{{ block.block }}{% if !block.label.is_empty() %} · {{ block.label }}{% endif %}</code></pre>
+      </li>
+      {% endfor %}
+    </ol>
+    {% endif %}
+    {% if redis_enabled %}
+    <div class="gonof-debug-section-heading">
+      <h2>Redis <span>{{ redis_count }}</span></h2>
+      <p>{{ t.debug_redis_counts(redis_hits, redis_misses, redis_duration.as_str()) }}</p>
+    </div>
+    <p class="gonof-debug-note">{{ t.debug_redis_note() }}</p>
+    {% if redis_commands.is_empty() %}
+    <p class="gonof-debug-empty">{{ t.debug_redis_empty() }}</p>
+    {% else %}
+    <ol class="gonof-debug-queries">
+      {% for command in redis_commands %}
+      <li class="gonof-debug-query" data-debug-redis-command="{{ command.sequence }}">
+        <div class="gonof-debug-query-heading">
+          <strong class="gonof-debug-sequence">#{{ command.sequence }}</strong>
+          <span class="gonof-debug-database">Redis</span>
+          <span class="gonof-debug-query-time">{{ command.elapsed }}</span>
+          {% if command.failed %}
+          <span class="gonof-debug-query-state gonof-debug-query-failed" data-debug-redis-status>{{ command.outcome }}</span>
+          {% else %}
+          <span class="gonof-debug-query-state" data-debug-redis-status>{{ command.outcome }}</span>
+          {% endif %}
+        </div>
+        <pre class="gonof-debug-sql"><code>{{ command.command }}{% if !command.key.is_empty() %} {{ command.key }}{% endif %}</code></pre>
+      </li>
+      {% endfor %}
+    </ol>
+    {% endif %}
+    {% endif %}
+    <div class="gonof-debug-section-heading">
+      <h2>{{ t.debug_metric_sql() }} <span>{{ sql_count }}</span></h2>
+      <p>{{ t.debug_sql_note() }}</p>
+    </div>
+    {% if queries.is_empty() %}
+    <p class="gonof-debug-empty">{{ t.debug_sql_empty() }}</p>
+    {% else %}
+    <ol class="gonof-debug-queries">
+      {% for query in queries %}
+      <li class="gonof-debug-query" data-debug-query="{{ query.sequence }}">
+        <div class="gonof-debug-query-heading">
+          <strong class="gonof-debug-sequence">#{{ query.sequence }}</strong>
+          <span class="gonof-debug-database">{{ query.database }}</span>
+          {% if query.driver %}
+          <span class="gonof-debug-database">{{ t.debug_driver_batch() }}</span>
+          <span class="gonof-debug-query-time">{{ t.debug_driver_elapsed(query.elapsed.as_str()) }}</span>
+          <span class="gonof-debug-query-state gonof-debug-query-cancelled" data-debug-query-status>{{ t.debug_driver_no_result() }}</span>
+          <span class="gonof-debug-row-count">{{ t.debug_driver_rows(query.rows_returned, query.rows_affected.as_str()) }}</span>
+          {% else %}
+          <span class="gonof-debug-query-time">{{ query.elapsed }}</span>
+          {% if !query.error.is_empty() %}
+          <span class="gonof-debug-query-state gonof-debug-query-failed" data-debug-query-status>{{ t.debug_query_failed() }}</span>
+          {% elif query.cancelled %}
+          <span class="gonof-debug-query-state gonof-debug-query-cancelled" data-debug-query-status>{{ t.debug_query_cancelled() }}</span>
+          {% else %}
+          <span class="gonof-debug-query-state" data-debug-query-status>{{ t.debug_query_ok() }}</span>
+          {% endif %}
+          <span class="gonof-debug-row-count">{{ t.debug_rows(query.rows_returned, query.rows_affected.as_str()) }}</span>
+          {% endif %}
+          <button type="button" class="gonof-debug-copy" data-debug-copy aria-label="{{ t.debug_copy_label(query.sequence) }}" hidden>{{ t.debug_copy() }}</button>
+          <span class="gonof-debug-copy-status" data-debug-copy-status role="status"></span>
+        </div>
+        <pre><code data-debug-sql>{{ query.sql }}</code></pre>
+        <p class="gonof-debug-index" data-debug-index data-debug-index-status="{{ query.index_status }}"><span>{{ t.debug_index_label() }}</span>{{ query.index_summary }}</p>
+        {% if query.driver %}
+        <p class="gonof-debug-driver-note">{{ t.debug_driver_note() }}</p>
+        {% endif %}
+        {% if !query.expansion_error.is_empty() %}
+        <div class="gonof-debug-expansion" data-debug-expansion-error>
+          <p>{{ t.debug_expansion(query.expansion_error.as_str()) }}</p>
+          <pre><code>{{ query.parameters }}</code></pre>
+        </div>
+        {% endif %}
+        {% if !query.error.is_empty() %}
+        <p class="gonof-debug-error" data-debug-error>{{ t.debug_database_error(query.error.as_str()) }}</p>
+        {% endif %}
+        {% if query.cancelled %}
+        <p class="gonof-debug-error">{{ t.debug_cancelled_note() }}</p>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+    {% endif %}
+  </div>
+</details>

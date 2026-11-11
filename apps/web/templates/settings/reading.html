@@ -1,0 +1,57 @@
+{% extends "layout/my.html" %}
+{% block panel %}<section class="invite-shell profile-settings" hx-boost="false" hx-history="false">
+<div class="panel">
+{% if !message.is_empty() %}<p class="form-feedback{% if success %} form-feedback--success{% endif %}" role="{% if success %}status{% else %}alert{% endif %}">{{ message }}</p>{% endif %}
+<p>{{ p.t.settings_reading_lead() }}</p>
+<form class="fields" method="post" action="{{ crate::site::base() }}/my/reading" data-reading-form>
+  <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+  <input type="hidden" name="version" value="{{ settings.version }}">
+  <fieldset class="option-group option-group--inline" aria-describedby="reading-list_sort-hint">
+    <legend class="option-group__legend">{{ p.t.settings_reading_sort() }}</legend>
+    <p class="option-group__hint" id="reading-list_sort-hint">{{ p.t.settings_reading_sort_hint() }}</p>
+    <div class="option-group__options">
+      <div class="checkline"><label class="checkline__label"><input type="radio" name="list_sort" value=""{% if settings.chosen.list_sort.is_none() %} checked{% endif %}><span>{% if settings.site.list_sort.value() == "created" %}{{ p.t.settings_follow_site(p.t.settings_sort_created()) }}{% else %}{{ p.t.settings_follow_site(p.t.settings_sort_latest()) }}{% endif %}</span></label></div>
+      <div class="checkline"><label class="checkline__label"><input type="radio" name="list_sort" value="latest"{% if settings.chosen.list_sort.is_some() && settings.sort_value() == "latest" %} checked{% endif %}><span>{{ p.t.settings_sort_latest() }}</span></label></div>
+      <div class="checkline"><label class="checkline__label"><input type="radio" name="list_sort" value="created"{% if settings.chosen.list_sort.is_some() && settings.sort_value() == "created" %} checked{% endif %}><span>{{ p.t.settings_sort_created() }}</span></label></div>
+    </div>
+  </fieldset>
+  <fieldset class="option-group option-group--inline" aria-describedby="reading-thread_view-hint">
+    <legend class="option-group__legend">{{ p.t.settings_reading_view() }}</legend>
+    <p class="option-group__hint" id="reading-thread_view-hint">{{ p.t.settings_reading_view_hint() }}</p>
+    <div class="option-group__options">
+      <div class="checkline"><label class="checkline__label"><input type="radio" name="thread_view" value=""{% if settings.chosen.flat.is_none() %} checked{% endif %}><span>{% if settings.site.flat %}{{ p.t.settings_follow_site(p.t.settings_view_flat()) }}{% else %}{{ p.t.settings_follow_site(p.t.settings_view_nested()) }}{% endif %}</span></label></div>
+      <div class="checkline"><label class="checkline__label"><input type="radio" name="thread_view" value="nested"{% if settings.chosen.flat == Some(false) %} checked{% endif %}><span>{{ p.t.settings_view_nested() }}</span></label></div>
+      <div class="checkline"><label class="checkline__label"><input type="radio" name="thread_view" value="flat"{% if settings.chosen.flat == Some(true) %} checked{% endif %}><span>{{ p.t.settings_view_flat() }}</span></label></div>
+    </div>
+  </fieldset>
+  <fieldset class="option-group option-group--inline" aria-describedby="reading-title_latest-hint">
+    <legend class="option-group__legend">{{ p.t.settings_reading_title_click() }}</legend>
+    <p class="option-group__hint" id="reading-title_latest-hint">{{ p.t.settings_reading_title_hint() }}</p>
+    <div class="option-group__options">
+      <div class="checkline"><label class="checkline__label"><input type="radio" name="title_latest" value=""{% if settings.chosen.title_latest.is_none() %} checked{% endif %}><span>{% if settings.site.title_latest %}{{ p.t.settings_follow_site(p.t.settings_title_latest()) }}{% else %}{{ p.t.settings_follow_site(p.t.settings_title_first()) }}{% endif %}</span></label></div>
+      <div class="checkline"><label class="checkline__label"><input type="radio" name="title_latest" value="false"{% if settings.chosen.title_latest == Some(false) %} checked{% endif %}><span>{{ p.t.settings_title_first() }}</span></label></div>
+      <div class="checkline"><label class="checkline__label"><input type="radio" name="title_latest" value="true"{% if settings.chosen.title_latest == Some(true) %} checked{% endif %}><span>{{ p.t.settings_title_latest() }}</span></label></div>
+    </div>
+  </fieldset>
+  <fieldset class="option-group option-group--inline">
+    <legend class="option-group__legend">{{ p.t.settings_reading_title_tab() }}</legend>
+    <div class="option-group__options">
+      <div class="checkline"><label class="checkline__label"><input type="radio" name="title_new_tab" value=""{% if settings.chosen.title_new_tab.is_none() %} checked{% endif %}><span>{% if settings.site.title_new_tab %}{{ p.t.settings_follow_site(p.t.settings_tab_new()) }}{% else %}{{ p.t.settings_follow_site(p.t.settings_tab_current()) }}{% endif %}</span></label></div>
+      <div class="checkline"><label class="checkline__label"><input type="radio" name="title_new_tab" value="false"{% if settings.chosen.title_new_tab == Some(false) %} checked{% endif %}><span>{{ p.t.settings_tab_current() }}</span></label></div>
+      <div class="checkline"><label class="checkline__label"><input type="radio" name="title_new_tab" value="true"{% if settings.chosen.title_new_tab == Some(true) %} checked{% endif %}><span>{{ p.t.settings_tab_new() }}</span></label></div>
+    </div>
+  </fieldset>
+  <fieldset class="option-group option-group--inline" aria-describedby="reading-avatar_shape-hint">
+    <legend class="option-group__legend">{{ p.t.settings_reading_avatar() }}</legend>
+    <p class="option-group__hint" id="reading-avatar_shape-hint">{{ p.t.settings_reading_avatar_hint() }}</p>
+    <div class="option-group__options">
+      <div class="checkline"><label class="checkline__label"><input type="radio" name="avatar_shape" value=""{% if settings.chosen.avatar_circle.is_none() %} checked{% endif %}><span>{% if settings.site.avatar_circle %}{{ p.t.settings_follow_site(p.t.settings_shape_circle()) }}{% else %}{{ p.t.settings_follow_site(p.t.settings_shape_rounded()) }}{% endif %}</span></label></div>
+      <div class="checkline"><label class="checkline__label"><input type="radio" name="avatar_shape" value="rounded"{% if settings.chosen.avatar_circle == Some(false) %} checked{% endif %}><span>{{ p.t.settings_shape_rounded() }}</span></label></div>
+      <div class="checkline"><label class="checkline__label"><input type="radio" name="avatar_shape" value="circle"{% if settings.chosen.avatar_circle == Some(true) %} checked{% endif %}><span>{{ p.t.settings_shape_circle() }}</span></label></div>
+    </div>
+  </fieldset>
+  <p class="form-note">{{ p.t.settings_reading_zone() }}</p>
+  <div class="form-actions"><button class="button" type="submit">{{ p.t.settings_reading_save() }}</button></div>
+</form></div>
+<div class="panel" data-emoji-zoom-setting hidden><h2 class="panel__title">{{ p.t.settings_device() }}</h2><p>{{ p.t.settings_device_lead() }}</p><div class="checkline"><label class="checkline__label"><input type="checkbox" data-emoji-zoom-toggle><span>{{ p.t.settings_emoji_zoom() }}</span></label></div></div>
+</section>{% endblock %}

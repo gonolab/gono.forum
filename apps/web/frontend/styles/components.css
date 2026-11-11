@@ -1,0 +1,1911 @@
+/* Shared components: fields, field, checkline, option-group, form-note, form-feedback, form-actions, control, button, panel, narrow-page, intro, callout, provider-list, auth-fallback, tabs, list-toolbar, section-tabs, rows and row-*, tag, board-chip, meta-glyph, unread-dot, empty, layout, mini-list, site-stats, newcomers, friend-links, person, person-card, tally. */
+
+/* ------------------------------------------------------------------ */
+/* Form layout                                                         */
+/* ------------------------------------------------------------------ */
+
+.fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-content: start;
+  min-inline-size: 0;
+}
+
+/* Admin settings: short fields two per row, everything else spans the row. */
+.fields--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 20px;
+}
+
+.fields--two > * {
+  grid-column: 1 / -1;
+}
+
+.fields--two > .field:not(.field--wide),
+.fields--two > .checkline:not(.checkline--wide) {
+  grid-column: auto;
+}
+
+/* Filter bars: fields side by side, the submit button aligned with the controls. */
+.fields--inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 12px;
+}
+
+.fields--inline > .field {
+  flex: 1 1 160px;
+}
+
+.fields--inline > .checkline {
+  min-block-size: 38px;
+  align-content: center;
+}
+
+.fields--inline > .form-actions {
+  flex: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* One labelled control                                                */
+/* ------------------------------------------------------------------ */
+
+.field {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  min-inline-size: 0;
+}
+
+.field__label {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+/* The control already carries `required`; the mark is visual only. */
+.field--required > .field__label::after {
+  content: "*";
+  content: "*" / "";
+  margin-inline-start: 3px;
+  color: var(--danger);
+}
+
+.field__hint,
+.checkline__hint,
+.option-group__hint,
+.form-note {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.form-note {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+:is(.field__hint, .checkline__hint, .option-group__hint, .form-note) code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+/* Text-like controls inside a field, and standalone controls outside one (row forms). */
+.field :is(input:not([type="checkbox"], [type="radio"], [type="file"], [type="hidden"], [type="range"], [type="color"]), select, textarea),
+.control {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-block-size: 38px;
+  margin: 0;
+  padding-block: 7px;
+  padding-inline: 12px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--r-input);
+  background-color: var(--input-bg);
+  color: var(--input-text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.control {
+  inline-size: auto;
+  max-inline-size: 100%;
+}
+
+.field ::placeholder,
+.control::placeholder {
+  color: var(--input-placeholder);
+  opacity: 1;
+}
+
+/* Focus darkens the border; there is no ring (docs/styles.md, "HTML conventions"). */
+.field :is(input, select, textarea):focus-visible,
+.control:focus-visible {
+  border-color: var(--input-focus);
+}
+
+.field :is(input, textarea)[readonly],
+.control[readonly] {
+  background-color: var(--panel-alt);
+}
+
+.field :is(input, select, textarea):disabled,
+.control:disabled {
+  border-color: var(--disabled-border);
+  background-color: var(--disabled-bg);
+  color: var(--disabled-text);
+  cursor: not-allowed;
+}
+
+.field textarea,
+textarea.control {
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.field textarea:not([rows]) {
+  min-block-size: 120px;
+}
+
+.field--code :is(input, textarea) {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+/* Drawn caret so selects match the other controls; it moves to the other side in RTL. */
+.field select,
+select.control {
+  appearance: none;
+  padding-inline-end: 36px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+  background-position: calc(100% - 19px) 50%, calc(100% - 14px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+.field select:dir(rtl),
+select.control:dir(rtl) {
+  background-position: 14px 50%, 19px 50%;
+}
+
+/* File inputs keep the native look; they must not widen narrow pages. */
+.field input[type="file"] {
+  max-inline-size: 100%;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ------------------------------------------------------------------ */
+/* Checkbox and radio lines, option groups                             */
+/* ------------------------------------------------------------------ */
+
+.checkline {
+  display: grid;
+  gap: 2px;
+  align-content: start;
+  min-inline-size: 0;
+}
+
+.checkline__label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.checkline__label > input {
+  flex: none;
+  inline-size: 16px;
+  block-size: 16px;
+  margin: 0;
+  margin-block-start: 3px;
+  accent-color: var(--choice-accent);
+  cursor: pointer;
+}
+
+.checkline__label > span {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.checkline__label > input:disabled,
+.checkline__label > input:disabled + span {
+  color: var(--disabled-text);
+  cursor: not-allowed;
+}
+
+.checkline__hint {
+  padding-inline-start: 24px;
+}
+
+.option-group {
+  display: grid;
+  gap: 8px;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.option-group__legend {
+  margin-block-end: 6px;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.option-group__options {
+  display: grid;
+  gap: 6px;
+  min-inline-size: 0;
+}
+
+.option-group--inline .option-group__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Form-level feedback                                                 */
+/* ------------------------------------------------------------------ */
+
+/* Without a modifier the message is an error (role="alert"). */
+.form-feedback {
+  margin: 0;
+  padding-block: 10px;
+  padding-inline: 12px;
+  border-inline-start: 2px solid var(--danger-border);
+  border-radius: var(--r-input);
+  background: var(--danger-soft);
+  color: var(--danger-soft-text);
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.form-feedback a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.form-feedback--success {
+  border-inline-start-color: var(--success);
+  background: var(--success-soft);
+  color: var(--success-soft-text);
+}
+
+.form-feedback--warning {
+  border-inline-start-color: var(--warning-border);
+  background: var(--warning-soft);
+  color: var(--warning-soft-text);
+}
+
+.form-feedback--info {
+  border-inline-start-color: var(--info);
+  background: var(--info-soft);
+  color: var(--info-soft-text);
+}
+
+/* ------------------------------------------------------------------ */
+/* Action rows and buttons                                             */
+/* ------------------------------------------------------------------ */
+
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+/* Admin pages with one form for the whole page keep the save button in view. */
+.form-actions--sticky {
+  position: sticky;
+  inset-block-end: 0;
+  z-index: 2;
+  padding-block: 12px calc(12px + var(--safe-bottom));
+  border-block-start: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  min-block-size: 34px;
+  margin: 0;
+  padding-block: 0;
+  padding-inline: 16px;
+  border: 1px solid var(--primary-border);
+  border-radius: var(--r-pill);
+  background: var(--primary-bg);
+  color: var(--primary-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.button:hover {
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
+  color: var(--primary-text);
+  text-decoration: none;
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.button svg {
+  flex: none;
+  inline-size: 16px;
+  block-size: 16px;
+}
+
+.button--secondary {
+  border-color: var(--secondary-border);
+  background: var(--secondary-bg);
+  color: var(--secondary-text);
+}
+
+.button--secondary:hover {
+  border-color: var(--secondary-border);
+  background: var(--secondary-hover);
+  color: var(--secondary-text);
+}
+
+.button--danger {
+  border-color: var(--danger-border);
+  background: var(--danger-fill);
+  color: var(--on-danger-fill);
+}
+
+.button--danger:hover {
+  border-color: var(--danger-border);
+  background: var(--danger-fill);
+  color: var(--on-danger-fill);
+  filter: brightness(0.94);
+}
+
+.button--small {
+  min-block-size: 28px;
+  padding-inline: 12px;
+  font-size: 13px;
+}
+
+/* The single main action of a narrow page: full width, squared to match the inputs above it. */
+.button--block {
+  display: flex;
+  inline-size: 100%;
+  min-block-size: 42px;
+  border-radius: var(--r-input);
+  font-size: 15px;
+  white-space: normal;
+}
+
+.button:disabled,
+.button[aria-disabled="true"] {
+  border-color: var(--disabled-border);
+  background: var(--disabled-bg);
+  color: var(--disabled-text);
+  cursor: not-allowed;
+  filter: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Panels (main column cards and aside cards)                          */
+/* ------------------------------------------------------------------ */
+
+.panel {
+  box-sizing: border-box;
+  min-inline-size: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  box-shadow: var(--shadow-base);
+  scroll-margin-block-start: calc(72px + var(--safe-top));
+}
+
+.panel__title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.panel__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.panel__head > .panel__title {
+  min-inline-size: 0;
+}
+
+.panel__action {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding-block: 2px;
+  padding-inline: 6px;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.panel__action:hover {
+  background: var(--panel-alt);
+  color: var(--text);
+}
+
+.panel__action:focus-visible,
+.panel__title:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+
+.panel__note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.panel__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.panel__links > li + li::before {
+  content: "·";
+  content: "·" / "";
+  margin-inline: 6px;
+}
+
+.panel__links--center {
+  justify-content: center;
+}
+
+.panel--aside {
+  padding-block: 14px;
+  padding-inline: 16px;
+}
+
+.panel--aside .panel__title {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.panel--auth {
+  padding: 24px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Narrow pages (log in, register, one-time links)                     */
+/* ------------------------------------------------------------------ */
+
+.narrow-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--gap);
+  align-content: start;
+  box-sizing: border-box;
+  inline-size: 100%;
+  max-inline-size: 400px;
+  margin-inline: auto;
+  padding-block: 24px 48px;
+}
+
+/* A narrow column inside the member center's main column. */
+.narrow-page--embedded {
+  max-inline-size: 640px;
+  margin-inline: 0;
+  padding-block: 0;
+}
+
+.intro {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.callout {
+  margin: 0;
+  padding-block: 14px;
+  padding-inline: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel-alt);
+  color: var(--text-muted);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.callout__title {
+  margin: 0;
+  margin-block-end: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.callout__list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-inline-start: 1.2em;
+}
+
+.provider-list {
+  display: grid;
+  gap: 8px;
+  padding-block-start: 14px;
+  border-block-start: 1px solid var(--line);
+}
+
+.auth-fallback {
+  padding-block-start: 12px;
+  border-block-start: 1px solid var(--line);
+}
+
+.auth-fallback__summary {
+  inline-size: fit-content;
+  color: var(--link);
+  font-size: 14px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.auth-fallback__summary:hover {
+  color: var(--link-hover);
+}
+
+.auth-fallback__summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+
+.auth-fallback[open] > .auth-fallback__summary {
+  margin-block-end: 12px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Tabs                                                                */
+/* ------------------------------------------------------------------ */
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 2px;
+  min-inline-size: 0;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+
+.section-tabs {
+  display: flex;
+  gap: 2px;
+  min-inline-size: 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+
+.section-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tabs__item,
+.section-tabs__item {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  box-sizing: border-box;
+  min-block-size: 40px;
+  padding-inline: 12px;
+  border-block-end: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.4;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.section-tabs__item {
+  min-block-size: 42px;
+}
+
+.tabs__item:hover,
+.section-tabs__item:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.tabs__item[aria-current],
+.section-tabs__item[aria-current] {
+  border-block-end-color: var(--accent);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* Inset rings: these rows may scroll, which would clip an outer ring. */
+.tabs__item:focus-visible,
+.section-tabs__item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+  border-radius: var(--r-xs);
+}
+
+/* Log-in tabs: equal columns across the top of the panel. */
+.tabs--auth {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 0;
+}
+
+.tabs--auth .tabs__item {
+  justify-content: center;
+  min-block-size: 48px;
+  padding-inline: 8px;
+  font-size: 15px;
+  text-align: center;
+  white-space: normal;
+}
+
+/* Segmented switch (reply view and similar two- or three-way choices). */
+.tabs--switch {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r-pill);
+  background: var(--panel-alt);
+  box-shadow: none;
+}
+
+.tabs--switch .tabs__item {
+  min-block-size: 28px;
+  padding-inline: 12px;
+  border: 0;
+  border-radius: var(--r-pill);
+  font-size: 13px;
+}
+
+.tabs--switch .tabs__item[aria-current] {
+  background: var(--selected-bg);
+  color: var(--selected-text);
+}
+
+.tabs--switch .tabs__item:focus-visible {
+  outline-offset: 1px;
+  border-radius: var(--r-pill);
+}
+
+/* List toolbar: filters on the start side, a compose button or a count on the end side. */
+.list-toolbar {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  min-inline-size: 0;
+  padding-inline: 16px;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+
+.list-toolbar > .tabs {
+  flex: 1 1 auto;
+  box-shadow: none;
+}
+
+.list-toolbar__filters {
+  display: flex;
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  padding-inline-end: 24px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
+  mask-image: linear-gradient(to right, currentColor calc(100% - 24px), transparent);
+}
+
+.list-toolbar__filters:dir(rtl) {
+  mask-image: linear-gradient(to left, currentColor calc(100% - 24px), transparent);
+}
+
+.list-toolbar__filters::-webkit-scrollbar {
+  display: none;
+}
+
+.list-toolbar__filters:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.list-toolbar__filters > .tabs {
+  flex: none;
+  flex-wrap: nowrap;
+  box-shadow: none;
+}
+
+.list-toolbar__filters > .tabs + .tabs::before {
+  content: "";
+  flex: none;
+  align-self: center;
+  inline-size: 1px;
+  block-size: 16px;
+  margin-inline: 6px;
+  background: var(--line);
+}
+
+.list-toolbar__compose {
+  flex: none;
+  align-self: center;
+  margin-inline-start: auto;
+}
+
+.list-toolbar__note {
+  flex: none;
+  align-self: center;
+  margin: 0;
+  margin-inline-start: auto;
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ */
+/* List rows                                                           */
+/* ------------------------------------------------------------------ */
+
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-inline-size: 0;
+}
+
+.rows__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding-block: 12px;
+  padding-inline: 16px;
+}
+
+.rows > * + * {
+  border-block-start: 1px solid var(--line);
+}
+
+.rows__item:hover {
+  background: var(--panel-alt);
+}
+
+.rows__item--pinned {
+  background: var(--panel-alt);
+}
+
+.rows__item--pinned:hover {
+  background: var(--panel-hover);
+}
+
+.rows__item.is-unread {
+  background: var(--accent-soft);
+}
+
+.row-avatar {
+  flex: none;
+  display: block;
+  inline-size: 40px;
+  block-size: 40px;
+}
+
+.row-avatar > * {
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+.row-avatar > img {
+  border-radius: var(--r-sm);
+  object-fit: cover;
+}
+
+.row-rank {
+  flex: none;
+  align-self: center;
+  inline-size: 28px;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.rows--ranks > .rows__item:nth-child(-n + 3) .row-rank {
+  color: var(--accent);
+}
+
+.row-body {
+  display: grid;
+  gap: 4px;
+  flex: 1 1 0;
+  min-inline-size: 0;
+}
+
+.row-headline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 6px;
+  min-inline-size: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.row-headline strong {
+  font-weight: 600;
+}
+
+.row-title {
+  min-inline-size: 0;
+  color: var(--text);
+  font-weight: 500;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+a.row-title:hover {
+  color: var(--link-hover);
+  text-decoration: underline;
+}
+
+.rows__item.is-unread .row-title {
+  font-weight: 600;
+}
+
+/* Content the reader can no longer open: plain text, not a link. */
+.row-title--gone {
+  color: var(--text-disabled);
+  font-weight: 400;
+}
+
+.row-excerpt {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 12px;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.row-meta > * {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-inline-size: 0;
+}
+
+.row-meta a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.row-meta a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.row-author {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.row-time {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.row-pages {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+}
+
+.row-pages > a {
+  padding-inline: 6px;
+  border-radius: var(--r-pill);
+  background: var(--panel-alt);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  text-decoration: none;
+}
+
+.row-pages > a:hover {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
+.row-pages__sep::before {
+  content: "…";
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.row-thumbs {
+  display: flex;
+  gap: 6px;
+  margin-block-start: 4px;
+  overflow: hidden;
+}
+
+.row-thumb {
+  flex: none;
+  block-size: 90px;
+  inline-size: auto;
+  max-inline-size: 210px;
+  border-radius: var(--r-sm);
+  background: var(--panel-alt);
+  object-fit: cover;
+}
+
+/* Trailing information: a board chip, a score, a time. */
+.row-end {
+  flex: none;
+  display: flex;
+  align-items: center;
+  align-self: center;
+  gap: 8px;
+  margin-inline-start: auto;
+}
+
+/* Trailing row forms (remove, restore, mark read …). */
+.row-actions {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  align-self: center;
+  gap: 6px;
+  margin-inline-start: auto;
+}
+
+.row-actions form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.row-actions .control {
+  min-block-size: 28px;
+  padding-block: 3px;
+  font-size: 13px;
+}
+
+.row-stat {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.board-chip {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  max-inline-size: 140px;
+  block-size: 22px;
+  padding-inline: 8px;
+  overflow: hidden;
+  border-radius: var(--r-pill);
+  background: var(--panel-alt);
+  color: var(--text-muted);
+  font-size: 12px;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-chip:hover {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
+.meta-glyph {
+  flex: none;
+  inline-size: 14px;
+  block-size: 14px;
+}
+
+.meta-glyph--mirror:dir(rtl) {
+  scale: -1 1;
+}
+
+/* Child boards listed inside their parent's row (the one allowed nested list). */
+.rows--children {
+  margin-block-start: 6px;
+  border-inline-start: 2px solid var(--line);
+}
+
+.rows--children > .rows__item {
+  padding-block: 6px;
+  padding-inline: 12px 0;
+}
+
+.rows--children > * + * {
+  border-block-start: 0;
+}
+
+.rows--children > .rows__item:hover {
+  background: none;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  box-sizing: border-box;
+  block-size: 20px;
+  padding-inline: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  background: var(--tag-news-bg);
+  color: var(--tag-news-text);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.tag--pinned,
+.tag--featured,
+.tag--bounty,
+.tag--redpacket,
+.tag--lottery,
+.tag--poll,
+.tag--level,
+.tag--verified,
+.tag--honor,
+.tag--state {
+  border-color: transparent;
+}
+
+.tag--pinned {
+  background: var(--tag-pinned-bg);
+  color: var(--tag-pinned-text);
+}
+
+.tag--featured {
+  background: var(--tag-featured-bg);
+  color: var(--tag-featured-text);
+}
+
+.tag--bounty {
+  background: var(--tag-bounty-bg);
+  color: var(--tag-bounty-text);
+}
+
+.tag--redpacket {
+  background: var(--tag-redpacket-bg);
+  color: var(--tag-redpacket-text);
+}
+
+.tag--lottery {
+  background: var(--tag-lottery-bg);
+  color: var(--tag-lottery-text);
+}
+
+.tag--poll {
+  background: var(--tag-poll-bg);
+  color: var(--tag-poll-text);
+}
+
+.tag--level {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+.tag--verified {
+  background: var(--success-soft);
+  color: var(--success-soft-text);
+}
+
+.tag--honor {
+  background: var(--warning-soft);
+  color: var(--warning-soft-text);
+}
+
+.tag--state {
+  background: var(--danger-soft);
+  color: var(--danger-soft-text);
+}
+
+.unread-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  box-sizing: border-box;
+  min-inline-size: 18px;
+  block-size: 18px;
+  padding-inline: 5px;
+  border-radius: var(--r-pill);
+  background: var(--danger-fill);
+  color: var(--on-danger-fill);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.empty {
+  margin: 0;
+  padding-block: 24px;
+  padding-inline: 16px;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.rows > .empty:hover {
+  background: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Main column plus aside                                              */
+/* ------------------------------------------------------------------ */
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--sidebar-w);
+  gap: var(--gap);
+  align-items: start;
+}
+
+.layout__main {
+  min-inline-size: 0;
+}
+
+/* Blocks stacked in the main column or a narrow page keep a gap. Zero specificity, so a page that spaces its own
+   blocks wins; a screen-reader-only heading at the top does not count as a block before the first visible one. */
+:where(.layout__main, .narrow-page) > :where(:not(.sr-only, [hidden]) ~ *) {
+  margin-block-start: 12px;
+}
+
+/* Panels stacked inside a page's own wrapper keep the same gap. */
+:where(.panel + .panel) {
+  margin-block-start: 12px;
+}
+
+.layout__aside {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--gap);
+  align-content: start;
+  min-inline-size: 0;
+}
+
+.layout--sticky > .layout__aside {
+  position: sticky;
+  inset-block-start: calc(var(--sticky-top) + 16px);
+}
+
+/* ------------------------------------------------------------------ */
+/* Aside card contents                                                 */
+/* ------------------------------------------------------------------ */
+
+.mini-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mini-list > li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-inline-size: 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.mini-list > li > a {
+  display: flex;
+  align-items: baseline;
+  flex: 1 1 auto;
+  gap: 8px;
+  min-inline-size: 0;
+  padding-block: 3px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.mini-list > li > a:hover .mini-list__title {
+  color: var(--link-hover);
+  text-decoration: underline;
+}
+
+.mini-list > li > a[aria-current] {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.mini-list__title {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* `recent-time` is written by site.js into the recent-threads card. */
+.mini-list__count,
+.mini-list .recent-time {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.mini-list__empty,
+.mini-list > .mini-list__empty {
+  display: block;
+  padding-block: 4px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.site-stats__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.site-stats__item {
+  display: grid;
+  gap: 2px;
+  min-inline-size: 0;
+  text-align: center;
+}
+
+.site-stats__item > dt {
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.site-stats__item > dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.site-stats__subtitle {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.newcomers {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.newcomers__item {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  min-inline-size: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  text-decoration: none;
+}
+
+.newcomers__item:hover {
+  color: var(--text);
+}
+
+.newcomers__avatar {
+  display: block;
+  inline-size: 40px;
+  block-size: 40px;
+}
+
+.newcomers__avatar > * {
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+.newcomers__name {
+  max-inline-size: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.friend-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.friend-links a {
+  color: var(--text);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.friend-links a:hover {
+  color: var(--link-hover);
+  text-decoration: underline;
+}
+
+/* ------------------------------------------------------------------ */
+/* Member identity, member cards and stat grids                       */
+/* ------------------------------------------------------------------ */
+
+.person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-inline-size: 0;
+}
+
+.person__avatar {
+  flex: none;
+  display: block;
+  inline-size: 44px;
+  block-size: 44px;
+}
+
+.person__avatar > * {
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+.person__avatar--guest {
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-input);
+  background: var(--avatar-bg);
+  color: var(--avatar-text);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.person__ident {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 2px;
+  min-inline-size: 0;
+}
+
+.person__name {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+a.person__name:hover {
+  color: var(--link-hover);
+}
+
+.person__role {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.person__role a {
+  color: var(--warning);
+}
+
+.person__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+}
+
+.person__shortcuts {
+  display: flex;
+  flex: none;
+  align-self: flex-start;
+  gap: 2px;
+}
+
+.person__shortcut {
+  display: grid;
+  place-items: center;
+  inline-size: 28px;
+  block-size: 28px;
+  border-radius: var(--r-sm);
+  color: var(--text-muted);
+}
+
+.person__shortcut:hover {
+  background: var(--panel-alt);
+  color: var(--text);
+}
+
+.person__shortcut[aria-current] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.person__shortcut svg {
+  inline-size: 18px;
+  block-size: 18px;
+}
+
+/* Profile head and the avatar on the profile settings page. */
+.person--large {
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.person--large .person__avatar {
+  inline-size: 64px;
+  block-size: 64px;
+}
+
+.person--large .person__name {
+  font-size: 21px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.person-card__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.person-card__actions > :only-child {
+  grid-column: 1 / -1;
+}
+
+.person-card__actions > form {
+  min-inline-size: 0;
+  margin: 0;
+}
+
+.person-card__actions .button {
+  inline-size: 100%;
+  padding-inline: 8px;
+}
+
+.person-card__nav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.person-card__link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-inline-size: 0;
+  padding-block: 7px;
+  padding-inline: 10px;
+  border-radius: var(--r-sm);
+  background: var(--panel-alt);
+  color: var(--text);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.person-card__link:hover {
+  background: var(--panel-hover);
+  text-decoration: none;
+}
+
+.person-card__link[aria-current] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.person-card__dot {
+  flex: none;
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 50%;
+  background: var(--danger-fill);
+}
+
+.tally {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 8px;
+  margin: 0;
+}
+
+.tally--six {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.tally__item {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-inline-size: 0;
+  text-align: center;
+}
+
+.tally__label {
+  max-inline-size: 100%;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tally__value {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.tally__value a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.tally__value a:hover {
+  color: var(--link-hover);
+}
+
+/* Unread above zero: colour plus a dot, so the state is not carried by colour alone. */
+.tally__value--alert {
+  color: var(--danger);
+}
+
+.tally__value--alert::before {
+  content: "";
+  flex: none;
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* ------------------------------------------------------------------ */
+/* Vertical rhythm inside panels                                       */
+/* ------------------------------------------------------------------ */
+
+/* Kept after the component rules so their `margin: 0` does not cancel the spacing. */
+.panel > * {
+  margin-block: 0;
+}
+
+.panel > * + * {
+  margin-block-start: 14px;
+}
+
+.panel--aside > * + * {
+  margin-block-start: 10px;
+}
+
+/* The log-in tabs form the top edge of the panel. */
+.panel--auth > .tabs--auth {
+  margin-block-start: -24px;
+  margin-inline: -24px;
+}
+
+.panel--auth > .tabs--auth + * {
+  margin-block-start: 20px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Focus rings on component links                                      */
+/* ------------------------------------------------------------------ */
+
+:is(.row-title, .row-meta a, .row-pages > a, .board-chip, .mini-list a, .person__name, .person__avatar, .person__shortcut, .person-card__link, .newcomers__item, .friend-links a, .tally__value a, .panel__links a):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+
+/* ------------------------------------------------------------------ */
+/* Breakpoints (docs/styles.md, "Breakpoints")                         */
+/* ------------------------------------------------------------------ */
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr) 220px;
+    gap: 16px;
+  }
+
+  .layout__aside,
+  .narrow-page {
+    gap: 16px;
+  }
+}
+
+@media (max-width: 760px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .layout--sticky > .layout__aside {
+    position: static;
+  }
+
+  /* Stacked layouts keep only the card marked panel--keep. */
+  .layout--stack > .layout__aside > :not(.panel--keep),
+  .layout--stack > .layout__aside:not(:has(> .panel--keep)) {
+    display: none;
+  }
+
+  .newcomers {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .narrow-page:not(.narrow-page--embedded) {
+    padding-block-start: 8px;
+  }
+
+  .panel {
+    padding: 14px;
+  }
+
+  .panel--auth {
+    padding: 16px;
+  }
+
+  .panel--auth > .tabs--auth {
+    margin-block-start: -16px;
+    margin-inline: -16px;
+  }
+
+  .panel--auth > .tabs--auth + * {
+    margin-block-start: 16px;
+  }
+
+  .rows__item {
+    gap: 10px;
+    padding-block: 10px;
+    padding-inline: 12px;
+  }
+
+  /* Only the first pinned row of a page stays on phones: a list that follows the cross-forum pins shows none. */
+  .rows--topics > .rows__item--pinned ~ .rows__item--pinned,
+  [data-cross-pins] ~ .rows--topics > .rows__item--pinned {
+    display: none;
+  }
+
+  .list-toolbar {
+    gap: 8px;
+    padding-inline: 12px;
+  }
+}
+
+@media (max-width: 640px) {
+  .fields--two {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fields--inline > .field {
+    flex-basis: 100%;
+  }
+
+  /* Row forms move under the row text. */
+  .rows__item:has(> .row-actions) {
+    flex-wrap: wrap;
+  }
+
+  .row-actions {
+    flex-basis: 100%;
+    margin-inline-start: 0;
+  }
+
+  /* Line the forms up with the row text (avatar plus the row gap). */
+  .row-avatar ~ .row-actions {
+    padding-inline-start: calc(40px + 10px);
+  }
+}
+
+@media (max-width: 480px) {
+  .tally--six {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .row-thumb {
+    block-size: 64px;
+    max-inline-size: 150px;
+  }
+}
+
+@media (max-width: 420px) {
+  /* 16px stops phones from zooming in when a control gets focus. */
+  .field :is(input, select, textarea),
+  .control {
+    font-size: 16px;
+  }
+
+  .board-chip {
+    display: none;
+  }
+
+  .row-headline {
+    font-size: 14.5px;
+  }
+}
+
+/* Author display rules above would otherwise override the hidden attribute. */
+:is(.field, .checkline, .option-group, .form-feedback, .form-actions, .button, .panel, .panel__action, .tabs, .tabs__item, .rows__item, .mini-list, .person-card__actions, .tally__item, .unread-dot, .tag, .provider-list, .auth-fallback)[hidden] {
+  display: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Pagination with previous and next links                             */
+/* (partials/pagination.html, profile and thread pages)              */
+/* ------------------------------------------------------------------ */
+
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.pager__item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-inline-size: 34px;
+  min-block-size: 34px;
+  padding-inline: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+}
+
+.pager__item--step {
+  font-family: var(--font-sans);
+  padding-inline: 12px;
+}
+
+.pager__item:hover {
+  background: var(--panel-hover);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.pager__item[aria-current] {
+  border-color: var(--selected-border);
+  background: var(--selected-bg);
+  color: var(--selected-text);
+  font-weight: 600;
+}
+
+.pager__item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.pager__gap::before {
+  content: "…";
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* Avatars. The initials tile, its colour variants and the stacked image are in site.css; sizes come from the
+   container. */
+.avatar {
+  display: block;
+  border-radius: var(--r-sm);
+  object-fit: cover;
+}

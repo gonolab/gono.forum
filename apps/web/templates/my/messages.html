@@ -1,0 +1,23 @@
+{% extends "layout/my.html" %}
+{% block panel %}
+<section class="pane private-collection" hx-boost="false" hx-history="false">
+  <p class="intro">{{ p.t.my_messages_lead(total, p.link("/my/messages/new", p.t.my_messages_new()))|safe }}</p>
+  <ul class="rows">
+    {%- for row in rows %}
+    <li class="rows__item">
+      <div class="row-body">
+        <div class="row-headline">
+          <a class="row-title" href="{{ crate::site::base() }}/my/messages/{{ row.thread_id }}" translate="no">{{ row.counterpart }}</a>
+          {%- if row.unread > 0 %}<span class="unread-dot">{{ row.unread }}</span>{% endif %}
+          {%- if row.counterpart_state == "deleting" %}<span class="tag tag--state">{{ p.t.profile_deleting() }}</span>{% else if row.counterpart_state != "active" %}<span class="tag tag--state">{{ p.t.common_deleted_user() }}</span>{% endif %}
+        </div>
+        <p class="row-excerpt">{{ row.preview }}</p>
+      </div>
+    </li>
+    {%- else %}
+    <li class="empty">{{ p.t.my_messages_empty() }}</li>
+    {%- endfor %}
+  </ul>
+  <nav class="form-actions" aria-label="{{ p.t.common_pagination() }}">{% if !previous.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(previous) }}">{{ p.t.common_previous_page() }}</a>{% endif %}{% if !next.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(next) }}">{{ p.t.common_next_page() }}</a>{% endif %}</nav>
+</section>
+{% endblock %}

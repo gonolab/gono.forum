@@ -1,0 +1,280 @@
+
+
+.reader__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 190px;
+  grid-template-areas: "prose rail";
+  align-items: start;
+  gap: 48px;
+  margin-block-start: 30px;
+}
+
+.reader__prose {
+  grid-area: prose;
+}
+
+.reader__section {
+  line-height: 1.8;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  scroll-margin-block-start: 80px;
+}
+
+.reader__section + .reader__section {
+  margin-block-start: 32px;
+}
+
+.reader__section > p {
+  margin-block: 0 12px;
+}
+
+.reader__section > h2 {
+  margin-block: 0 12px;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.reader__section > ul {
+  margin-block: 9px;
+  padding-inline-start: 21px;
+}
+
+.reader__section > :last-child {
+  margin-block-end: 0;
+}
+
+/* At 900px the rail moves above the text: its title and the links side by side. */
+@media (max-width: 900px) {
+
+  .reader__body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "rail" "prose";
+    gap: 30px;
+  }
+}
+
+/* At 640px the links run in a row under the title. */
+@media (max-width: 640px) {
+
+  .reader__body {
+    gap: 24px;
+    margin-block-start: 24px;
+  }
+}
+
+/* Reference tables on the points, feeds and admin pages: header cells on a tinted ground, striped rows. */
+.data-table {
+  inline-size: 100%;
+  margin-block: 0.8em;
+  border: 1px solid var(--line);
+  border-radius: var(--r-input);
+  border-spacing: 0;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+.data-table th,
+.data-table td {
+  padding: 8px 12px;
+  border-block-end: 1px solid var(--line);
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+.data-table :is(th, td):not(:last-child) {
+  border-inline-end: 1px solid var(--line);
+}
+
+.data-table th {
+  background: var(--panel-alt);
+  font-weight: 500;
+}
+
+.data-table tbody tr:nth-child(even) {
+  background: var(--panel-alt);
+}
+
+.data-table tbody tr:last-child > td {
+  border-block-end: 0;
+}
+
+@media (max-width: 420px) {
+  .data-table {
+    display: block;
+    max-inline-size: 100%;
+    overflow-x: auto;
+  }
+
+  .data-table thead th {
+    white-space: nowrap;
+  }
+}
+
+/* Member area overview. */
+.overview-bio {
+  margin-block: 0 12px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Private message conversation: one entry per message, the member's own ones on a tinted ground. */
+.conversation {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.conversation > li {
+  padding: 12px 16px;
+  border-block-end: 1px solid var(--line);
+}
+
+.conversation > li > span {
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.conversation > li > p {
+  margin-block: 4px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.conversation__mine {
+  background: var(--panel-alt);
+}
+
+/* Invite codes. The list and its rows are styled in site.css. */
+.invites__quota {
+  display: flex;
+  gap: 12px;
+}
+
+/* Notifications: the header bar above the list, then one row per notification. */
+.notification-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-block-end: 0;
+  border-start-start-radius: var(--r);
+  border-start-end-radius: var(--r);
+  background: var(--panel);
+}
+
+@media (max-width: 760px) {
+  .notification-title {
+    flex-direction: column;
+    gap: 8px;
+    padding-block-end: 12px;
+    padding-inline: 12px;
+  }
+}
+
+/* Attachment library. */
+.quota-table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.quota-table th,
+.quota-table td {
+  padding: 6px 8px;
+  border-block-end: 1px solid var(--line);
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+.quota-table th {
+  font-weight: 600;
+}
+
+.quota-table__total > * {
+  font-weight: 600;
+}
+
+/* The note column does not fit beside the numbers on a phone. */
+@media (max-width: 420px) {
+  .quota-table :is(th, td):nth-child(4) {
+    display: none;
+  }
+}
+
+.attachment-list {
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+}
+
+.file-blocked {
+  color: var(--danger-text);
+  font-size: 12.5px;
+}
+
+/* Admin list entries (manage.css adds the rule, spacing and heading size). */
+.admin-row > h2 {
+  margin-block: 0 16px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* Activity card on bounty, red packet, lottery, poll and news threads; the card itself is a .panel. */
+.activity-box :is(h3, h4) {
+  margin-block: 12px 6px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.activity-box :is(ul, ol) {
+  margin-block: 6px;
+  padding-inline-start: 20px;
+}
+
+/* Verified-member and friend-link directories (site.css sets the sizes and spacing). */
+.directory-title {
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* Links inside muted notes keep the body colour. */
+.rank-note a {
+  color: var(--text);
+}
+
+.rank-note a:hover {
+  color: var(--accent-hover);
+}
+
+/* Points page: check-in and growth headings (site.css sets their size and spacing). */
+.signin-title {
+  line-height: 1.4;
+}
+
+/* Member search field. */
+.member-search-input {
+  padding: 7px 10px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--r-input);
+  background: var(--input-bg);
+  color: var(--input-text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.75;
+}
+.member-search-input::placeholder {
+  color: var(--input-placeholder);
+}
+@media (max-width: 420px) {
+  .member-search-input {
+    font-size: 16px;
+  }
+}

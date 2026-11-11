@@ -1,0 +1,31 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<div class="narrow-page" hx-boost="false">
+  <section class="panel panel--auth">
+    <h1 class="panel__title">{{ p.t.frame_verify_email() }}</h1>
+    <p class="form-feedback form-feedback--info" role="status">{{ message }}</p>
+    {%- if valid %}
+    <form class="fields" method="post" action="{{ crate::site::base() }}/verify-email">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button class="button button--block" type="submit">{{ p.t.account_verify_confirm() }}</button>
+    </form>
+    {%- else %}
+    {%- if p.authenticated %}
+    {%- if p.email_unverified %}
+    <p class="intro">{{ p.t.account_verify_to(crate::i18n::Markup::tag("strong", email))|safe }}</p>
+    {% include "partials/mail_paused.html" %}
+    <form class="fields" method="post" action="{{ crate::site::base() }}/verify-email/resend">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <button class="button button--block" type="submit">{{ p.t.account_verify_resend() }}</button>
+    </form>
+    {%- else %}
+    <a class="button" href="{{ crate::site::base() }}/my/invites">{{ p.t.account_verify_invites() }}</a>
+    {%- endif %}
+    {%- else %}
+    <a class="button" href="{{ crate::site::base() }}/login">{{ p.t.account_verify_login() }}</a>
+    {%- endif %}
+    {%- endif %}
+  </section>
+</div>
+{% endblock %}

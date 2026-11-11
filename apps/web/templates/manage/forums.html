@@ -1,0 +1,84 @@
+{% extends "layout/manage.html" %}
+{% block panel %}
+
+<section class="panel" data-forum-settings><h2 class="panel__title">{{ p.t.forum_settings_title() }}</h2>{% if settings_saved %}<p class="form-feedback form-feedback--success" role="status">{{ p.t.forum_settings_saved() }}</p>{% endif %}<p>{{ p.t.forum_settings_lead() }}</p>
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/forums/settings"><input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<div class="checkline">
+  <label class="checkline__label">
+    <input type="checkbox" aria-describedby="forum-settings-directory_statistics-hint" name="directory_statistics" value="1"{% if directory_statistics %} checked{% endif %}>
+    <span>{{ p.t.forum_settings_directory() }}</span>
+  </label>
+  <p class="checkline__hint" id="forum-settings-directory_statistics-hint">{{ p.t.forum_settings_directory_help(p.link("/forums", "/forums"))|safe }}{# The sentence quotes a settings path with ASCII quotes, printed as written: translations never contain markup. #}{{ p.t.forum_settings_directory_refresh(forum_statistics_seconds)|safe }}</p>
+</div>
+<div class="form-actions"><button class="button button--primary" type="submit">{{ p.t.forum_settings_save() }}</button></div>
+</form></section>
+<section class="panel"><h1 class="panel__title" id="forums-title">{{ p.t.forum_forums_title() }}</h1><p>{{ p.t.forum_forums_lead() }}</p>{% if !notice.is_empty() %}<p class="form-feedback form-feedback--success" role="status">{{ notice }}</p>{% endif %}{% if !order_message.is_empty() %}<p class="form-feedback" role="alert">{{ order_message }}</p>{% endif %}
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/forums/order" data-forum-order><input type="hidden" name="_csrf" value="{{ p.csrf }}"><ul class="rows" aria-labelledby="forums-title" data-forum-list>{% for row in listed %}<li class="rows__item" data-forum-row="{{ row.forum.fid }}"><div class="row-body"><div class="row-headline">{% if row.child %}└ {% endif %}<a class="row-title" href="{{ crate::site::base() }}/manage/forums?fid={{ row.forum.fid }}">{{ row.forum.name }}</a></div><p class="row-meta"><span>/{{ row.forum.slug }}</span><span>{% if row.child %}{{ p.t.forum_forums_child() }}{% else %}{{ p.t.forum_forums_top() }}{% endif %}</span><span>{% if row.forum.status == 0 %}{{ p.t.forum_forums_disabled() }}{% else if row.forum.visibility == "members" %}{{ p.t.forum_forums_members() }}{% else if row.forum.visibility == "private" %}{{ p.t.forum_forums_private() }}{% else %}{{ p.t.forum_forums_public() }}{% endif %}</span>{% if let Some(count) = row.count %}<span data-forum-count>{{ p.t.forum_forums_count(count.threads, count.today) }}</span>{% else %}<span data-forum-count>{{ p.t.forum_forums_no_count() }}</span>{% endif %}{% if row.view %}<a href="{{ crate::site::base() }}/{{ row.forum.slug }}">{{ p.t.forum_forums_view() }}</a>{% endif %}<span data-forum-row-moderators>{{ p.t.forum_forums_moderators() }}{% for (uid, name) in row.moderators %}{% if !loop.first %}{{ p.t.common_list_separator() }}{% endif %}<a href="{{ crate::site::base() }}/manage/moderators?uid={{ uid }}" translate="no">{{ name }}</a>{% else %}{{ p.t.forum_forums_moderators_none() }}{% endfor %}</span></p></div><div class="row-actions"><label class="sr-only" for="forums-order_{{ row.forum.fid }}">{{ p.t.forum_forums_order() }}</label><input type="number" class="control" id="forums-order_{{ row.forum.fid }}" name="order_{{ row.forum.fid }}" value="{{ row.forum.displayorder }}" required><input type="hidden" name="version_{{ row.forum.fid }}" value="{{ row.forum.version }}"></div></li>{% else %}<li class="empty">{{ p.t.forum_forums_empty() }}</li>{% endfor %}</ul>{% if !listed.is_empty() %}<p class="form-note">{{ p.t.forum_forums_order_help() }}</p>
+<div class="field">
+  <label class="field__label" for="forums-reason">{{ p.t.forum_forums_order_reason() }}</label>
+  <textarea id="forums-reason" name="reason" rows="2" maxlength="500" required></textarea>
+</div>
+<div class="form-actions"><button class="button button--secondary" type="submit">{{ p.t.forum_forums_order_save() }}</button></div>{% endif %}</form><a class="button button--secondary" href="{{ crate::site::base() }}/manage/forums">{{ p.t.forum_forums_create() }}</a></section>
+<section class="panel"><h2 class="panel__title">{% if input.fid > 0 %}{{ p.t.forum_forums_edit() }}{% else %}{{ p.t.forum_forums_create() }}{% endif %}</h2>{% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/forums"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="fid" value="{{ input.fid }}"><input type="hidden" name="version" value="{{ input.version }}">
+<div class="field">
+  <label class="field__label" for="forum-edit-name">{{ p.t.forum_forums_name() }}</label>
+  <input id="forum-edit-name" name="name" value="{{ input.name }}" maxlength="50" required>
+</div>
+<div class="field">
+  <label class="field__label" for="forum-edit-slug">{{ p.t.forum_forums_slug() }}</label>
+  <input id="forum-edit-slug" name="slug" value="{{ input.slug }}" maxlength="64" pattern="[a-z0-9-]+" required>
+</div>
+<div class="field">
+  <label class="field__label" for="forum-edit-parent_fid">{{ p.t.forum_forums_parent() }}</label>
+  <select id="forum-edit-parent_fid" name="parent_fid"><option value="0">{{ p.t.forum_forums_parent_none() }}</option>{% for f in rows %}{% if f.parent_fid.is_none() && f.fid != input.fid %}<option value="{{ f.fid }}"{% if f.fid == input.parent_fid %} selected{% endif %}>{{ f.name }}</option>{% endif %}{% endfor %}</select>
+</div>
+<div class="field">
+  <label class="field__label" for="forum-edit-description">{{ p.t.forum_forums_field_description() }}</label>
+  <textarea id="forum-edit-description" name="description" rows="3" maxlength="4000">{{ input.description }}</textarea>
+</div>
+<div class="field">
+  <label class="field__label" for="forum-edit-guidance">{{ p.t.forum_forums_guidance() }}</label>
+  <textarea id="forum-edit-guidance" name="guidance" rows="4" maxlength="8000">{{ input.guidance }}</textarea>
+</div>
+<div class="field">
+  <label class="field__label" for="forum-edit-displayorder">{{ p.t.forum_forums_order() }}</label>
+  <input type="number" id="forum-edit-displayorder" name="displayorder" value="{{ input.displayorder }}" required>
+</div>
+<div class="field">
+  <label class="field__label" for="forum-edit-status">{{ p.t.forum_forums_status() }}</label>
+  <select id="forum-edit-status" name="status"><option value="1"{% if input.status == 1 %} selected{% endif %}>{{ p.t.forum_forums_enabled() }}</option><option value="0"{% if input.status == 0 %} selected{% endif %}>{{ p.t.forum_forums_disabled() }}</option></select>
+</div>
+<div class="field">
+  <label class="field__label" for="forum-edit-visibility">{{ p.t.forum_forums_visibility() }}</label>
+  <select id="forum-edit-visibility" name="visibility"><option value="public"{% if input.visibility == "public" %} selected{% endif %}>{{ p.t.forum_forums_visibility_public() }}</option><option value="members"{% if input.visibility == "members" %} selected{% endif %}>{{ p.t.forum_forums_visibility_members() }}</option><option value="private"{% if input.visibility == "private" %} selected{% endif %}>{{ p.t.forum_forums_visibility_private() }}</option></select>
+</div>
+<div class="field">
+  <label class="field__label" for="forum-edit-icon_aid">{{ p.t.forum_forums_icon() }}</label>
+  <select id="forum-edit-icon_aid" aria-describedby="forum-edit-icon_aid-hint" name="icon_aid"><option value="0">{{ p.t.forum_forums_icon_default() }}</option>{% for icon in icons %}<option value="{{ icon.aid }}"{% if icon.aid == input.icon_aid %} selected{% endif %}>{{ icon.name }}</option>{% endfor %}</select>
+  <p class="field__hint" id="forum-edit-icon_aid-hint">{{ p.t.forum_forums_icon_help(p.link("/manage/branding", p.t.forum_forums_icon_help_link()))|safe }}</p>
+</div>
+{% if let Some(own) = rewrite %}<p class="form-note" data-forum-rewrite>{{ p.t.forum_forums_rewrite(own) }}</p>{% endif %}
+<div class="form-actions"><button class="button button--primary" type="submit">{{ p.t.forum_forums_save() }}</button></div>
+</form></section>
+{% if input.fid > 0 %}<section class="panel" data-forum-removal><h2 class="panel__title">{{ p.t.forum_removal_title() }}</h2>{% if !action_message.is_empty() %}<p class="form-feedback" role="alert">{{ action_message }}</p>{% endif %}{% if let Some(merge) = merge %}<p class="form-feedback form-feedback--info" role="status" data-forum-merge="{{ merge.eventid }}">{{ p.t.forum_removal_merging(merge.eventid.to_string(), merge.target, p.link(merge.task_path.as_str(), p.t.forum_removal_merging_link()))|safe }}</p>{% endif %}
+<p>{{ p.t.forum_removal_lead() }}</p>
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/forums/{{ input.fid }}/delete"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="version" value="{{ input.version }}">
+<div class="field">
+  <label class="field__label" for="forum-delete-reason">{{ p.t.forum_removal_delete_reason() }}</label>
+  <textarea id="forum-delete-reason" name="reason" rows="2" maxlength="500" required></textarea>
+</div>
+<div class="form-actions"><button class="button button--secondary" type="submit">{{ p.t.forum_removal_delete() }}</button></div>
+</form>
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/forums/{{ input.fid }}/merge"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="version" value="{{ input.version }}">
+<div class="field">
+  <label class="field__label" for="forum-merge-target_fid">{{ p.t.forum_removal_target() }}</label>
+  <select id="forum-merge-target_fid" name="target_fid" required>{% for target in targets %}<option value="{{ target.0 }}">{{ target.1 }}</option>{% endfor %}</select>
+</div>
+<div class="field">
+  <label class="field__label" for="forum-merge-reason">{{ p.t.forum_removal_merge_reason() }}</label>
+  <textarea id="forum-merge-reason" name="reason" rows="2" maxlength="500" required></textarea>
+</div>
+<div class="form-actions"><button class="button button--secondary" type="submit">{{ p.t.forum_removal_merge() }}</button></div>
+</form></section>{% endif %}
+{% endblock %}

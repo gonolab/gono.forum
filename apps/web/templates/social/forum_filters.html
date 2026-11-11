@@ -1,0 +1,4 @@
+{% extends "layout/my.html" %}
+{% block panel %}<section class="pane private-collection" hx-history="false">
+<p>{{ p.t.social_forum_filters_lead() }}</p>
+<ul class="rows">{% for row in rows %}<li class="rows__item" data-forum-filter-row="{{ row.fid }}"><div class="row-body"><div class="row-headline">{% if row.href.is_empty() %}<span class="row-title row-title--gone">{{ row.name }}</span>{% else %}<a class="row-title" href="{{ crate::site::href(row.href) }}">{{ row.name }}</a>{% endif %}</div><p class="row-meta"><span>{{ row.mode_label }}</span><span>{{ row.time }}</span>{% if !row.children.is_empty() %}<span>{{ p.t.social_forum_filters_children(row.children) }}</span>{% endif %}</p></div><div class="row-actions">{% let filter = row.filter %}{% include "social/forum_filter.html" %}</div></li>{% else %}<li class="empty">{{ p.t.social_forum_filters_empty() }}</li>{% endfor %}</ul></section>{% endblock %}

@@ -1,0 +1,170 @@
+/* Admin module menu: a column on the left, a scrolling row from 900px down. Items, icons and the current mark
+   follow further down. */
+.admin-menu {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+}
+
+@media (max-width: 900px) {
+  .admin-menu {
+    flex-direction: row;
+    align-items: center;
+    overflow-x: auto;
+  }
+}
+
+.manage-shell {
+  overflow-wrap: anywhere;
+}
+.manage-shell form > label {
+  display: block;
+  margin-bottom: 12px;
+}
+.manage-shell form > fieldset {
+  min-width: 0;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-input);
+}
+.manage-shell form > fieldset > label {
+  display: block;
+  margin-bottom: 6px;
+}
+.governance-reason {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.admin-row {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.admin-row h2 {
+  font-size: 16px;
+}
+.admin-row p {
+  margin: 8px 0;
+}
+.admin-code,.admin-pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.admin-statistics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit,minmax(120px,1fr));
+  gap: 16px;
+}
+.admin-statistics dd {
+  margin: 4px 0;
+  font-size: 24px;
+}
+.admin-brand-preview {
+  display: block;
+  max-width: 240px;
+  max-height: 140px;
+  object-fit: contain;
+  margin: 12px 0;
+}
+
+/* Two-level shell of the admin area: 180px of modules on the left + content on the right. `--plain` falls back to a
+ * single column for the member view and unregistered addresses.
+ * The page keeps the default --container width of .container, which is exactly the width the prototype wants.
+ * The base of .admin-menu / .admin-menu__item comes from frame.css; this only overrides the layout to match the
+ * prototype. */
+.manage-frame > .layout {
+  grid-template-columns: 180px minmax(0,1fr);
+}
+.manage-frame--plain > .layout {
+  grid-template-columns: minmax(0,1fr);
+}
+.manage-icon-sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.manage-frame .admin-menu {
+  position: static;
+  gap: 2px;
+  padding: 8px;
+}
+.manage-frame .admin-menu__item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 8px 4px 11px;
+  border: 1px solid transparent;
+  border-radius: var(--r-input);
+  color: var(--text-muted);
+  font-size: 13.5px;
+  line-height: 1.6;
+  white-space: normal;
+}
+.manage-nav-label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.manage-nav-icon {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  color: var(--text-subtle);
+}
+.manage-frame .admin-menu__item:hover {
+  background: var(--panel-hover);
+  border-color: var(--line);
+  color: var(--text);
+}
+.manage-frame .admin-menu__item[aria-current="page"] {
+  background: transparent;
+  border-color: transparent;
+  color: var(--accent);
+  font-weight: 600;
+}
+.manage-frame .admin-menu__item[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+}
+.manage-frame .admin-menu__item:hover > .manage-nav-icon,
+.manage-frame .admin-menu__item[aria-current="page"] > .manage-nav-icon {
+  color: inherit;
+}
+.manage-frame .admin-menu__item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+@media (max-width:900px) {
+.manage-frame > .layout {
+  grid-template-columns: minmax(0,1fr);
+}
+.manage-frame .admin-menu {
+  scrollbar-width: none;
+}
+.manage-frame .admin-menu::-webkit-scrollbar {
+  display: none;
+}
+/* nowrap must be restated: a one-class .admin-menu__item rule in frame.css has only (0,1,0) and is
+ * overridden in every viewport by .manage-frame .admin-menu__item (0,2,0) above.
+ * flex:none cannot be dropped either — in a horizontal row the items can shrink by default, and with min-width:0
+ * they get squeezed narrower than their content, so the text overflows its box and overlaps. The page as a whole
+ * does not overflow horizontally, so the e2e noOverflow check cannot catch it either. */
+.manage-frame .admin-menu__item {
+  flex: none;
+  white-space: nowrap;
+}
+}

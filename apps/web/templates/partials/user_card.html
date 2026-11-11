@@ -1,0 +1,66 @@
+{#- Member card at the top of the aside on home-like pages and the topic page. The topic page has no member_summary: no counts, and the second button falls back to the credits link. #}
+{%- if p.authenticated %}
+<div class="panel panel--aside person-card">
+  <div class="person">
+    <a class="person__avatar" href="{{ crate::site::base() }}/my" aria-label="{{ p.t.frame_my_center() }}">{% let avatar = p.avatar %}{% include "partials/avatar.html" %}</a>
+    <div class="person__ident">
+      <a class="person__name" href="{{ crate::site::base() }}/my" translate="no">{{ p.username }}</a>
+      <p class="person__role"><span>{{ p.role_label }}</span>
+        {%- if p.needs_verification %}
+        {%- if p.participation.email %}<a href="{{ crate::site::base() }}/verify-email">{{ p.t.home_card_verify_email() }}</a>{% else %}<a href="{{ crate::site::base() }}/my/account#mobile">{{ p.t.home_card_bind_mobile() }}</a>{% endif %}
+        {%- endif -%}
+      </p>
+    </div>
+    <nav class="person__shortcuts" aria-label="{{ p.t.home_card_shortcuts() }}">
+      <a class="person__shortcut" href="{{ crate::site::base() }}/my/reports" title="{{ p.t.home_card_cases() }}" aria-label="{{ p.t.home_card_cases() }}" hx-boost="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 21V4"/><path d="M5 4h12l-2.5 4.5L17 13H5"/></svg></a>
+      <a class="person__shortcut" href="{{ crate::site::base() }}/my/profile" title="{{ p.t.home_card_settings() }}" aria-label="{{ p.t.home_card_settings() }}" hx-boost="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></a>
+      {%- if p.is_staff %}
+      <a class="person__shortcut" href="{{ crate::site::base() }}/manage" title="{{ p.t.frame_manage() }}" aria-label="{{ p.t.frame_manage() }}" hx-boost="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6l-7-3Z"/></svg></a>
+      {%- endif %}
+    </nav>
+  </div>
+  {%- if let Some(summary) = p.member_summary %}
+  <dl class="tally">
+    <div class="tally__item"><dt class="tally__label">{{ p.t.home_stats_threads() }}</dt><dd class="tally__value"><a href="{{ crate::site::base() }}/my/threads">{{ summary.threads }}</a></dd></div>
+    <div class="tally__item"><dt class="tally__label">{{ p.t.home_stats_replies() }}</dt><dd class="tally__value"><a href="{{ crate::site::base() }}/my/posts">{{ summary.replies }}</a></dd></div>
+    <div class="tally__item"><dt class="tally__label">{{ p.t.home_card_favorites() }}</dt><dd class="tally__value"><a href="{{ crate::site::base() }}/my/favorites">{{ summary.favorites }}</a></dd></div>
+    <div class="tally__item"><dt class="tally__label">{{ p.credit() }}</dt><dd class="tally__value"><a href="{{ crate::site::base() }}/my/credits" hx-boost="false">{{ summary.available }}</a></dd></div>
+    <div class="tally__item"><dt class="tally__label">{{ p.t.home_card_messages() }}</dt><dd class="tally__value{% if summary.unread_messages > 0 %} tally__value--alert{% endif %}"><a href="{{ crate::site::base() }}/my/messages">{{ summary.unread_messages }}</a></dd></div>
+    <div class="tally__item"><dt class="tally__label">{{ p.t.frame_notifications() }}</dt><dd class="tally__value{% if p.unread_notifications > 0 %} tally__value--alert{% endif %}"><a href="{{ crate::site::base() }}/my/notifications">{{ p.unread_notifications }}</a></dd></div>
+  </dl>
+  {%- endif %}
+  <div class="person-card__actions">
+    <a class="button" data-compose-entry href="{{ crate::site::href(p.post_href()) }}" hx-boost="false">{{ p.t.home_post() }}</a>
+    {%- if let Some(summary) = p.member_summary %}
+    {%- if !summary.signin_enabled %}
+    <a class="button button--secondary" href="{{ crate::site::base() }}/my/credits" hx-boost="false">{{ p.t.common_my_credits(p.credit()) }}</a>
+    {%- else if summary.checked_in %}
+    <span class="button button--secondary" aria-disabled="true">{{ p.t.home_card_checked_in() }}</span>
+    {%- else %}
+    <form method="post" action="{{ crate::site::base() }}/api/check-in" hx-boost="false">
+      <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+      <button class="button button--secondary" type="submit">{{ p.t.home_card_check_in(summary.signin_amount) }}</button>
+    </form>
+    {%- endif %}
+    {%- else %}
+    <a class="button button--secondary" href="{{ crate::site::base() }}/my/credits" hx-boost="false">{{ p.t.common_my_credits(p.credit()) }}</a>
+    {%- endif %}
+  </div>
+</div>
+{%- else %}
+<div class="panel panel--aside person-card">
+  <div class="person">
+    <span class="person__avatar person__avatar--guest" aria-hidden="true">{{ p.t.common_guest_initial() }}</span>
+    <div class="person__ident">
+      <p class="person__name">{{ p.t.home_card_guest() }}</p>
+      <p class="person__role">{{ p.t.home_card_guest_hint() }}</p>
+    </div>
+  </div>
+  <div class="person-card__actions">
+    <a class="button" href="{{ crate::site::base() }}/login" hx-boost="false">{{ p.t.frame_log_in() }}</a>
+    {%- if p.registration_open() %}
+    <a class="button button--secondary" href="{{ crate::site::base() }}/register" hx-boost="false">{{ p.t.frame_register() }}</a>
+    {%- endif %}
+  </div>
+</div>
+{%- endif %}

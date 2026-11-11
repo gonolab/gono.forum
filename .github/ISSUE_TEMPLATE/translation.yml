@@ -1,0 +1,22 @@
+name: Translation
+description: Start or coordinate a translation, or report a wrong one.
+labels: ["translation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        How translations work is described in docs/translating.md. You can also send a pull request directly.
+  - type: input
+    id: language
+    attributes:
+      label: Language
+      description: The BCP 47 tag, for example `de`, `pt-BR`, `zh-TW`.
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: What you plan to translate, or which message is wrong (its key, or the page where it appears) and what it should say.
+    validations:
+      required: true

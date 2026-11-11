@@ -1,0 +1,6 @@
+{% extends "layout/my.html" %}
+{% block panel %}<section class="pane private-collection" hx-history="false">
+<p>{{ p.t.social_collection_lead(total, page) }}</p>
+{% if kind == "block" %}<p>{{ p.t.social_block_note() }}</p>{% endif %}
+<ul class="rows">{% for row in rows %}<li class="rows__item"><div class="row-body"><div class="row-headline">{% if row.item.available && !row.item.href.is_empty() %}<a class="row-title" href="{{ crate::site::href(row.item.href) }}">{{ row.item.title }}</a>{% else %}<span class="row-title row-title--gone">{{ row.item.title }}</span>{% endif %}</div></div>{% if row.control.can_change || !row.control.notice.is_empty() %}<div class="row-actions">{% let control = row.control %}{% include "social/control.html" %}</div>{% endif %}</li>{% else %}<li class="empty">{{ p.t.social_collection_empty() }}</li>{% endfor %}</ul>
+<nav class="form-actions" aria-label="{{ p.t.common_pagination() }}">{% if !previous.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(previous) }}">{{ p.t.common_previous_page() }}</a>{% endif %}{% if !next.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(next) }}">{{ p.t.common_next_page() }}</a>{% endif %}</nav></section>{% endblock %}
