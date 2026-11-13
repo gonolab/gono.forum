@@ -48,6 +48,12 @@ jobs:
           crate=$(sed -n 's/^version = "\(.*\)"$/\1/p' apps/web/Cargo.toml | head -n 1)
           [ "${GITHUB_REF_NAME#v}" = "$crate" ] || { echo "tag $GITHUB_REF_NAME does not match crate version $crate"; exit 1; }
 
+      # The title and text come from the version's section in CHANGELOG.md; without one nothing is built or published.
+      - name: Release notes from CHANGELOG.md
+        run: |
+          scripts/release-notes.sh title "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/release-title.txt"
+          scripts/release-notes.sh notes "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/release-notes.md"
+
       - name: Build packages
         run: scripts/package-release.sh --version "${GITHUB_REF_NAME#v}"
 
@@ -58,5 +64,6 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           flags=""
           case "$version" in *-*) flags="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" $flags --title "Gono Forum $version" --generate-notes \
+          gh release create "$GITHUB_REF_NAME" $flags \
+            --title "$(cat "$RUNNER_TEMP/release-title.txt")" --notes-file "$RUNNER_TEMP/release-notes.md" \
             dist/"$version"/*.tar.gz dist/"$version"/forum.install.sh dist/"$version"/checksums.txt

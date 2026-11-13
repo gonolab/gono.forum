@@ -230,6 +230,10 @@ detail is in [releasing.md](releasing.md).
 migrated the database and is then rolled back, the old version may refuse to start on the newer schema: restore the
 database from your backup. Back up before every upgrade.
 
+**Upgrades are not guaranteed during the alpha.** At the first release candidate the database migrations will be
+folded into a new baseline, and a site installed from a 0.1.x release may not upgrade past that point and would have
+to be set up again (README, "Status").
+
 Several processes or machines: upgrade each one; a one-click upgrade only replaces the instance it runs in.
 
 ## Several instances on one machine

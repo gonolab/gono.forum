@@ -104,7 +104,9 @@ see [api.md](api.md).
 - **Schema.** The schema starts from one baseline, `0001_baseline.sql`. Later changes are appended as `0002_…`,
   `0003_…`, each a pair of files with the same name in `db/migrations/mysql/` and `db/migrations/sqlite/`, registered
   in `db/migrations.rs`; a unit test checks the two directories against the registry, and `tests/sqlite_schema.rs`
-  compares the resulting schemas table by table. SQLx checksums every migration, so a released one is never edited.
+  compares the resulting schemas table by table. SQLx checksums every migration, so a released one is never edited;
+  the one exception is planned for the first release candidate, which folds the 0.1.x alpha migrations into a new
+  baseline (sites installed from an alpha are not guaranteed to upgrade past it).
   Tables are prefixed `gonof_`. Members, boards, threads and posts keep short, stable column names (`uid`, `fid`,
   `tid`, `pid`, `first`, `position`). The opening post is the thread's first post; a reply's `root_pid` points at the
   top-level reply it belongs to and `reply_to_pid` at the post it answers, with `root_position` and `sub_position`

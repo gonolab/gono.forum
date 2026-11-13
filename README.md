@@ -31,9 +31,15 @@ Website: <https://www.gono.forum>
 
 ## Status
 
-Gono Forum is at 0.1.x, an early release: configuration and behavior can still change between releases. Upgrades
-run database migrations automatically and do not take a backup first: back up the database and the instance
-directory before every upgrade.
+Gono Forum 0.1.x is an early alpha: try it out, but expect configuration and behavior to change between releases.
+
+Upgrades are not guaranteed during the alpha. At the first release candidate the database migrations will be folded
+into a new baseline, and a site installed from a 0.1.x release may not upgrade past that point and would have to be
+set up again. Upgrades run database migrations automatically and do not take a backup first: back up the database
+and the instance directory before every upgrade.
+
+What changed in each release is in [CHANGELOG.md](CHANGELOG.md). Please report problems in
+[GitHub Issues](https://github.com/gonolab/gono.forum/issues).
 
 ## Install
 
@@ -155,6 +161,7 @@ binary. Missing messages fall back to English, so a partial translation can be m
 - [docs/translating.md](docs/translating.md): translating the interface and adding interface text.
 - [docs/api.md](docs/api.md): the member API.
 - [docs/releasing.md](docs/releasing.md): building and publishing releases.
+- [CHANGELOG.md](CHANGELOG.md): what changed in each release.
 
 ## Contributing and security
 

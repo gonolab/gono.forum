@@ -49,7 +49,9 @@ is enough for most work; use MySQL when you touch SQL that behaves differently t
   [docs/architecture.md](docs/architecture.md)).
 - **Schema changes need an issue first.** A change is a new migration appended after the existing ones, with one file
   in `db/migrations/mysql/` and one with the same name in `db/migrations/sqlite/`; `tests/sqlite_schema.rs` checks
-  that both produce the same schema. Released migrations are never edited.
+  that both produce the same schema. During the 0.1.x alpha, migrations are appended in the same way and folded into
+  a new baseline once, at the first release candidate (alpha sites are not guaranteed to upgrade past it; see
+  "Status" in the [README](README.md)). From then on, released migrations are never edited.
 - Before changing thread lists, thread pages or the columns and counters they copy, read
   [docs/queries.md](docs/queries.md); for settings reads and writes, [docs/settings-and-caching.md](docs/settings-and-caching.md).
 
