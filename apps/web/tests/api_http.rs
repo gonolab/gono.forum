@@ -944,9 +944,11 @@ async fn ended_activities_still_replay_their_publication() {
     .await
     .unwrap();
     let (_, secret) = f.key(MEMBER).await;
+    // The deadline is taken right before the first request, with a few seconds to spare, so that a slow runner still
+    // publishes before it passes; the setup above can take longer than that on SQLite in CI.
+    let deadline = identity::now() + 5;
     let bounty = format!(
-        r#"{{"forum":"daily","title":"Short bounty","body":"Quick question","category":1,"budget":10,"deadline":{}}}"#,
-        now + 2
+        r#"{{"forum":"daily","title":"Short bounty","body":"Quick question","category":1,"budget":10,"deadline":{deadline}}}"#
     );
     let key = [("idempotency-key", "short-bounty")];
     let (status, _, created) = f
@@ -959,7 +961,8 @@ async fn ended_activities_still_replay_their_publication() {
         )
         .await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    let wait = (deadline + 1 - identity::now()).max(0) as u64;
+    tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
 
     let (status, _, replayed) = f
         .api(
