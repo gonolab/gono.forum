@@ -82,6 +82,12 @@ reverse proxy (or an SSH tunnel to the listen port) and enter the token. Then:
 
    No global privileges such as SUPER are needed. A database that already holds other tables, or another Gono Forum
    site, is refused.
+
+   The connection uses TLS whenever the server offers it. The client's TLS library (rustls) only accepts ECDHE key
+   exchange, which some MySQL 5.7 builds do not offer; the official `mysql:5.7` Docker image is one of them. With
+   such a server the connection fails with `HandshakeFailure`. Either give the server a TLS setup that offers ECDHE
+   (a build against a current OpenSSL does), or, when the database is on the same machine or a private network, add
+   `?ssl-mode=disabled` to the connection string.
 2. **Redis** (optional): the URL and a key prefix. Leave it off for a single process (see "Redis").
 3. **Forum address** (optional): the full public address, including a path if the forum lives under one
    (`https://example.com/forum`). Left empty, links follow the host of each request. It can be changed later in the

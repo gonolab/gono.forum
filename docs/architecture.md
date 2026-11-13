@@ -249,6 +249,7 @@ Scripts are small, framework-free and optional: htmx plus a few enhancements and
 - `tests/install/simulate.sh` runs `forum.install.sh` and its upgrade failure paths in a temporary directory, with
   fakes for systemd and the system commands (see `CONTRIBUTING.md`).
 - `.github/workflows/ci.yml` runs formatting, Clippy and the Rust suite on SQLite and on MySQL 5.7.44 and 8.4 for
-  pull requests and pushes to `main`; the release workflow calls it before building packages.
+  pull requests and pushes to `main`; the release workflow calls it before building packages. The 5.7 job connects
+  without TLS, because the official 5.7 image offers no key exchange rustls accepts (see install.md, "Setup wizard").
 
 Installation and operation are covered in [install.md](install.md).

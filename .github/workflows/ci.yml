@@ -99,10 +99,14 @@ jobs:
       matrix:
         include:
           # 5.7.44 is the oldest supported version (docs/install.md); 8.4 is the current long-term release.
+          # The 5.7 image offers TLS without ECDHE key exchange, which rustls does not accept, so its connection goes
+          # without TLS (docs/install.md, "Setup wizard").
           - mysql: "5.7.44"
             threads: 2
+            url-options: "?ssl-mode=disabled"
           - mysql: "8.4"
             threads: 4
+            url-options: ""
     services:
       mysql:
         image: mysql:${{ matrix.mysql }}
@@ -125,7 +129,7 @@ jobs:
           --health-timeout 5s
           --health-retries 30
     env:
-      GONOF_TEST_MYSQL_URL: mysql://root@127.0.0.1:3306/mysql
+      GONOF_TEST_MYSQL_URL: mysql://root@127.0.0.1:3306/mysql${{ matrix.url-options }}
       GONOF_TEST_REDIS_URL: redis://127.0.0.1:6379/0
     steps:
       - name: Server character set and collation
