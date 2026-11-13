@@ -248,8 +248,8 @@ Scripts are small, framework-free and optional: htmx plus a few enhancements and
 - `tests/e2e/` starts throwaway local sites and checks pages in a browser (see `CONTRIBUTING.md`).
 - `tests/install/simulate.sh` runs `forum.install.sh` and its upgrade failure paths in a temporary directory, with
   fakes for systemd and the system commands (see `CONTRIBUTING.md`).
-- `.github/workflows/ci.yml` runs formatting, Clippy and the Rust suite on SQLite and on MySQL 5.7.44 and 8.4 for
-  pull requests and pushes to `main`; the release workflow calls it before building packages. The 5.7 job connects
-  without TLS, because the official 5.7 image offers no key exchange rustls accepts (see install.md, "Setup wizard").
+- `.github/workflows/ci.yml` runs formatting and Clippy for pull requests and pushes to `main`; the release workflow
+  calls it before building packages. The Rust suite and the browser checks run on a developer machine, not in CI
+  (see `CONTRIBUTING.md`, "Tests").
 
 Installation and operation are covered in [install.md](install.md).

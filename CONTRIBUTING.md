@@ -77,11 +77,11 @@ single test binary runs with `--test <name>`, for example `--test i18n_leaks_htt
 mechanism only starts with `gono_forum_web::mysql_only!()`, which returns early on SQLite; anything else must pass on
 both backends.
 
-Continuous integration (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`:
-`cargo fmt --all --check`, `cargo clippy --locked --all-targets -- -D warnings`, and the Rust suite on SQLite and on
-MySQL 5.7.44 and 8.4, each with a Redis 7. Release tags are only published after the same checks pass (see
-[docs/releasing.md](docs/releasing.md)). The browser checks below are not part of it yet; run them yourself when you
-change pages or styles.
+Continuous integration (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`, and only
+checks `cargo fmt --all --check` and `cargo clippy --locked --all-targets -- -D warnings`. The Rust suite is not run
+there: run it yourself, on SQLite, and on MySQL 5.7.44 and 8.4 when you change SQL. Before a release all three run on
+the commit to be tagged (see [docs/releasing.md](docs/releasing.md)). The browser checks below are not part of CI
+either; run them yourself when you change pages or styles.
 
 ### Browser checks
 

@@ -65,14 +65,15 @@ package, that `gono-forum-web --version` reports the expected version. Last it w
 ## Publishing a release
 
 1. Set `version` in `apps/web/Cargo.toml` and let Cargo update `Cargo.lock`; packages are built with `--locked`.
-2. Commit, tag `v<version>` and push the tag.
+2. Commit, then run the Rust suite on that commit on SQLite, MySQL 5.7.44 and MySQL 8.4 (commands in the README's
+   "Tests"; 5.7 with `--test-threads=2`). CI does not run it, so this is the only test run a release gets.
+3. Tag `v<version>` and push the tag.
 
 `.github/workflows/release.yml` runs on every pushed `v*` tag. It first runs the checks in `.github/workflows/ci.yml`
-on the tagged commit (formatting, Clippy, and the Rust suite on SQLite and on MySQL 5.7.44 and 8.4); if any fails,
-nothing is built or published. Then it installs Node.js 22, the two musl targets, zig, cargo-zigbuild and
-cargo-about 0.9.3, fails unless the tag without its `v` equals the crate version, runs
-`scripts/package-release.sh --version <version>`, and creates the GitHub release with generated notes and the four
-files. A version with a `-` (`0.2.0-rc.1`) is published as a pre-release.
+on the tagged commit (formatting and Clippy); if either fails, nothing is built or published. Then it installs
+Node.js 22, the two musl targets, zig, cargo-zigbuild and cargo-about 0.9.3, fails unless the tag without its `v`
+equals the crate version, runs `scripts/package-release.sh --version <version>`, and creates the GitHub release with
+generated notes and the four files. A version with a `-` (`0.2.0-rc.1`) is published as a pre-release.
 
 GitHub's "latest" release skips pre-releases, so the update check and `forum.install.sh` without `--version` never offer
 one; `forum.install.sh install|upgrade --version 0.2.0-rc.1` installs it explicitly.
