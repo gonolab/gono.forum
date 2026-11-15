@@ -800,10 +800,10 @@ fn record<'a>(first_post: &mut HashMap<&'a str, i64>, author: &'a str, time: i64
     *entry = (*entry).min(time);
 }
 
-/// Writes the setup wizard's sample content (`content::sample`) as a dataset in `dir`, which must not exist yet or be
-/// empty. Threads are grouped by board, oldest first; keys are the board slug and a number. Nothing in the files
-/// depends on when this runs. Returns the number of threads written.
-pub fn write_sample(dir: &Path) -> Result<usize> {
+/// Writes the setup wizard's sample content (`content::sample`) in `lang`, one of `sample::languages()`, as a dataset
+/// in `dir`, which must not exist yet or be empty. Threads are grouped by board, oldest first; keys are the board slug
+/// and a number. Nothing in the files depends on when this runs. Returns the number of threads written.
+pub fn write_sample(dir: &Path, lang: crate::i18n::Lang) -> Result<usize> {
     if dir.exists() {
         ensure!(
             std::fs::read_dir(dir)
@@ -814,14 +814,15 @@ pub fn write_sample(dir: &Path) -> Result<usize> {
             dir.display()
         );
     }
+    // Any fixed moment will do: the dataset format has no times. Planned before anything is written, so a language
+    // without a sample leaves no directory behind.
+    let plan = super::sample::plan(2_000_000_000, lang)?;
     std::fs::create_dir_all(dir.join(THREADS_DIR))
         .with_context(|| format!("cannot create {}", dir.display()))?;
-    // Any fixed moment will do: the dataset format has no times.
-    let plan = super::sample::plan(2_000_000_000)?;
     let manifest = Manifest {
         format: FORMAT.into(),
         version: VERSION,
-        language: "en".into(),
+        language: lang.tag().into(),
     };
     write_file(
         dir,
@@ -1215,60 +1216,76 @@ mod tests {
         }
     }
 
+    /// `examples/content/<tag>/` is the sample of each language that has one, exactly as `export-sample` writes it,
+    /// and nothing else.
     #[test]
-    fn the_example_is_the_wizard_sample_and_passes_the_checks() {
-        let scratch = Scratch::new();
-        assert_eq!(
-            write_sample(&scratch.0).unwrap(),
-            super::super::sample::THREADS
-        );
-        let mut names = Vec::new();
-        for name in [
-            MANIFEST_FILE,
-            BOARDS_FILE,
-            USERS_FILE,
-            "threads/threads-001.jsonl",
-        ] {
-            let fresh = std::fs::read_to_string(scratch.0.join(name)).unwrap();
-            let committed = std::fs::read_to_string(example().join(name)).unwrap_or_default();
-            assert!(
-                fresh == committed,
-                "examples/content/{name} is out of date with sample.json; run gono-forum-cli export-sample into an empty directory and copy the files over"
+    fn the_examples_are_the_wizard_samples_and_pass_the_checks() {
+        let mut expected = Vec::new();
+        for lang in super::super::sample::languages() {
+            let scratch = Scratch::new();
+            assert_eq!(
+                write_sample(&scratch.0, lang).unwrap(),
+                super::super::sample::THREADS
             );
-            names.push(name);
+            let example = example().join(lang.tag());
+            for name in [
+                MANIFEST_FILE,
+                BOARDS_FILE,
+                USERS_FILE,
+                "threads/threads-001.jsonl",
+            ] {
+                let fresh = std::fs::read_to_string(scratch.0.join(name)).unwrap();
+                let committed = std::fs::read_to_string(example.join(name)).unwrap_or_default();
+                assert!(
+                    fresh == committed,
+                    "examples/content/{lang}/{name} is out of date with locales/{lang}/sample.json; run gono-forum-cli export-sample --language={lang} into an empty directory and copy the files over"
+                );
+                expected.push(format!("{lang}/{name}"));
+            }
+            assert!(
+                fresh_manifest_names(&scratch.0, lang),
+                "the manifest names the language"
+            );
+
+            let checked = check(&example);
+            assert!(
+                checked.report.errors.is_empty() && checked.report.warnings.is_empty(),
+                "{lang}: {}",
+                checked.report.render(50)
+            );
+            let report = &checked.report;
+            assert_eq!(
+                (
+                    report.boards,
+                    report.members,
+                    report.threads,
+                    report.replies
+                ),
+                (
+                    super::super::sample::FORUMS,
+                    super::super::sample::MEMBERS,
+                    super::super::sample::THREADS,
+                    super::super::sample::REPLIES
+                ),
+                "{lang}"
+            );
+            // Writing again into a directory that now has files is refused.
+            assert!(write_sample(&scratch.0, lang).is_err());
         }
         let mut committed: Vec<String> = walk(&example());
         committed.sort();
-        let mut expected: Vec<String> = names.iter().map(|name| (*name).to_owned()).collect();
         expected.sort();
         assert_eq!(
             committed, expected,
-            "examples/content holds only the exported files"
+            "examples/content holds only the exported files, one directory per language with a sample"
         );
+    }
 
-        let checked = check(&example());
-        assert!(
-            checked.report.errors.is_empty() && checked.report.warnings.is_empty(),
-            "{}",
-            checked.report.render(50)
-        );
-        let report = &checked.report;
-        assert_eq!(
-            (
-                report.boards,
-                report.members,
-                report.threads,
-                report.replies
-            ),
-            (
-                super::super::sample::FORUMS,
-                super::super::sample::MEMBERS,
-                super::super::sample::THREADS,
-                super::super::sample::REPLIES
-            )
-        );
-        // Writing again into a directory that now has files is refused.
-        assert!(write_sample(&scratch.0).is_err());
+    fn fresh_manifest_names(dir: &Path, lang: crate::i18n::Lang) -> bool {
+        let manifest: Manifest =
+            serde_json::from_str(&std::fs::read_to_string(dir.join(MANIFEST_FILE)).unwrap())
+                .unwrap();
+        manifest.language == lang.tag()
     }
 
     fn walk(dir: &Path) -> Vec<String> {

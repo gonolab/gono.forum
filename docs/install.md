@@ -94,8 +94,10 @@ reverse proxy (or an SSH tunnel to the listen port) and enter the token. Then:
    admin area.
 4. **Site time zone**, used for daily limits, check-ins and weekly statistics.
 5. **Administrator**: username, optional email (counted as verified) and password.
-6. **Sample content** (optional, off by default): 10 members, 5 boards, 100 threads and 1,000 replies, all in English
-   whatever the site language, dated over the two months before the install. It shows what lists, threads and nested
+6. **Sample content** (optional, off by default): 10 members, 5 boards, 100 threads and 1,000 replies, dated over the
+   two months before the install, in the language you pick below the box: English or Simplified Chinese. Both have
+   the same threads, authors and nesting; only the words differ. The choice only affects the sample: the interface
+   language is set afterwards in the admin area (`/manage/languages`). The sample shows what lists, threads and nested
    replies look like before real members arrive. The sample members have no password or email, so nobody can sign in
    as them. It needs a database without boards, threads or posts (the wizard says so otherwise); leave it off for a
    site that goes straight into use. `gono-forum-cli seed-sample` adds the same content later (see "Command-line tool");
@@ -280,8 +282,8 @@ Without arguments it lists its commands. The ones a site operator is most likely
 | `reset-two-factor <uid> --reason=<text>` | Turn off a member's two-step verification after checking their identity; signs them out everywhere and notifies them. |
 | `rekey-two-factor` | Re-encrypt authenticator secrets and redemption codes after rotating the two-factor key. |
 | `migrate` | Run migrations (also creates a new SQLite file). The service does this by itself at start. |
-| `seed-sample` | Add the setup wizard's optional sample content (10 members, 5 boards, 100 threads, 1,000 replies, in English) to a site that has no boards, threads or posts yet. |
-| `export-sample <dir>`, `check-content <dir>`, `import-content <dir>` | Write the sample as a content dataset to start from, check a dataset, and import one into a site without boards, threads or posts: see [content-import.md](content-import.md). |
+| `seed-sample [--language=<tag>]` | Add the setup wizard's optional sample content (10 members, 5 boards, 100 threads, 1,000 replies) to a site that has no boards, threads or posts yet; in English unless `--language` names another language with a sample (`--language=zh-CN`). |
+| `export-sample <dir> [--language=<tag>]`, `check-content <dir>`, `import-content <dir>` | Write the sample as a content dataset to start from, check a dataset, and import one into a site without boards, threads or posts: see [content-import.md](content-import.md). |
 
 ## Two-factor key rotation
 

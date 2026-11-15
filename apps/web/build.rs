@@ -3,8 +3,8 @@
 //! reading the directory at run time.
 //!
 //! Always compiles the translations under `locales/` (docs/architecture.md, "Languages"): generates
-//! `$OUT_DIR/locales.rs` with every language's files and one typed method per base (en) message, so a wrong key or
-//! argument count fails to compile.
+//! `$OUT_DIR/locales.rs` with every language's files, the languages' sample content and one typed method per base
+//! (en) message, so a wrong key or argument count fails to compile.
 #[path = "src/i18n/syntax.rs"]
 mod syntax;
 
@@ -58,6 +58,9 @@ fn main() {
 
 /// The base language: every key the code uses exists in it, and other languages fall back to it.
 const BASE: &str = "en";
+
+/// A language's sample content, next to its translation files.
+const SAMPLE_FILE: &str = "sample.json";
 
 /// `locales/<tag>/*.ftl`: one directory per language, the base first, then the others by tag.
 fn languages(root: &Path) -> Vec<(String, Vec<(String, PathBuf)>)> {
@@ -123,6 +126,27 @@ fn locales(root: &Path) -> String {
             .expect("writing to a String cannot fail");
         }
         code.push_str("]),\n");
+    }
+    code.push_str("];\n");
+    // The setup wizard's sample content (docs/translating.md, "Sample content"): `locales/<tag>/sample.json`, the
+    // base's complete and every other one a translation of it. Languages without the file offer no sample.
+    code.push_str("pub(crate) static SAMPLES: &[(&str, &str)] = &[\n");
+    for (tag, _) in &languages {
+        let path = root.join(tag).join(SAMPLE_FILE);
+        if path.is_file() {
+            println!("cargo:rerun-if-changed={}", path.display());
+            writeln!(
+                code,
+                "    ({tag:?}, include_str!({:?})),",
+                path.display().to_string()
+            )
+            .expect("writing to a String cannot fail");
+        } else {
+            assert!(
+                tag != BASE,
+                "locales/{BASE}/{SAMPLE_FILE} is missing: every translated sample is checked against it"
+            );
+        }
     }
     code.push_str("];\n");
     let mut methods: Vec<Method> = Vec::new();

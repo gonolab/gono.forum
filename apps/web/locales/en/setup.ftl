@@ -92,7 +92,12 @@ setup-error-time-zone = Choose a valid site time zone
 setup-sample-heading = Sample content (optional)
 setup-sample = Fill the forum with sample content
 # $members, $forums, $threads and $replies are the numbers of sample members, forums, threads and replies.
-setup-sample-hint = Adds { $members } members, { $forums } forums, { $threads } threads and { $replies } replies, all in English, so you can see how the forum looks before real members arrive. Nobody can sign in as the sample members. Leave it off for a forum that goes straight into use.
+setup-sample-hint = Adds { $members } members, { $forums } forums, { $threads } threads and { $replies } replies, so you can see how the forum looks before real members arrive. Nobody can sign in as the sample members. Leave it off for a forum that goes straight into use.
+# The dropdown of the languages the sample content is available in; each option is a language's own name.
+setup-sample-language = Language of the sample content
+setup-sample-language-hint = It only changes the sample posts, names and forums. The forum's interface language is set after setup, in the admin area under Languages.
+# A submitted sample language that is not in the dropdown (a tampered or outdated form).
+setup-error-sample-language = The sample content is not available in that language. Choose one from the list.
 # The setup-sample checkbox was ticked for a database that already has content.
 setup-error-sample-content = This database already has forums or posts, so the sample content cannot be added. Untick "Fill the forum with sample content" to continue.
 setup-config-encryption-key-reused = [common] encryption_key must differ from the identity.cookie and identity.two_factor keys

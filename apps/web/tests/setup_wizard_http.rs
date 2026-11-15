@@ -10,6 +10,7 @@ use axum::{
 };
 use gono_forum_web::{
     config::Config,
+    i18n::Lang,
     identity::Identity,
     setup::{App, Wizard},
     test_support::{TestFixture, detached_global},
@@ -438,6 +439,11 @@ async fn configure_stage_adds_the_sample_content_when_ticked() {
         body.contains("Adds 10 members, 5 forums, 100 threads and 1,000 replies"),
         "{body}"
     );
+    assert!(
+        body.contains("<select id=\"sample_language\" name=\"sample_language\"")
+            && body.contains("<option value=\"en\" selected lang=\"en\">English</option>"),
+        "the sample language is offered, the base language first: {body}"
+    );
     let mut fields = install_fields(&services, &app);
     fields.retain(|(key, _)| *key != "redis_enabled");
     fields.push(("sample_content", "1".into()));
@@ -520,6 +526,58 @@ async fn administrator_stage_refuses_sample_content_on_a_database_with_content()
         count(&services, "SELECT COUNT(*) FROM gonof_forum_thread").await,
         24,
         "the existing content is untouched"
+    );
+    services.cleanup().await.unwrap();
+}
+
+#[tokio::test]
+async fn administrator_stage_writes_the_sample_in_the_chosen_language() {
+    let services = TestFixture::migrated().await.unwrap();
+    let root = Root::new();
+    let identity = Identity::new(
+        services.db.clone(),
+        services.config.identity.clone(),
+        root.0.clone(),
+        detached_global(),
+    );
+    let app = Wizard::administrator(
+        root.0.clone(),
+        root.config(),
+        services.config.clone(),
+        identity.clone(),
+    )
+    .app()
+    .unwrap();
+    let mut fields = vec![
+        ("token", app.token.clone()),
+        ("username", "admin".to_owned()),
+        ("password", PASSWORD.to_owned()),
+        ("password_confirm", PASSWORD.to_owned()),
+        ("sample_content", "1".to_owned()),
+        ("sample_language", "xx".to_owned()),
+    ];
+    let (_, _, body) = post(&app.router, &fields).await;
+    assert!(
+        body.contains(Lang::EN.setup_error_sample_language()),
+        "a language without a sample is refused: {body}"
+    );
+    assert!(identity.needs_admin().await.unwrap(), "nothing was created");
+
+    let chosen = gono_forum_web::content::sample::languages()
+        .find(|lang| *lang != Lang::EN)
+        .expect("a language other than the base has a sample");
+    fields.last_mut().unwrap().1 = chosen.tag().to_owned();
+    let (_, _, body) = post(&app.router, &fields).await;
+    assert!(body.contains("Installation finished"), "{body}");
+    let subjects: Vec<String> =
+        gono_forum_web::db::query_scalar("SELECT subject FROM gonof_forum_thread")
+            .fetch_all(services.db.executor())
+            .await
+            .unwrap();
+    assert_eq!(subjects.len(), 100);
+    assert!(
+        subjects.iter().all(|subject| !subject.is_ascii()),
+        "the threads are in {chosen}, not in the plain-ASCII base: {subjects:?}"
     );
     services.cleanup().await.unwrap();
 }

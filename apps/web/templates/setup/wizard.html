@@ -104,7 +104,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 <h2>{{ t.setup_sample_heading() }}</h2>
 <label class="check"><input type="checkbox" name="sample_content" value="1"{% if sample %} checked{% endif %}> {{ t.setup_sample() }}</label>
 <p class="hint">{{ t.setup_sample_hint(crate::content::sample::MEMBERS, crate::content::sample::FORUMS, crate::content::sample::THREADS, crate::content::sample::REPLIES) }}</p>
-<button type="submit">{% if configure %}{{ t.setup_install() }}{% else %}{{ t.setup_create_admin() }}{% endif %}</button>
+{% let sample_languages = self.sample_languages() %}{% if sample_languages.len() > 1 %}<label for="sample_language">{{ t.setup_sample_language() }}</label>
+<select id="sample_language" name="sample_language" aria-describedby="sample_language_hint">{% for lang in sample_languages %}<option value="{{ lang.tag() }}"{% if lang.tag() == self.sample_tag() %} selected{% endif %} lang="{{ lang.tag() }}">{{ lang.name() }}</option>{% endfor %}</select>
+<p class="hint" id="sample_language_hint">{{ t.setup_sample_language_hint() }}</p>
+{% endif %}<button type="submit">{% if configure %}{{ t.setup_install() }}{% else %}{{ t.setup_create_admin() }}{% endif %}</button>
 </form>
 {% if browser_zone %}<script>{{ zone_script|safe }}</script>{% endif %}
 {% endif %}

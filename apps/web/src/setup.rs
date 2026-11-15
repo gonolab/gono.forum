@@ -316,6 +316,9 @@ struct SetupForm {
     /// Present when the optional sample content was ticked (`content::sample`).
     #[serde(default)]
     sample_content: Option<String>,
+    /// The tag of the language the sample content is written in; empty means the base language.
+    #[serde(default)]
+    sample_language: String,
 }
 
 #[derive(Template)]
@@ -353,6 +356,19 @@ impl Page<'_> {
         self.browser_zone = submitted.is_none();
         self.zones = crate::clock::zone_choices(self.offset);
         self
+    }
+
+    /// The languages the sample content can be written in, the base first.
+    fn sample_languages(&self) -> Vec<crate::i18n::Lang> {
+        crate::content::sample::languages().collect()
+    }
+
+    /// The tag of the sample language to preselect: what was submitted, otherwise the base language.
+    fn sample_tag(&self) -> &str {
+        match self.form.sample_language.trim() {
+            "" => crate::i18n::Lang::EN.tag(),
+            tag => tag,
+        }
     }
 }
 
@@ -592,6 +608,7 @@ fn admin_input(form: &SetupForm) -> std::result::Result<(), String> {
 async fn create_admin(identity: &Identity, form: &SetupForm) -> std::result::Result<(), String> {
     admin_input(form)?;
     time_zone(form)?;
+    let sample = sample_choice(form)?;
     let (db, global) = identity.storage();
     sample_fits(db, form).await?;
     let email = Some(form.email.trim()).filter(|email| !email.is_empty());
@@ -600,7 +617,7 @@ async fn create_admin(identity: &Identity, form: &SetupForm) -> std::result::Res
         .await
         .map_err(|error| error.to_string())?;
     save_time_zone(db, global, uid, form).await;
-    add_sample(db, form).await;
+    add_sample(db, sample).await;
     Ok(())
 }
 
@@ -616,17 +633,32 @@ async fn sample_fits(db: &Database, form: &SetupForm) -> std::result::Result<(),
     }
 }
 
-/// Adds the sample content when it was ticked, after the administrator exists. Like the time zone, a failure here no
-/// longer stops the setup: it is logged, the forum starts empty, and `gono-forum-cli seed-sample` can add the content
-/// later (the import is one transaction, so nothing half-written stays behind).
-async fn add_sample(db: &Database, form: &SetupForm) {
+/// The language of the ticked sample content: `None` when the box is not ticked, the base language when the form
+/// names none (a form rendered before the choice existed), otherwise a language that has a sample.
+fn sample_choice(form: &SetupForm) -> std::result::Result<Option<crate::i18n::Lang>, String> {
     if form.sample_content.is_none() {
-        return;
+        return Ok(None);
     }
-    if let Err(error) = crate::content::import_sample(db, crate::identity::now()).await {
+    match form.sample_language.trim() {
+        "" => Ok(Some(crate::i18n::Lang::EN)),
+        tag => crate::content::sample::language(tag)
+            .map(Some)
+            .ok_or_else(|| crate::i18n::current().setup_error_sample_language().into()),
+    }
+}
+
+/// Adds the sample content in the chosen language when it was ticked, after the administrator exists. Like the time
+/// zone, a failure here no longer stops the setup: it is logged, the forum starts empty, and `gono-forum-cli
+/// seed-sample` can add the content later (the import is one transaction, so nothing half-written stays behind).
+async fn add_sample(db: &Database, sample: Option<crate::i18n::Lang>) {
+    let Some(lang) = sample else {
+        return;
+    };
+    if let Err(error) = crate::content::import_sample(db, crate::identity::now(), lang).await {
         tracing::warn!(
             error = %format_args!("{error:#}"),
-            "setup wizard could not add the sample content; gono-forum-cli seed-sample adds it later"
+            language = lang.tag(),
+            "setup wizard could not add the sample content; gono-forum-cli seed-sample --language=<language> adds it later"
         );
     }
 }
@@ -680,6 +712,7 @@ async fn configure(
 ) -> std::result::Result<Option<String>, String> {
     admin_input(form)?;
     time_zone(form)?;
+    let sample = sample_choice(form)?;
     let database = DatabaseConfig {
         url: match form.backend.as_str() {
             "sqlite" => {
@@ -795,7 +828,7 @@ async fn configure(
         .await
         .map_err(|error| error.to_string())?;
     save_time_zone(&db, &detached, uid, form).await;
-    add_sample(&db, form).await;
+    add_sample(&db, sample).await;
     db.pool.close().await;
     // Left empty, the address an earlier interrupted attempt saved still holds.
     Ok(site_url.or(Some(settings.site.url).filter(|url| !url.is_empty())))
@@ -922,12 +955,23 @@ mod tests {
                 .render()
                 .unwrap()
             });
+            // The only other language allowed is each sample language's own name, in its dropdown option.
+            let mut rest = html.clone();
+            for lang in crate::content::sample::languages() {
+                rest = rest.replace(&format!("lang=\"{lang}\">{}</option>", lang.name()), "");
+            }
             assert!(
-                !html.chars().any(|c| ('\u{3000}'..='\u{9fff}').contains(&c)
+                !rest.chars().any(|c| ('\u{3000}'..='\u{9fff}').contains(&c)
                     || ('\u{ff00}'..='\u{ffef}').contains(&c)),
                 "{html}"
             );
             assert!(html.contains("<html lang=\"en\">"));
+            if authorized && !finished {
+                assert!(
+                    html.contains("<option value=\"en\" selected lang=\"en\">English</option>"),
+                    "the sample is in the base language unless another is chosen: {html}"
+                );
+            }
         }
     }
 

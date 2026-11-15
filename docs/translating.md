@@ -22,6 +22,7 @@ apps/web/locales/
     mail.ftl          built-in mail templates
     policy.ftl        built-in terms, privacy and rules pages
     manage.ftl …      one file per area of the site (31 files in all)
+    sample.json       the setup wizard's sample content (optional; see "Sample content")
   zh-CN/              Simplified Chinese, same file names
 ```
 
@@ -93,6 +94,54 @@ time-hours-ago = { $n } jam yang lalu
 | --- | --- |
 | `language-name` | The language's name in itself. Required for every language. |
 | `meta-number-grouping` | How numbers inside sentences are written: `auto` groups digits the way CLDR says the language does (`1,234`, `1.234`, `1 234`); `never` writes them without separators (`1234`). It is a setting, not text: keep one of the two words. |
+
+## Sample content
+
+The setup wizard can fill a new site with sample content (see "Setup wizard" in [install.md](install.md)), and
+`gono-forum-cli seed-sample --language=<tag>` and `export-sample` do the same from the command line. Its text is
+`sample.json` in the language's directory, next to the translation files. Translating it is optional: a language
+without the file offers no sample, and the wizard and the commands list only the languages that have one. The
+sample's language is chosen on its own; it does not change the site language.
+
+`en/sample.json` is complete: the members, the boards with their threads, and the pools that replies are drawn from.
+A translation keeps that structure and holds only text:
+
+```json
+{
+  "members": {
+    "nora": {"username": "…", "bio": "…"}
+  },
+  "forums": {
+    "general": {
+      "name": "…", "description": "…", "guidance": "…",
+      "threads": [{"title": "…", "body": "…"}],
+      "replies": ["…"]
+    }
+  },
+  "replies": ["…"],
+  "follow_ups": ["…"]
+}
+```
+
+- Members are keyed by their English username and boards by slug: every one must be there, and no others. Threads
+  and replies are matched by position, so each list has exactly as many entries as in English, in the same order.
+  Pins, features, authors, times and who answers whom come from English and are the same in every language.
+- Usernames may be translated. Write them the way they are stored: lowercase, without spaces, `@`, `/` or `\`, at
+  most 50 characters, all different. Board slugs stay as they are.
+- Translate freely rather than word for word, so the sample reads like people writing in your language, but keep
+  each title and body about the same subject and length. Avoid dates and years. Bodies use the forum's Markdown
+  (see "Writing" in [content-import.md](content-import.md)).
+- No text twice in one pool: a board's `replies` together with the shared `replies`, and the `follow_ups`. That keeps
+  a thread from showing the same reply twice.
+- Board names have at most 50 characters and differ from each other; bios have at most 500 characters.
+
+`cargo test -p gono-forum-web --lib content::sample` checks all of this. Then export the sample into the repository's
+examples, which a unit test keeps identical to it (remove an old copy first, since the command only writes into an
+empty directory):
+
+```bash
+cargo run --bin gono-forum-cli -- export-sample examples/content/<tag> --language=<tag>
+```
 
 ## Checking a translation
 
@@ -168,9 +217,10 @@ Testing:
   there.
 - The integration fixture `TestFixture::migrated` sets up each test database as an English site with sample brand
   words (`test_support::restore_sample_site`), and English is the language outside a request, so tests assert English
-  text. Apart from the translation files, the repository contains no Chinese: a test about another language sets
+  text. Apart from the files in `apps/web/locales/` (translations and sample content) and the examples exported from
+  them (`examples/content/<tag>/`), the repository contains no Chinese: a test about another language sets
   `settings.site.language` itself and takes the expected text from the generated `Lang` methods
-  (`Lang::parse("zh-CN")`), not from string literals.
+  (`Lang::parse("zh-CN")`) or from the sample files, not from string literals.
 
 ## Pull request checklist
 
@@ -180,6 +230,8 @@ Testing:
 - [ ] Every message uses the same variables as English, and plurals use your language's categories.
 - [ ] No `<` in any message; links and code use the `_html` variables.
 - [ ] `cargo test -p gono-forum-web --lib i18n` passes.
+- [ ] If you translated the sample content: `examples/content/<tag>/` is exported from it and
+  `cargo test -p gono-forum-web --lib content::` passes.
 - [ ] You looked at the main pages (home, a board, a thread, sign-in, registration, the admin area) with the language
   selected, and long words do not break the layout.
 - [ ] The pull request says which files are complete and who can review the language, if you know someone.

@@ -34,7 +34,7 @@ apps/web/
   templates/              Askama templates (compiled into the binary)
   frontend/styles/        stylesheet sources, built into static/css/ by npm run build
   static/                 scripts, fonts, images and the built stylesheets
-  locales/<language>/     Fluent translation files
+  locales/<language>/     Fluent translation files and the language's sample content
   tests/                  integration tests
 db/migrations/{mysql,sqlite}/  one baseline plus appended migrations, one file per backend
 config/                   default.toml (compiled in) and examples for local configuration
@@ -206,6 +206,11 @@ language is in [translating.md](translating.md).
   uses `SiteInfo::display_name`, `credit_word`, `index_word` and the like, and admin forms show the empty field with
   the default as placeholder. Messages take these words as ordinary variables (`{ $site }`, `{ $credit }`,
   `{ $index }`) that the caller passes (`p.credit()`, `p.index_word()`).
+- **Sample content.** The setup wizard's optional sample content and `gono-forum-cli seed-sample` /
+  `export-sample` read `locales/<tag>/sample.json`, compiled in by `build.rs` like the translations. The English
+  file is complete; another language's file is a translation of it, matched by member name, board slug and position,
+  so every language gets the same threads, authors, times and nesting (`content::sample`). A language without the
+  file offers no sample. The sample's language is chosen on its own and does not set the site language.
 - **Mail and policies.** Built-in mail templates and policy pages are messages (`mail.ftl`, `policy.ftl`). An
   administrator's own version is a row per kind and language in `gonof_common_localized_text` (primary key `kind`,
   `language`); a row means customized, and restoring the built-in text deletes it. The admin edit pages take

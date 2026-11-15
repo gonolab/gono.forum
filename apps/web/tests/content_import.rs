@@ -304,37 +304,41 @@ async fn a_dataset_is_imported_in_batches_with_consistent_copies() {
     f.cleanup().await.unwrap();
 }
 
+/// Each committed example (`examples/content/<tag>/`) imports like the wizard's sample in that language.
 #[tokio::test]
-async fn the_committed_example_imports_like_the_wizard_sample() {
-    let f = TestFixture::migrated().await.unwrap();
-    let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/content");
-    let checked = dataset::check(&example);
-    assert!(
-        checked.report.errors.is_empty(),
-        "{}",
-        checked.report.render(20)
-    );
-    content::import_dataset(
-        &f.db,
-        checked.dataset.as_ref().unwrap(),
-        gono_forum_web::identity::now(),
-        |_, _| {},
-    )
-    .await
-    .unwrap();
-    let sample = content::sample::THREADS;
-    assert_eq!(
-        count(&f, "SELECT COUNT(*) FROM gonof_forum_thread").await,
-        i64::try_from(sample).unwrap()
-    );
-    assert_eq!(
-        count(&f, "SELECT COUNT(*) FROM gonof_forum_post WHERE first = 0").await,
-        i64::try_from(content::sample::REPLIES).unwrap()
-    );
-    assert_eq!(
-        count(&f, "SELECT COUNT(*) FROM gonof_common_member").await,
-        i64::try_from(content::sample::MEMBERS).unwrap()
-    );
-    assert_consistent(&f).await;
-    f.cleanup().await.unwrap();
+async fn the_committed_examples_import_like_the_wizard_samples() {
+    for lang in content::sample::languages() {
+        let f = TestFixture::migrated().await.unwrap();
+        let example = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples/content")
+            .join(lang.tag());
+        let checked = dataset::check(&example);
+        assert!(
+            checked.report.errors.is_empty(),
+            "{lang}: {}",
+            checked.report.render(20)
+        );
+        content::import_dataset(
+            &f.db,
+            checked.dataset.as_ref().unwrap(),
+            gono_forum_web::identity::now(),
+            |_, _| {},
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            count(&f, "SELECT COUNT(*) FROM gonof_forum_thread").await,
+            i64::try_from(content::sample::THREADS).unwrap()
+        );
+        assert_eq!(
+            count(&f, "SELECT COUNT(*) FROM gonof_forum_post WHERE first = 0").await,
+            i64::try_from(content::sample::REPLIES).unwrap()
+        );
+        assert_eq!(
+            count(&f, "SELECT COUNT(*) FROM gonof_common_member").await,
+            i64::try_from(content::sample::MEMBERS).unwrap()
+        );
+        assert_consistent(&f).await;
+        f.cleanup().await.unwrap();
+    }
 }

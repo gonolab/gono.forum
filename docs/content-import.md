@@ -9,14 +9,17 @@ case; this is the way to bring your own.
 
 ```bash
 gono-forum-cli export-sample content          # the wizard's sample content as a dataset, to start from
+gono-forum-cli export-sample content --language=zh-CN   # the same in Simplified Chinese
 gono-forum-cli check-content content          # check a dataset; needs no database or configuration
 gono-forum-cli import-content content         # check, then import into the configured site
 gono-forum-cli import-content content --members-out=members.json
 ```
 
-- `export-sample` writes into a new or empty directory. The same files are in the repository at
-  `examples/content/`; a unit test keeps them identical to `apps/web/src/content/sample.json`. The sample's replies
-  are drawn from shared pools, so they show the format, not the writing standard below.
+- `export-sample` writes into a new or empty directory, in English unless `--language` names another language that
+  has a sample (see [translating.md](translating.md), "Sample content"); the manifest's `language` is that tag. The
+  same files are in the repository at `examples/content/<tag>/` (`en`, `zh-CN`); a unit test keeps them identical to
+  `apps/web/locales/<tag>/sample.json`. The sample's replies are drawn from shared pools, so they show the format, not
+  the writing standard below.
 - `check-content` reads every file and lists every problem with its file, line, thread key and reply id (the first
   200 errors and 200 warnings, then a count). It exits with an error when there is any error.
 - `import-content` runs the same check and imports nothing if it fails. The site must have no boards, threads or posts

@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use gono_forum_web::{config::Config, content, db::Database, instance_root};
+use gono_forum_web::{config::Config, content, db::Database, i18n::Lang, instance_root};
 
 #[cfg(target_env = "musl")]
 #[global_allocator]
@@ -8,9 +8,12 @@ static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 enum Command {
     Migrate,
     SeedDemo,
-    SeedSample,
+    SeedSample {
+        language: Lang,
+    },
     ExportSample {
         dir: std::path::PathBuf,
+        language: Lang,
     },
     CheckContent {
         dir: std::path::PathBuf,
@@ -65,16 +68,19 @@ async fn main() -> Result<()> {
     }
     if args.is_empty() || args == ["--help"] || args == ["-h"] {
         println!(
-            "Gono Forum database tool\n\n  gono-forum-cli migrate                       Run migrations; creates the SQLite database file if it does not exist (creates no forums: on a fresh install the administrator creates them at /manage/forums)\n  gono-forum-cli seed-demo                     Run migrations, create the fixture's six forums when the forum table is empty, and import the development fixture into an empty content database\n  gono-forum-cli seed-sample                   Add the optional sample content offered by the setup wizard (10 members, 5 forums, 100 threads and 1,000 replies, in English) to a site that has no forums, threads or posts yet\n  gono-forum-cli export-sample <dir>           Write the same sample content as a content dataset in a new directory, as a starting point for content of your own (docs/content-import.md)\n  gono-forum-cli check-content <dir>           Check a content dataset and list every problem with its file, line and thread key; needs no database or configuration\n  gono-forum-cli import-content <dir> [--members-out=<file>]  Check a content dataset, then import its boards, members, threads and replies into a site that has no forums, threads or posts yet; --members-out writes the new members' uids as a profile list for enable-api-keys and enable-interactions\n  gono-forum-cli import-profiles <path> --confirm-reset=<database>  Bulk-import accounts into the member table from a JSON profile list (empties the member table first; only for test environments that may be reset; the database name must match the currently connected database)\n  gono-forum-cli enable-api-keys <list> <output>  Issue API tokens in bulk for every uid in the profile list; the raw tokens are written to a newly created local output file (mode 0600, refused if it already exists; must not be committed to the repository)\n  gono-forum-cli enable-interactions <list>    Give accounts other than uid=1 that have no e-mail yet a placeholder e-mail and verified status, meeting the e-mail requirement of the like/favorite/reply endpoints\n  gono-forum-cli set-password <uid>            Set a uid's password to the plaintext read from standard input (not echoed, not left in the command-line arguments)\n  gono-forum-cli run-campaign-plan <admin-uid> <plan.json>  Following a plan, in bulk: grant credits / create bounty, red packet, lottery, poll and news campaigns / cast poll votes / accept bounty replies\n  gono-forum-cli settle-due <limit>            Settle due lotteries/bounties/red packets (lottery draws, etc.)\n  gono-forum-cli reset-two-factor <uid> --reason=<reason>  After verifying the member in person offline, turn off their two-factor authentication: delete the authenticator and recovery codes, sign out all devices, revoke API tokens and feed URLs, and send the member a security notice\n  gono-forum-cli rekey-two-factor              After rotating the [identity.two_factor] key, re-encrypt authenticator secrets and lottery redemption codes still encrypted with an old key under the current key; remove the old key only after both report 0 old-key items\n  gono-forum-cli set-site-url <forum-url>      Change the forum URL directly (may include a path, e.g. https://demo.com/bbs; \"\" leaves it empty); for recovery when the admin area is unreachable, and before the first start of a new sub-path install; validated like the admin area, without the second confirmation\n  gono-forum-cli purge-non-image-attachments [--confirm]  List ready non-image attachments (only images are allowed since 2026-11-08); only with --confirm are the post references removed and the attachments marked for cleanup; the objects are deleted by the running Web process, irreversibly\n\nConfiguration: GONOF_HOME sets the instance directory (release packages default to the directory holding this binary); GONOF_CONFIG selects the config file (default config/gono-forum.toml in release packages, config/development.toml in source builds); GONOF_DATABASE_URL overrides the database connection."
+            "Gono Forum database tool\n\n  gono-forum-cli migrate                       Run migrations; creates the SQLite database file if it does not exist (creates no forums: on a fresh install the administrator creates them at /manage/forums)\n  gono-forum-cli seed-demo                     Run migrations, create the fixture's six forums when the forum table is empty, and import the development fixture into an empty content database\n  gono-forum-cli seed-sample [--language=<tag>]  Add the optional sample content offered by the setup wizard (10 members, 5 forums, 100 threads and 1,000 replies; in English unless --language names another language that has a sample, such as zh-CN) to a site that has no forums, threads or posts yet\n  gono-forum-cli export-sample <dir> [--language=<tag>]  Write the same sample content as a content dataset in a new directory, as a starting point for content of your own (docs/content-import.md)\n  gono-forum-cli check-content <dir>           Check a content dataset and list every problem with its file, line and thread key; needs no database or configuration\n  gono-forum-cli import-content <dir> [--members-out=<file>]  Check a content dataset, then import its boards, members, threads and replies into a site that has no forums, threads or posts yet; --members-out writes the new members' uids as a profile list for enable-api-keys and enable-interactions\n  gono-forum-cli import-profiles <path> --confirm-reset=<database>  Bulk-import accounts into the member table from a JSON profile list (empties the member table first; only for test environments that may be reset; the database name must match the currently connected database)\n  gono-forum-cli enable-api-keys <list> <output>  Issue API tokens in bulk for every uid in the profile list; the raw tokens are written to a newly created local output file (mode 0600, refused if it already exists; must not be committed to the repository)\n  gono-forum-cli enable-interactions <list>    Give accounts other than uid=1 that have no e-mail yet a placeholder e-mail and verified status, meeting the e-mail requirement of the like/favorite/reply endpoints\n  gono-forum-cli set-password <uid>            Set a uid's password to the plaintext read from standard input (not echoed, not left in the command-line arguments)\n  gono-forum-cli run-campaign-plan <admin-uid> <plan.json>  Following a plan, in bulk: grant credits / create bounty, red packet, lottery, poll and news campaigns / cast poll votes / accept bounty replies\n  gono-forum-cli settle-due <limit>            Settle due lotteries/bounties/red packets (lottery draws, etc.)\n  gono-forum-cli reset-two-factor <uid> --reason=<reason>  After verifying the member in person offline, turn off their two-factor authentication: delete the authenticator and recovery codes, sign out all devices, revoke API tokens and feed URLs, and send the member a security notice\n  gono-forum-cli rekey-two-factor              After rotating the [identity.two_factor] key, re-encrypt authenticator secrets and lottery redemption codes still encrypted with an old key under the current key; remove the old key only after both report 0 old-key items\n  gono-forum-cli set-site-url <forum-url>      Change the forum URL directly (may include a path, e.g. https://demo.com/bbs; \"\" leaves it empty); for recovery when the admin area is unreachable, and before the first start of a new sub-path install; validated like the admin area, without the second confirmation\n  gono-forum-cli purge-non-image-attachments [--confirm]  List ready non-image attachments (only images are allowed since 2026-11-08); only with --confirm are the post references removed and the attachments marked for cleanup; the objects are deleted by the running Web process, irreversibly\n\nConfiguration: GONOF_HOME sets the instance directory (release packages default to the directory holding this binary); GONOF_CONFIG selects the config file (default config/gono-forum.toml in release packages, config/development.toml in source builds); GONOF_DATABASE_URL overrides the database connection."
         );
         return Ok(());
     }
     let command = match args[0].as_str() {
         "migrate" if args.len() == 1 => Command::Migrate,
         "seed-demo" if args.len() == 1 => Command::SeedDemo,
-        "seed-sample" if args.len() == 1 => Command::SeedSample,
-        "export-sample" if args.len() == 2 => Command::ExportSample {
+        "seed-sample" if args.len() <= 2 => Command::SeedSample {
+            language: sample_language("seed-sample", args.get(1))?,
+        },
+        "export-sample" if args.len() == 2 || args.len() == 3 => Command::ExportSample {
             dir: std::path::PathBuf::from(&args[1]),
+            language: sample_language("export-sample", args.get(2))?,
         },
         "check-content" if args.len() == 2 => Command::CheckContent {
             dir: std::path::PathBuf::from(&args[1]),
@@ -173,10 +179,10 @@ async fn main() -> Result<()> {
     gono_forum_web::install_crypto_provider();
     // These two work on files only: whoever prepares a dataset can run them without an installed forum.
     match &command {
-        Command::ExportSample { dir } => {
-            let threads = content::dataset::write_sample(dir)?;
+        Command::ExportSample { dir, language } => {
+            let threads = content::dataset::write_sample(dir, *language)?;
             println!(
-                "Wrote the sample content to {}: {} members, {} boards, {threads} threads and {} replies. Edit it or use it as a model, check it with gono-forum-cli check-content and import it with gono-forum-cli import-content.",
+                "Wrote the sample content ({language}) to {}: {} members, {} boards, {threads} threads and {} replies. Edit it or use it as a model, check it with gono-forum-cli check-content and import it with gono-forum-cli import-content.",
                 dir.display(),
                 content::sample::MEMBERS,
                 content::sample::FORUMS,
@@ -275,10 +281,10 @@ async fn main() -> Result<()> {
                 "Content imported. Restart the forum (or wait for its caches to expire) to see the new boards."
             );
         }
-        Command::SeedSample => {
-            content::import_sample(&db, gono_forum_web::identity::now()).await?;
+        Command::SeedSample { language } => {
+            content::import_sample(&db, gono_forum_web::identity::now(), language).await?;
             println!(
-                "Sample content added: {} members, {} forums, {} threads and {} replies. Restart the forum (or wait for its caches to expire) to see the new forums.",
+                "Sample content ({language}) added: {} members, {} forums, {} threads and {} replies. Restart the forum (or wait for its caches to expire) to see the new forums.",
                 content::sample::MEMBERS,
                 content::sample::FORUMS,
                 content::sample::THREADS,
@@ -491,6 +497,23 @@ async fn main() -> Result<()> {
     }
     db.pool.close().await;
     Ok(())
+}
+
+/// The language of `seed-sample` and `export-sample`: English unless the optional argument is `--language=<tag>`
+/// with a language that has a sample.
+fn sample_language(command: &str, option: Option<&String>) -> Result<Lang> {
+    let Some(option) = option else {
+        return Ok(Lang::EN);
+    };
+    let Some(tag) = option.strip_prefix("--language=") else {
+        bail!("{command} takes only --language=<tag> as its last argument");
+    };
+    content::sample::language(tag).ok_or_else(|| {
+        anyhow::anyhow!(
+            "there is no sample content in {tag:?}; it exists in {}",
+            content::sample::language_tags()
+        )
+    })
 }
 
 fn identity(

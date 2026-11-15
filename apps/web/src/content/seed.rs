@@ -334,11 +334,11 @@ fn member_ids(members: &[NewMember], written: &[ImportedMember]) -> HashMap<Stri
         .collect()
 }
 
-/// Adds the optional sample content (`content::sample`, docs/install.md, "Setup wizard"): its forums, members,
-/// threads and replies, dated during the two months before `now`, in one write transaction. Refused unless the site
-/// has no forums, threads or posts yet.
-pub async fn import_sample(db: &Database, now: i64) -> Result<()> {
-    let plan = super::sample::plan(now)?;
+/// Adds the optional sample content (`content::sample`, docs/install.md, "Setup wizard") in `lang`, one of
+/// `sample::languages()`: its forums, members, threads and replies, dated during the two months before `now`, in one
+/// write transaction. Refused unless the site has no forums, threads or posts yet.
+pub async fn import_sample(db: &Database, now: i64, lang: crate::i18n::Lang) -> Result<()> {
+    let plan = super::sample::plan(now, lang)?;
     let mut transaction = db.begin_write().await?;
     ensure_no_content(db, &mut transaction, "sample content").await?;
     insert_forums(db, &mut transaction, &plan.forums).await?;
