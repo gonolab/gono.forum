@@ -56,6 +56,7 @@ All interface icons are inline SVG drawn for this project. They are part of the 
 | `apps/web/templates/home/index.html`, `partials/cross_pins.html`, `topic/detail.html`, `partials/user_icon.html` | List metadata: child board arrow, member, replies |
 | `apps/web/templates/partials/favorite_icon.html`, `reaction_icon.html`, `downvote_icon.html`, `tip_icon.html` | Favorite, like, downvote, tip |
 | `apps/web/templates/partials/user_card.html`, `partials/my_card.html` | Member card shortcuts and menu |
+| `apps/web/templates/layout/base.html` | Lightning bolt before the footer performance line |
 | `apps/web/templates/partials/manage_icons.html` | Ten admin module icons, as `<symbol>` elements |
 | `apps/web/frontend/styles/composer.css` | Editor toolbar: 14 SVG masks as `data:` URIs for 13 tools (full screen has two states) |
 

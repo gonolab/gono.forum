@@ -1,4 +1,5 @@
-//! Per-request timing and query counts, for the footer's three items Processed in / MySQL (or SQLite) / Redis.
+//! Per-request timing and query counts, for the footer line `19.1 ms · MySQL 11 · Redis 23` (`SQLite` on SQLite
+//! sites; the Redis count only when Redis is enabled).
 //!
 //! This is separate from the SQL panel in [`crate::debug`]: that one records full statements and parameters and only
 //! collects when the debug panel is turned on in the admin area (`settings.debug.panel`); this one is just a timestamp

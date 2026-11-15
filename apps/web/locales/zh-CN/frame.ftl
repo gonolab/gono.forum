@@ -66,6 +66,7 @@ frame-footer-ranks = 排行榜
 frame-footer-credits = 积分说明
 frame-footer-verified = 认证会员
 frame-footer-links = 友情链接
+frame-footer-metrics = 服务器处理本页的耗时与发出的查询数
 
 frame-manage-modules = 管理模块
 frame-my-sidebar = 个人中心

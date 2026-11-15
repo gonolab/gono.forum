@@ -663,8 +663,8 @@ async fn assert_footer_metrics(db: &Database, cookie: &str) {
     let (_, _, body) = support::fetch(&plain, "/", false).await;
     assert!(body.contains(BRAND), "the footer must link to Gono Forum");
     assert!(
-        body.contains("Processed in "),
-        "the footer must give the processing time"
+        footer(&body).contains(" ms · "),
+        "the footer must give the processing time: {body}"
     );
     assert!(!body.contains("gonof-debug"));
     // The values come from this request: the home page must read the database at least once.
@@ -700,7 +700,7 @@ async fn assert_footer_metrics(db: &Database, cookie: &str) {
         "the home page reads the shared cache twice: {body}"
     );
 
-    // Debugging on but Redis disabled: no Redis section in the panel.
+    // Debugging on but Redis disabled: no Redis section in the panel and no Redis count in the footer.
     let mut config = support::config_for(db);
     config.redis.enabled = false;
     let app = router::build(config, &project_root(), db.clone());
@@ -708,24 +708,37 @@ async fn assert_footer_metrics(db: &Database, cookie: &str) {
     let without_redis = panel(&body);
     assert!(without_redis.contains("<h2>SQL records "));
     assert!(!without_redis.contains("<h2>Redis "));
-    assert_eq!(footer_number(&body, "Redis "), 0);
+    assert!(
+        footer_number(&body, &database) > 0,
+        "the footer still counts {database}without Redis: {body}"
+    );
+    let footer = footer(&body);
+    assert!(
+        !footer.contains("Redis"),
+        "the footer must leave out the Redis count without Redis: {footer}"
+    );
 }
 
-/// Extracts the numbers from `MySQL 14 queries` (`SQLite 14 queries` on SQLite sites) / `Redis 4 queries` in the footer.
-fn footer_number(body: &str, label: &str) -> usize {
-    let footer = body
-        .split_once(r#"<p class="colophon__legal">"#)
+/// The text of the footer's legal line.
+fn footer(body: &str) -> &str {
+    body.split_once(r#"<p class="colophon__legal">"#)
         .and_then(|(_, rest)| rest.split_once("</p>"))
         .map(|(footer, _)| footer)
-        .unwrap_or_else(|| panic!("the page has no footer: {body}"));
+        .unwrap_or_else(|| panic!("the page has no footer: {body}"))
+}
+
+/// Extracts the numbers from `MySQL 14` (`SQLite 14` on SQLite sites) / `Redis 4` in the footer line
+/// `19.1 ms · MySQL 14 · Redis 4`.
+fn footer_number(body: &str, label: &str) -> usize {
+    let footer = footer(body);
     let tail = footer
         .split_once(label)
         .unwrap_or_else(|| panic!("the footer has no {label}: {footer}"))
         .1;
-    tail.split_whitespace()
-        .next()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or_else(|| panic!("the footer {label} is not a number: {footer}"))
+    let digits: String = tail.chars().take_while(char::is_ascii_digit).collect();
+    digits
+        .parse()
+        .unwrap_or_else(|_| panic!("the footer {label} is not a number: {footer}"))
 }
 
 async fn assert_html_responses(db: &Database, cookie: &str) {

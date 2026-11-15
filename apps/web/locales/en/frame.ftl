@@ -80,6 +80,8 @@ frame-footer-ranks = Leaderboard
 frame-footer-credits = Points
 frame-footer-verified = Verified members
 frame-footer-links = Links
+# Tooltip of the footer performance line (Appearance › Display): time, then the SQL and Redis counts.
+frame-footer-metrics = Server time for this page and the queries it sent
 
 ## Layouts
 

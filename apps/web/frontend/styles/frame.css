@@ -946,6 +946,20 @@ html[data-theme="dark"] .theme-switch__dark {
   font-weight: 500;
 }
 
+/* The performance line after the brand (settings.display.footer_metrics): icon, time, SQL and Redis counts. It stays
+   plain inline text so it shares the brand's baseline; an inline-flex box would take its baseline from the icon. */
+.colophon__metrics {
+  margin-inline-start: 8px;
+  white-space: nowrap;
+}
+
+.colophon__icon {
+  inline-size: 13px;
+  block-size: 13px;
+  margin-inline-end: 4px;
+  vertical-align: -2px;
+}
+
 /* Author display rules above would otherwise override the hidden attribute (site.js removes it). */
 :is(.theme-switch, .drawer__close, .drawer__button)[hidden] {
   display: none;

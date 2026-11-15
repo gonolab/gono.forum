@@ -434,7 +434,7 @@ async fn settings_pages_render_save_and_take_effect() {
 
     // Footer metrics line and debug panel: the same app's next request after a save uses the new value.
     let (_, _, home) = f.get("/", &[]).await;
-    assert!(home.contains("Processed in "));
+    assert!(home.contains(r#"class="colophon__metrics""#));
     assert!(
         home.matches("data-thread-id=").count() > 10,
         "the fixture has more threads than the new page size"
@@ -451,7 +451,7 @@ async fn settings_pages_render_save_and_take_effect() {
     assert_eq!(status, StatusCode::SEE_OTHER);
     let (_, _, home) = f.get("/", &[]).await;
     assert!(
-        !home.contains("Processed in "),
+        !home.contains(r#"class="colophon__metrics""#),
         "an unsubmitted checkbox turns the footer metrics line off"
     );
     assert_eq!(

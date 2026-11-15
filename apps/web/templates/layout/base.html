@@ -57,7 +57,7 @@
 <body hx-boost="true" hx-ext="head-support" hx-history="false">
 {#- Page frame for every front-end page: skip link, masthead, site notices, main region and footer.
     Everything from <body> up to <main> is the frame header for tests/i18n_leaks_http.rs, so the notices stay above <main>.
-    The footer timing line must stay after the content block: processed_seconds() is read when the template reaches it. #}
+    The footer timing line must stay after the content block: processed_milliseconds() is read when the template reaches it. #}
 <a class="skip-link" href="#main">{{ p.t.frame_skip_to_content() }}</a>
 {% include "partials/header.html" %}
 {%- if !p.read_only_message.is_empty() %}
@@ -114,7 +114,7 @@
         <li><a href="{{ crate::site::base() }}/links">{{ p.t.frame_footer_links() }}</a></li>
       </ul>
     </nav>
-    <p class="colophon__legal">Powered by <a class="colophon__brand" href="https://www.gono.forum" target="_blank" rel="noopener noreferrer">Gono Forum</a>{% if p.frame.settings.display.footer_metrics %}, Processed in {{ p.processed_seconds() }} second(s), {{ p.database }} {{ p.sql_queries() }} queries , Redis {{ p.redis_queries() }} queries{% endif %}.</p>
+    <p class="colophon__legal">Built on <a class="colophon__brand" href="https://www.gono.forum" target="_blank" rel="noopener noreferrer">Gono Forum</a>{% if p.frame.settings.display.footer_metrics %} <span class="colophon__metrics" title="{{ p.t.frame_footer_metrics() }}"><svg class="colophon__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M13.5 2.75 4.75 13.25h6.5l-1 8 8.75-10.5h-6.5l1-8Z"></path></svg>{{ p.processed_milliseconds() }} ms · {{ p.database }} {{ p.sql_queries() }}{% if p.redis_enabled %} · Redis {{ p.redis_queries() }}{% endif %}</span>{% endif %}</p>
   </div>
 </footer>
 </body>

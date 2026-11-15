@@ -347,7 +347,7 @@ posting transaction, so they are exact across processes without Redis.
   and Redis command of the page with timings and `EXPLAIN`; its "In-process cache" section shows which blocks were
   hits, loaded or bypassed.
 - **Footer line** (Appearance › Display, `settings.display.footer_metrics`):
-  `Processed in … second(s), MySQL N queries , Redis N queries` (`SQLite` on SQLite sites), counting only what the
-  request itself sent.
+  a lightning icon, then `19.1 ms · MySQL 11 · Redis 23` (`SQLite` on SQLite sites): the server time and the queries
+  the request itself sent. Without Redis the Redis count is left out, as is the panel's Redis section.
 - To see every query, set `settings.cache.ttl_seconds` to 0; to count without Redis, also set `[redis] enabled =
   false`. Debug builds give accurate counts but inflated times; measure times with `--release`.

@@ -250,7 +250,7 @@ technology; the text beside it names the control, or an icon-only control gets a
 `title`).
 
 - An icon used in one place is written inline in its template (`partials/header.html`, `home/index.html`,
-  `partials/user_card.html`, `partials/my_card.html`). An icon used in several places is a partial:
+  `partials/user_card.html`, `partials/my_card.html`, `layout/base.html`). An icon used in several places is a partial:
   `partials/favorite_icon.html`, `reaction_icon.html`, `downvote_icon.html`, `tip_icon.html`, `user_icon.html`.
 - List metadata icons get the class `meta-glyph` (14px). Add `meta-glyph--mirror` to an icon that points along the
   reading direction.

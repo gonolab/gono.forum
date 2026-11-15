@@ -418,11 +418,14 @@ struct BrowseQuery {
 const SEARCH_MAX_BYTES: usize = 300;
 
 struct PageMeta<'a> {
-    /// The source of the three footer figures. Evaluated at the end of the template, so the time includes rendering
-    /// the whole body.
+    /// The source of the footer figures. Evaluated at the end of the template, so the time includes rendering the
+    /// whole body.
     metrics: Option<std::sync::Arc<crate::metrics::RequestMetrics>>,
     /// The backend name before the footer's SQL count: MySQL or SQLite.
     database: &'static str,
+    /// Without Redis (`[redis] enabled = false`) the footer leaves out the Redis count, as the debug panel leaves out
+    /// its Redis section: a site that never talks to Redis has nothing to count there.
+    redis_enabled: bool,
     frame: &'a frame::SiteFrame,
     /// This request's interface language: templates write `p.t.frame_more()` (docs/architecture.md, "Languages").
     t: crate::i18n::Lang,
@@ -806,6 +809,7 @@ fn meta<'a>(
     PageMeta {
         metrics: crate::metrics::current(),
         database: state.db.backend().label(),
+        redis_enabled: state.cache.enabled(),
         navigation,
         directory: NavigationLink {
             active: path == "/forums",
@@ -1038,13 +1042,13 @@ impl PageMeta<'_> {
     fn nav_more_until(&self) -> u16 {
         nav_fit::more_until(&self.navigation)
     }
-    /// Six decimals; shows 0 when there is no counting context.
-    fn processed_seconds(&self) -> String {
-        let seconds = self
+    /// Milliseconds with one decimal ("19.1"); shows 0.0 when there is no counting context.
+    fn processed_milliseconds(&self) -> String {
+        let milliseconds = self
             .metrics
             .as_ref()
-            .map_or(0.0, |metrics| metrics.elapsed().as_secs_f64());
-        format!("{seconds:.6}")
+            .map_or(0.0, |metrics| metrics.elapsed().as_secs_f64() * 1000.0);
+        format!("{milliseconds:.1}")
     }
 
     fn sql_queries(&self) -> usize {
