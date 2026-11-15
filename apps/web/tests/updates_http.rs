@@ -25,6 +25,10 @@ struct Fixture {
 
 impl Fixture {
     async fn new() -> Self {
+        Self::with_updater(updates::Updater::default()).await
+    }
+
+    async fn with_updater(updater: updates::Updater) -> Self {
         let mut f = TestFixture::migrated().await.unwrap();
         for (uid, name, role) in [(ADMIN, "update-admin", 1), (MEMBER, "update-member", 0)] {
             db::query("INSERT INTO gonof_common_member(uid,username,password,email,emailstatus,adminid,regdate) VALUES(?,?,'synthetic-hash',?,1,?,1)")
@@ -56,12 +60,13 @@ impl Fixture {
         )
         .unwrap();
         f.config.update.releases_url = format!("file://{}", source.display());
-        let app = gono_forum_web::router::build_with_global(
+        let app = gono_forum_web::router::build_with_updater(
             f.config.clone(),
             &f.root,
             f.db.clone(),
             f.cache.clone(),
             f.global.clone(),
+            updater,
         );
         Self {
             f,
@@ -160,5 +165,44 @@ async fn the_update_page_checks_a_release_source_and_explains_why_it_cannot_upgr
         .await;
     let (_, body) = fixture.send(&fixture.admin, "GET", "/manage/updates").await;
     assert!(body.contains(" failed: "), "{body}");
+    fixture.f.cleanup().await.unwrap();
+}
+
+#[tokio::test]
+async fn while_an_upgrade_runs_the_page_waits_for_the_new_version_and_forgets_the_started_notice_after()
+ {
+    let updater = updates::Updater::default();
+    let fixture = Fixture::with_updater(updater.clone()).await;
+    const WAIT: &str = "data-upgrade-wait";
+    const NOSCRIPT_REFRESH: &str =
+        r#"<noscript><meta http-equiv="refresh" content="3"></noscript>"#;
+    const STARTED: &str = "The upgrade has started.";
+
+    // Nothing runs: no refresh, no waiting, and an address left over from the last upgrade shows no "has started".
+    let (status, body) = fixture
+        .send(&fixture.admin, "GET", "/manage/updates?notice=started")
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!body.contains(STARTED), "{body}");
+    assert!(
+        !body.contains(WAIT) && !body.contains("http-equiv"),
+        "{body}"
+    );
+
+    // While it runs, the page marks itself for site.js, which reloads only once the forum answers; without JavaScript
+    // the meta refresh reloads it every 3 seconds as before.
+    updater.set_running("Downloading gono-forum_99.0.0_linux_amd64.tar.gz");
+    let (status, body) = fixture
+        .send(&fixture.admin, "GET", "/manage/updates?notice=started")
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains(STARTED), "{body}");
+    assert!(
+        body.contains("Downloading gono-forum_99.0.0_linux_amd64.tar.gz"),
+        "{body}"
+    );
+    assert!(body.contains(WAIT), "{body}");
+    assert!(body.contains(NOSCRIPT_REFRESH), "{body}");
+    assert_eq!(body.matches("http-equiv").count(), 1, "{body}");
     fixture.f.cleanup().await.unwrap();
 }

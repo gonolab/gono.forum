@@ -196,6 +196,11 @@ page explains why the button is missing when it cannot upgrade this way (source 
 started by systemd, program directory not writable, or an unfinished upgrade or rollback from the shell). A one-click upgrade replaces only the two binaries; `forum.install.sh upgrade` also
 updates `forum.install.sh` and the unit file.
 
+While systemd restarts the service the forum is unreachable for several seconds (the unit waits `RestartSec=3` before
+it starts the new version), and a reverse proxy answers 502 in that time. The update page waits through it and
+reloads once the forum answers again. Without JavaScript it simply reloads every 3 seconds and may stop on the
+proxy's error page; reload it by hand.
+
 **From the shell**:
 
 ```bash

@@ -252,6 +252,26 @@ pub fn build_with_global(
     cache: crate::cache::Cache,
     global: crate::cache::GlobalCache,
 ) -> Router {
+    build_with_updater(
+        config,
+        root,
+        db,
+        cache,
+        global,
+        crate::updates::Updater::default(),
+    )
+}
+/// For tests: [`build_with_global`] with an update state the test holds, so it can show the update page as it looks
+/// while an upgrade runs ([`crate::updates::Updater::set_running`]).
+#[doc(hidden)]
+pub fn build_with_updater(
+    config: Config,
+    root: &Path,
+    db: Database,
+    cache: crate::cache::Cache,
+    global: crate::cache::GlobalCache,
+    updater: crate::updates::Updater,
+) -> Router {
     // The debug layer is always attached; each request decides by `settings.debug.panel` whether to collect
     // (docs/settings-and-caching.md, "Profiling").
     let debug_state = crate::debug::DebugState {
@@ -286,7 +306,7 @@ pub fn build_with_global(
         viewer: auth::Viewer::default(),
         limits: Arc::new(crate::rate_limit::Limits::new(cache.clone())),
         frame: Arc::new(frame::SiteFrame::default()),
-        updater: crate::updates::Updater::default(),
+        updater,
         instance: crate::updates::Paths::for_process(root),
     });
     let router = static_files

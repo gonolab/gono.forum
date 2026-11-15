@@ -790,6 +790,12 @@ impl Updater {
         }
     }
 
+    /// For tests: show the update page as it looks while an upgrade runs, which a source build cannot start.
+    #[doc(hidden)]
+    pub fn set_running(&self, step: &str) {
+        self.update(|status| status.running = step.to_owned());
+    }
+
     pub async fn check(&self, config: &UpdateConfig) {
         let result = latest(config).await;
         self.update(|status| {

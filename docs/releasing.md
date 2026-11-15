@@ -126,6 +126,12 @@ The new version runs migrations, sends `READY=1` and then confirms the upgrade: 
 writes `data/upgrade/last` with `result=upgraded` and removes the marker. While migrations run, the process keeps
 extending systemd's start timeout (`EXTEND_TIMEOUT_USEC`).
 
+While the upgrade runs, the page reloads every 3 seconds to show the current step. Between step 6 and the new
+version's first answer there is a gap of at least `RestartSec=3` in which a reverse proxy answers 502, so `site.js`
+reloads the page only once a request for it succeeds; without JavaScript a `<noscript>` meta refresh reloads it regardless. The
+"upgrade has started" notice is shown only while an upgrade runs, so reloading its address afterwards shows the
+outcome alone. `tests/e2e/upgrade-wait.spec.js` checks the wait with simulated answers.
+
 The page gives the reasons instead of a button when the process cannot replace itself: a source build, a platform
 other than Linux on x86_64 or arm64, not started by systemd (no `INVOCATION_ID`), a program directory the service
 account cannot write to, or a `switch-backup/` left in it by an upgrade or rollback with `forum.install.sh` that did

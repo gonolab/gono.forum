@@ -527,4 +527,26 @@ document.addEventListener('click', event => {
   figure.insertBefore(frame, figure.querySelector('.video-embed__actions'));
   frame.focus();
 });
+// The update page while a one-click upgrade runs ([data-upgrade-wait], templates/manage/updates.html) reloads every
+// 3 seconds, but only once the forum answers. Between the old process exiting and systemd starting the new version
+// the forum is gone for several seconds; a plain refresh in that gap lands on the reverse proxy's 502 page (or the
+// browser's connection error), which never refreshes again. Without JavaScript a <noscript> meta refresh does the
+// plain version.
+let upgradeWait = 0;
+function waitForUpgrade() {
+  if (upgradeWait || !document.querySelector('[data-upgrade-wait]')) return;
+  const address = location.pathname + location.search;
+  const poll = async () => {
+    try {
+      const response = await fetch(address, { cache: 'no-store', credentials: 'same-origin', signal: AbortSignal.timeout?.(10000) });
+      if (response.ok) {
+        location.replace(address);
+        return;
+      }
+    } catch {}
+    upgradeWait = setTimeout(poll, 3000);
+  };
+  upgradeWait = setTimeout(poll, 3000);
+}
+document.addEventListener('DOMContentLoaded', waitForUpgrade);
 })();

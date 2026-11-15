@@ -1,6 +1,6 @@
 {% extends "layout/manage.html" %}{% block panel %}
-{% if !running.is_empty() %}<meta http-equiv="refresh" content="3">{% endif %}
-<section class="panel" id="section-version" aria-labelledby="section-version-title"><h1 class="panel__title" id="section-version-title">{{ p.t.maintenance_updates_title() }}</h1>
+{% if !running.is_empty() %}<noscript><meta http-equiv="refresh" content="3"></noscript>{% endif %}
+<section class="panel" id="section-version" aria-labelledby="section-version-title"{% if !running.is_empty() %} data-upgrade-wait{% endif %}><h1 class="panel__title" id="section-version-title">{{ p.t.maintenance_updates_title() }}</h1>
 {% if !notice.is_empty() %}<p class="form-feedback form-feedback--success" role="status">{{ notice }}</p>{% endif %}
 {% if !alert.is_empty() %}<p class="form-feedback" role="alert">{{ alert }}</p>{% endif %}
 {% if !running.is_empty() %}<p class="form-feedback form-feedback--info" role="status">{{ p.t.maintenance_updates_running(running) }}</p>{% endif %}

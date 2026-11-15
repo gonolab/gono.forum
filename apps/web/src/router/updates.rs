@@ -104,7 +104,11 @@ fn show(state: &AppState, notice: &str, alert: &str, status: StatusCode) -> Resp
 
 async fn page(AdminPage(state): AdminPage, Query(query): Query<NoticeQuery>) -> Response {
     let notice = match query.notice.as_str() {
-        "started" => crate::i18n::current().maintenance_updates_started(),
+        // Only while the upgrade runs: the page keeps reloading this address, and once the new version answers (or
+        // the upgrade stopped) it shows the outcome instead of "has started".
+        "started" if !state.updater.status().running.is_empty() => {
+            crate::i18n::current().maintenance_updates_started()
+        }
         _ => "",
     };
     show(&state, notice, "", StatusCode::OK)
