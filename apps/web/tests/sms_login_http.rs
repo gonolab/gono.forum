@@ -944,8 +944,7 @@ async fn participation_follows_the_domain_and_the_admin_page_saves_it() {
         StatusCode::OK
     );
 
-    // The admin area changes the site-wide participation condition to "mobile number bound": selecting
-    // nothing is rejected.
+    // The admin area first ticks no participation condition, then changes it to "mobile number bound".
     let mut admin = Cookies::session(&f.admin.session_token);
     let page = get(&f, "/manage/login", &mut admin).await;
     assert_eq!(page.status, StatusCode::OK, "{}", page.html);
@@ -963,15 +962,54 @@ async fn participation_follows_the_domain_and_the_admin_page_saves_it() {
         ("external_two_factor", "require"),
         ("method_sms", "1"),
     ];
-    let empty = post(&f, "/manage/login", &mut admin, &limits).await;
-    assert_eq!(empty.status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(
-        empty
-            .html
-            .contains("Choose at least one participation requirement"),
-        "{}",
-        empty.html
+    post(&f, "/manage/login", &mut admin, &limits)
+        .await
+        .redirect("/manage/login?saved=1");
+    assert_eq!(
+        test_support_value(&f.db, "settings.login.participation").await,
+        ""
     );
+    // Nothing ticked means nothing is required: a member with an unverified email and no phone number may still
+    // create invites and post, and no notice bar asks for anything.
+    f.execute(&format!(
+        "UPDATE gonof_common_member SET emailstatus=0 WHERE uid={uid}"
+    ))
+    .await;
+    assert_eq!(
+        get(&f, "/my/invites", &mut member).await.status,
+        StatusCode::OK
+    );
+    let home = get(&f, "/", &mut member).await;
+    assert!(
+        !home.html.contains(Lang::EN.frame_verify_banner_email()),
+        "{}",
+        home.html
+    );
+    // This test publishes twice on the member's first day.
+    set_setting(&f.db, "settings.posting.first_day_threads", "2")
+        .await
+        .unwrap();
+    let writer = ContentWriter::new(f.db.clone(), WriteConfig::default());
+    let topic = || NewThread {
+        visibility: Default::default(),
+        activity: Default::default(),
+        fid: 1,
+        title: "Participation requirement".into(),
+        body: "Body text".into(),
+        attachment_ids: vec![],
+        request_key: identity::random_token(),
+    };
+    let unrestricted = gono_forum_web::site::Site {
+        participation: Participation::parse(""),
+        ..Default::default()
+    };
+    gono_forum_web::site::scope(unrestricted, writer.publish(uid, topic()))
+        .await
+        .unwrap();
+    f.execute(&format!(
+        "UPDATE gonof_common_member SET emailstatus=1 WHERE uid={uid}"
+    ))
+    .await;
     let mut fields = limits.to_vec();
     fields.push(("participation_mobile", "1"));
     post(&f, "/manage/login", &mut admin, &fields)
@@ -998,16 +1036,6 @@ async fn participation_follows_the_domain_and_the_admin_page_saves_it() {
         "{}",
         home.html
     );
-    let writer = ContentWriter::new(f.db.clone(), WriteConfig::default());
-    let topic = || NewThread {
-        visibility: Default::default(),
-        activity: Default::default(),
-        fid: 1,
-        title: "Participation requirement".into(),
-        body: "Body text".into(),
-        attachment_ids: vec![],
-        request_key: identity::random_token(),
-    };
     let only_mobile = gono_forum_web::site::Site {
         participation: Participation::parse("mobile"),
         ..Default::default()
@@ -1164,6 +1192,42 @@ async fn other_domains_can_require_their_own_conditions() {
         row.try_get::<Option<String>, _>("participation").unwrap(),
         None
     );
+    // Customizing with no condition ticked stores the empty set: demo2 then requires nothing, while the main domain
+    // still asks for a verified email.
+    let version = f
+        .scalar(&format!(
+            "SELECT version FROM gonof_common_site_domain WHERE domain_id={id}"
+        ))
+        .await
+        .to_string();
+    let mut fields: Vec<(&str, &str)> = vec![
+        ("domain_id", &id_text),
+        ("version", &version),
+        ("site_url", DEMO2),
+        ("site_name", "Second Site"),
+        ("canonical", "self"),
+        ("enabled", "1"),
+        ("participation_custom", "1"),
+    ];
+    for (key, value) in &forum_fields {
+        fields.push((key, value));
+    }
+    post(&f, "/manage/domains", &mut admin, &fields).await;
+    let participation: Option<String> =
+        db::query_scalar("SELECT participation FROM gonof_common_site_domain WHERE domain_id=?")
+            .bind(id)
+            .fetch_one(f.db.executor())
+            .await
+            .unwrap();
+    assert_eq!(participation.as_deref(), Some(""));
+    f.execute(&format!(
+        "UPDATE gonof_common_member SET emailstatus=0,mobile=NULL WHERE uid={uid}"
+    ))
+    .await;
+    let open = request(&f, DEMO2, "GET", "/my/invites", &mut member, &[]).await;
+    assert_eq!(open.status, StatusCode::OK, "{}", open.html);
+    let main = request(&f, TEST_SITE_URL, "GET", "/my/invites", &mut member, &[]).await;
+    assert_eq!(main.status, StatusCode::FORBIDDEN, "{}", main.html);
     f.services.cleanup().await.unwrap();
 }
 

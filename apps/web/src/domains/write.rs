@@ -340,10 +340,10 @@ fn unshown(map: &DomainMap, forums: &[ForumRow]) -> Vec<String> {
 
 /// Login entry points and participation conditions: `None` follows the site-wide setting and is stored as NULL; ticked
 /// items are joined comma-separated in constant order and validated with the same rules as the site-wide setting.
+/// Ticking none is allowed for both: password sign-in only, and no participation requirement.
 fn login_set(
     chosen: Option<&[String]>,
     allowed: &[&str],
-    allow_empty: bool,
     message: &str,
 ) -> Result<Option<String>, DomainError> {
     let Some(chosen) = chosen else {
@@ -358,7 +358,7 @@ fn login_set(
     let unknown = chosen
         .iter()
         .any(|picked| !allowed.contains(&picked.as_str()));
-    if unknown || !crate::runtime::settings::set_shape(&value, allowed, allow_empty) {
+    if unknown || !crate::runtime::settings::set_shape(&value, allowed, true) {
         return Err(DomainError::Invalid(message.into()));
     }
     Ok(Some(value))
@@ -499,13 +499,11 @@ async fn save_once(
             login_methods: login_set(
                 input.login_methods.as_deref(),
                 crate::runtime::settings::LOGIN_METHODS,
-                true,
                 crate::i18n::current().domain_error_login(),
             )?,
             participation: login_set(
                 input.participation.as_deref(),
                 crate::runtime::settings::PARTICIPATION,
-                false,
                 crate::i18n::current().domain_error_participation(),
             )?,
             language: match input

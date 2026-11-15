@@ -37,7 +37,7 @@ To create a token:
 
 - the site must have the API turned on;
 - your account must meet the site's participation requirements (by default a verified email; a site can also accept a
-  linked phone number or a linked Google or GitHub account). Administrators are exempt;
+  linked phone number or a linked Google or GitHub account, or require nothing). Administrators are exempt;
 - your account needs a password. If you signed up with a text message code or another account, use "Set a password" on
   the account security page first;
 - at most 5 attempts per account, and 30 per IP address, are allowed within 5 minutes.

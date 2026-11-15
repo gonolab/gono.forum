@@ -89,6 +89,9 @@ where
     E: crate::db::Executor<'c>,
 {
     let participation = Participation::current();
+    if participation.unrestricted() {
+        return Ok(true);
+    }
     if !participation.needs_links(email_verified, has_mobile) {
         return Ok(participation.allows(email_verified, has_mobile));
     }
@@ -96,8 +99,8 @@ where
 }
 
 /// Participation conditions: posting threads, replies, private messages, likes, downvotes and tips, joining
-/// campaigns, uploading, generating invite codes and creating API tokens all require any one of them. Administrators
-/// are exempt.
+/// campaigns, uploading, generating invite codes and creating API tokens all require any one of them. An empty set
+/// requires nothing, so every member in good standing may participate. Administrators are exempt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Participation {
     pub email: bool,
@@ -133,11 +136,18 @@ impl Participation {
         github: false,
     };
 
-    /// Whether the member meets any of them (account status and admin roles are not considered; those are judged by
-    /// [`Member::can_contribute`]). Third-party bindings come from [`Member::linked`], filled in by the code that
-    /// reads the member according to [`Self::needs_links`].
+    /// No condition is ticked: nothing is required beyond a normal account.
+    pub fn unrestricted(&self) -> bool {
+        !(self.email || self.mobile || self.google || self.github)
+    }
+
+    /// Whether the member meets any of them, or nothing is required (account status and admin roles are not
+    /// considered; those are judged by [`Member::can_contribute`]). Third-party bindings come from
+    /// [`Member::linked`], filled in by the code that reads the member according to [`Self::needs_links`].
     pub fn met_by(&self, member: &Member) -> bool {
-        self.allows(member.email_verified, member.mobile.is_some()) || self.linked_by(member.linked)
+        self.unrestricted()
+            || self.allows(member.email_verified, member.mobile.is_some())
+            || self.linked_by(member.linked)
     }
 
     /// The two items on the member row: `emailstatus = 1`, `mobile IS NOT NULL`.
@@ -254,5 +264,11 @@ mod tests {
             google: true,
             github: true
         }));
+        let open = Participation::parse("");
+        assert!(open.unrestricted() && !abroad.unrestricted());
+        assert!(
+            !open.needs_links(false, false),
+            "with nothing required the link table is not read"
+        );
     }
 }

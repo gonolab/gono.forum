@@ -28,9 +28,10 @@ Posting threads and replies, editing one's own posts, private messages, likes, d
 lottery entries, the daily check-in, following threads, boards and members, uploads, reports, invite codes and API
 tokens all need the participation requirement: `settings.login.participation` (Global settings › Login methods), where
 any one of `email` (a verified email), `mobile` (a bound phone number), `google` or `github` (a linked account) is
-enough. The default is `email`. A row in `gonof_common_site_domain` with a non-NULL `participation` overrides it on
-that domain. Members who meet none of them can sign in and read what members can read; a banner under the header says
-what is missing. Administrators are exempt.
+enough. The default is `email`; with none ticked (an empty value) nothing is required, and every member whose account
+is active and not frozen may take part. A row in `gonof_common_site_domain` with a non-NULL `participation` overrides
+it on that domain, and an empty string there likewise requires nothing. Members who meet none of them can sign in and
+read what members can read; a banner under the header says what is missing. Administrators are exempt.
 
 An email counts as verified once a link mailed to it is used: the verification link, or a password reset link.
 While an account's email is unverified, it cannot link a Google or GitHub account, add a phone number or turn on

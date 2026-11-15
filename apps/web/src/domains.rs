@@ -75,8 +75,8 @@ pub struct Domain {
     /// Extra login methods shown on the login page (a subset of [`crate::runtime::settings::LOGIN_METHODS`],
     /// comma-separated); NULL follows the site-wide `settings.login.methods`, and the main domain row is always NULL.
     pub login_methods: Option<String>,
-    /// Participation requirements (a non-empty subset of [`crate::runtime::settings::PARTICIPATION`]); NULL follows
-    /// the site-wide `settings.login.participation`.
+    /// Participation requirements (a subset of [`crate::runtime::settings::PARTICIPATION`], empty for none); NULL
+    /// follows the site-wide `settings.login.participation`.
     pub participation: Option<String>,
     /// The interface language of this domain; NULL follows the site language, and the main domain row is always NULL
     /// (docs/architecture.md, "Languages").

@@ -21,7 +21,7 @@ pub const MAX_CACHE_TTL_SECONDS: i64 = 86_400;
 /// password login is always there.
 pub const LOGIN_METHODS: &[&str] = &["sms", "google", "github"];
 /// Participation conditions (`settings.login.participation` and the domain's `participation`); meeting any one of them
-/// allows participation.
+/// allows participation, and an empty set requires none.
 pub const PARTICIPATION: &[&str] = &["email", "mobile", "google", "github"];
 /// Accounts with two-factor authentication enabled when logging in by SMS or a third party: `require` behaves like
 /// password login, `skip` treats SMS and the third party as the second factor and logs in directly.
@@ -334,7 +334,8 @@ pub struct LoginSettings {
     /// Methods the login page additionally shows, a subset of [`LOGIN_METHODS`], comma-separated in that constant's
     /// order; the empty string means password login only.
     pub methods: String,
-    /// Participation conditions, a non-empty subset of [`PARTICIPATION`], comma-separated in that constant's order.
+    /// Participation conditions, a subset of [`PARTICIPATION`], comma-separated in that constant's order; the empty
+    /// string requires none.
     pub participation: String,
     /// One of [`EXTERNAL_TWO_FACTOR`].
     pub external_two_factor: String,
@@ -1168,7 +1169,7 @@ pub fn decode(r: &Rows) -> Result<SiteSettings> {
             participation: r.text(
                 "settings.login.participation",
                 t.config_check_login_participation(),
-                |v| set_shape(v, PARTICIPATION, false),
+                |v| set_shape(v, PARTICIPATION, true),
             )?,
             external_two_factor: r.choice(
                 "settings.login.external_two_factor",
