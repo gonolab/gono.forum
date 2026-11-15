@@ -4,6 +4,30 @@ What changed in each release of Gono Forum. A version's section is also the titl
 (see "Publishing a release" in [docs/releasing.md](docs/releasing.md)), so links in a section are absolute: the
 release page does not resolve relative ones.
 
+## 0.1.1 (early alpha)
+
+Sample content in Simplified Chinese.
+
+### Added
+
+- The setup wizard's optional sample content (10 members, 5 boards, 100 threads and 1,000 replies) is now offered in
+  Simplified Chinese as well as English: choose the language under the sample checkbox. Every language has the same
+  threads, authors and nesting; only the words differ. The choice does not set the interface language, which is set
+  afterwards in the admin area.
+- `gono-forum-cli seed-sample` and `gono-forum-cli export-sample` take `--language=<tag>` (English by default), and
+  an exported dataset's `manifest.json` names its language.
+- Translators can add sample content for their language in `apps/web/locales/<tag>/sample.json`; see "Sample
+  content" in [docs/translating.md](https://github.com/gonolab/gono.forum/blob/v0.1.1/docs/translating.md).
+
+### Changed
+
+- `examples/content/` now holds one directory per language: `examples/content/en/` and `examples/content/zh-CN/`.
+
+### Upgrading from 0.1.0
+
+No database migrations. As with every upgrade during the alpha, back up the database and the instance directory
+first ([docs/install.md](https://github.com/gonolab/gono.forum/blob/v0.1.1/docs/install.md), "Files to back up").
+
 ## 0.1.0 (early alpha)
 
 The first public release of Gono Forum, a self-hosted discussion forum that runs as a single binary on MySQL or
