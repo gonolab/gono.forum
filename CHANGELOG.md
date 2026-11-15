@@ -4,6 +4,23 @@ What changed in each release of Gono Forum. A version's section is also the titl
 (see "Publishing a release" in [docs/releasing.md](docs/releasing.md)), so links in a section are absolute: the
 release page does not resolve relative ones.
 
+## 0.1.2 (early alpha)
+
+Participation requirements can be left empty.
+
+### Changed
+
+- The participation requirements (Global settings › Login methods, and a domain's customized requirements) no longer
+  need at least one item ticked. With none ticked, nothing is required: every member whose account is active and not
+  frozen may start threads, reply, send private messages, like, downvote and tip, join activities, upload, create
+  invite codes and turn on the API. The default is still a verified email, and existing settings are kept. See
+  [docs/roles.md](https://github.com/gonolab/gono.forum/blob/v0.1.2/docs/roles.md).
+
+### Upgrading from 0.1.1
+
+No database migrations. As with every upgrade during the alpha, back up the database and the instance directory
+first ([docs/install.md](https://github.com/gonolab/gono.forum/blob/v0.1.2/docs/install.md), "Files to back up").
+
 ## 0.1.1 (early alpha)
 
 Sample content in Simplified Chinese.
