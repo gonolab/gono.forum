@@ -1,7 +1,8 @@
 // Throwaway local instances for the browser checks. Each instance gets its own temporary directory with a SQLite
-// database, a private configuration with fresh random keys, Redis off and a free port; it is migrated, seeded with
-// the development fixture, set to the requested site language and taken through the setup wizard's administrator
-// stage. Nothing here talks to MySQL, Redis, the development site's .local or any remote host.
+// database, a private configuration with fresh random keys, Redis off and a free port; it is migrated, set to the
+// requested site language and taken through the setup wizard's administrator stage. Its content is either the
+// development fixture (`seed-demo`, before the wizard) or the wizard's own sample content in the site language,
+// ticked on the wizard form. Nothing here talks to MySQL, Redis, the development site's .local or any remote host.
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -61,10 +62,13 @@ async function waitFor(check, what, timeout = 60000) {
 }
 
 /**
- * Starts one instance. `language` is the site language (`en`, `zh-CN`, ...); `label` only names the directory.
- * Returns the origin, the administrator account and `stop()`, which ends the process and deletes the directory.
+ * Starts one instance. `language` is the site language (`en`, `zh-CN`, ...); `content` is `fixture` (the development
+ * fixture) or `sample` (the setup wizard's sample content in `language`); `label` only names the directory. Returns
+ * the origin, the language, the content, the administrator account and `stop()`, which ends the process and deletes
+ * the directory.
  */
-export async function launch({ language = 'en', label = language } = {}) {
+export async function launch({ language = 'en', content = 'fixture', label = language } = {}) {
+  if (!['fixture', 'sample'].includes(content)) throw new Error(`unknown content ${content}`);
   for (const binary of [web, cli]) {
     if (!existsSync(binary)) {
       throw new Error(`${binary} is missing: run cargo build -p gono-forum-web --bins and npm run build first`);
@@ -115,7 +119,7 @@ export async function launch({ language = 'en', label = language } = {}) {
     const env = environment(config);
     const run = (command) => execFileSync(cli, [command], { cwd: root, env, stdio: 'pipe' });
     run('migrate');
-    run('seed-demo');
+    if (content === 'fixture') run('seed-demo');
     if (language !== 'en') {
       const db = new DatabaseSync(database);
       db.prepare("UPDATE gonof_common_settings SET svalue = ? WHERE skey = 'settings.site.language'").run(language);
@@ -142,6 +146,7 @@ export async function launch({ language = 'en', label = language } = {}) {
       password: admin.password,
       password_confirm: admin.password,
       offset_minutes: '0',
+      ...(content === 'sample' ? { sample_content: '1', sample_language: language } : {}),
     });
     const answer = await fetch(`${origin}/`, { method: 'POST', body: form, redirect: 'manual' });
     if (answer.status >= 400) throw new Error(`${label} setup wizard answered ${answer.status}`);
@@ -149,9 +154,16 @@ export async function launch({ language = 'en', label = language } = {}) {
       const page = await fetch(`${origin}/login`);
       return page.status === 200 && (await page.text()).includes('name="_csrf"');
     }, `${label} to switch from the setup wizard to the forum`);
+    if (content === 'sample') {
+      // The wizard logs a failed sample import and finishes anyway; the checks need the content.
+      const db = new DatabaseSync(database, { readOnly: true });
+      const { threads } = db.prepare('SELECT COUNT(*) AS threads FROM gonof_forum_thread').get();
+      db.close();
+      if (threads !== 100) throw new Error(`${label} has ${threads} threads, not the sample's 100; see ${join(dir, 'web.log')}`);
+    }
   } catch (error) {
     await stop();
     throw error;
   }
-  return { origin, language, admin, dir, stop };
+  return { origin, language, content, admin, dir, stop };
 }

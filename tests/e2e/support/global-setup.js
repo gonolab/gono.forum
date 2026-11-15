@@ -1,5 +1,5 @@
-// Starts the instances for the whole run: English and Simplified Chinese, both with the development fixture, whose
-// sample content is in English. Signs the administrator in once per instance (sign-ins share one per-IP rate limit on
+// Starts the instances for the whole run: English with the development fixture (English text) and Simplified Chinese
+// with the setup wizard's Chinese sample content, so the Chinese pages carry Chinese titles, names and posts. Signs the administrator in once per instance (sign-ins share one per-IP rate limit on
 // loopback) and hands origins and saved sessions to the workers through the environment; the returned function is
 // Playwright's global teardown.
 import { join } from 'node:path';
@@ -26,7 +26,7 @@ async function signIn(instance) {
 
 export default async function globalSetup() {
   // Both start at once; when one fails, the one that did start is stopped too (a failed one has cleaned up itself).
-  const started = await Promise.allSettled([launch({ language: 'en' }), launch({ language: 'zh-CN' })]);
+  const started = await Promise.allSettled([launch({ language: 'en' }), launch({ language: 'zh-CN', content: 'sample' })]);
   const instances = started.filter((result) => result.status === 'fulfilled').map((result) => result.value);
   const failed = started.find((result) => result.status === 'rejected');
   if (failed) {
@@ -36,7 +36,13 @@ export default async function globalSetup() {
   try {
     const states = await Promise.all(instances.map(signIn));
     process.env.GONOF_E2E_INSTANCES = JSON.stringify(
-      instances.map(({ origin, language, admin }, index) => ({ origin, language, admin, adminState: states[index] })),
+      instances.map(({ origin, language, content, admin }, index) => ({
+        origin,
+        language,
+        content,
+        admin,
+        adminState: states[index],
+      })),
     );
   } catch (error) {
     await Promise.all(instances.map((instance) => instance.stop()));

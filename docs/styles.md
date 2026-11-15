@@ -315,7 +315,8 @@ npm run test:e2e                  # both
 ```
 
 They start throwaway local sites (`tests/e2e/support/instance.js`): SQLite in a temporary directory, Redis off,
-random keys and ports, the demo content and a signed-in administrator, removed afterwards. Nothing connects to MySQL,
+random keys and ports, content (the development fixture on the English site, the wizard's Chinese sample content on
+the Chinese one) and a signed-in administrator, removed afterwards. Nothing connects to MySQL,
 Redis or a remote host. The pages are listed in `tests/e2e/support/pages.js`, and each is opened at 1440 × 900 and
 390 × 844, light and dark.
 

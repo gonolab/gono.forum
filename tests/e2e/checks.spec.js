@@ -3,7 +3,7 @@
 // (the only exceptions are the Simplified Chinese name of that language on the language pickers and the sample of the
 // Chinese date format in the admin area).
 import { expect, test } from '@playwright/test';
-import { instances, pages } from './support/pages.js';
+import { instances, pages, pathOf } from './support/pages.js';
 
 const HAN = /\p{Script=Han}/u;
 // The language's own name and the year, month and day signs of the `ymd-cn` date format.
@@ -18,11 +18,11 @@ for (const instance of instances()) {
           const problems = [];
           page.on('console', (message) => {
             // A page that is meant to answer 404 logs its own status; that is not a problem.
-            if (entry.status && message.location().url.startsWith(`${instance.origin}${entry.path}`)) return;
+            if (entry.status && message.location().url.startsWith(`${instance.origin}${pathOf(entry, instance)}`)) return;
             if (message.type() === 'error') problems.push(`console: ${message.text()} (${message.location().url})`);
           });
           page.on('pageerror', (error) => problems.push(`page error: ${error.message}`));
-          const response = await page.goto(`${instance.origin}${entry.path}`, { waitUntil: 'networkidle' });
+          const response = await page.goto(`${instance.origin}${pathOf(entry, instance)}`, { waitUntil: 'networkidle' });
           expect(response.status()).toBe(entry.status || 200);
 
           const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);

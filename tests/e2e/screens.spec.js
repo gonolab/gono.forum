@@ -5,7 +5,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { root } from './support/instance.js';
-import { instances, pages } from './support/pages.js';
+import { instances, pages, pathOf } from './support/pages.js';
 
 const label = process.env.GONOF_VISUAL_LABEL || 'latest';
 
@@ -15,7 +15,7 @@ for (const instance of instances()) {
       if (who === 'admin') test.use({ storageState: instance.adminState });
       for (const entry of pages.filter((entry) => entry.who === who)) {
         test(`${instance.language} ${entry.name}`, async ({ page }, info) => {
-          const response = await page.goto(`${instance.origin}${entry.path}`, { waitUntil: 'networkidle' });
+          const response = await page.goto(`${instance.origin}${pathOf(entry, instance)}`, { waitUntil: 'networkidle' });
           expect(response.status()).toBe(entry.status || 200);
           const dir = join(root, '.local/visual', label, instance.language, info.project.name);
           mkdirSync(dir, { recursive: true });

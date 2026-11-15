@@ -88,9 +88,10 @@ either; run them yourself when you change pages or styles.
 ### Browser checks
 
 `tests/e2e/` holds Playwright checks that start their own throwaway sites: two local instances (English and
-Simplified Chinese) on SQLite in a temporary directory, with Redis off and random ports, taken through the setup wizard
-and filled with demo content. They never connect to MySQL, Redis or any remote
-host, and the temporary directories are removed afterwards.
+Simplified Chinese) on SQLite in a temporary directory, with Redis off and random ports, taken through the setup wizard.
+The English site gets the development fixture (`seed-demo`); the Chinese site ticks the wizard's sample content in
+Simplified Chinese, so its pages carry Chinese titles, names and posts. They never connect to MySQL, Redis or any
+remote host, and the temporary directories are removed afterwards.
 
 ```bash
 cargo build -p gono-forum-web --bins     # the checks run target/debug/gono-forum-web and gono-forum-cli
