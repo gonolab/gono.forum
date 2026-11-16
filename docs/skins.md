@@ -178,16 +178,23 @@ header navigation no longer fits.
 
 Every page on `layout/base.html` links the skin after `forum.css` and before a personal style:
 `/skin/<id>.css?v=<hash>`, where the hash is the first 12 hex digits of the stylesheet's SHA-256, so a new version of
-Gono Forum that generates other rules for the same skin also gets a new address. It holds, in this order:
+Gono Forum that generates other rules for the same skin also gets a new address. Where the site or the domain has seed
+colors ([styles.md](styles.md), "Seed colors"), the page links the skin's colored variant instead,
+`/skin/<id>.css?c=<primary><secondary>&v=<hash>` (`c` is the two seeds as twelve hex digits): the same stylesheet
+with every palette derived from the seeds, and its own hash, so the address changes with the colors. It holds, in this
+order:
 
 1. `@layer guards { … }` with the footer colors of each palette;
 2. `@layer skin { … }` with each palette's three rules, `--masthead-h` when the manifest declares a header height,
    and the skin's stylesheet as written.
 
 The address is served without a session or cookies. With the current hash it is cached for a year: `public` for skins
-a page of the site uses (the site's or a domain's choice, and `default`), `private` for others, so a skin being
-previewed stays out of shared caches. Another hash gets the current stylesheet with `no-cache`. `errors/plain.html`
-links the built-in default skin, which needs neither settings nor the database.
+a page of the site uses (the site's or a domain's choice, and `default`) and for the colored variants a page uses (the
+skin and seed colors of the site or of a domain), `private` for others, so a skin or colors being previewed stay out of
+shared caches. Another hash gets the current stylesheet with `no-cache`; a `c` that is not twelve hex digits is not
+found. The process keeps the colored variants pages use with the skins (at most 32, the oldest dropped first); one no
+page uses is compiled for its answer only. `errors/plain.html` links the built-in default skin without seed colors,
+which needs neither settings nor the database.
 
 ## Choosing a skin
 
@@ -196,18 +203,25 @@ read by the page frame in the same statement as the settings (see [settings-and-
 Its body is JSON:
 
 ```json
-{"v": 1, "skin": "ledger", "palette": "main", "based_on": {"skin": "ledger", "version": "1.2.0"}, "places": null}
+{"v": 1, "skin": "ledger", "palette": "main", "based_on": {"skin": "ledger", "version": "1.2.0"}, "places": null,
+ "colors": {"primary": "#0f766e", "secondary": "#f97316"}}
 ```
 
-An empty body means the built-in default. `based_on` records the skin and version the choice was made from;
-`places` (the blocks of each place on a page) stays `null` until layouts can be edited. Each domain may have an
-override document, `settings.domain_layout.<domain id>.{body,title,updated_at}`, with the same structure; keys it
-leaves out come from the site's. A request uses the domain's skin, then the site's, then `default`; a palette the skin
-does not have falls back to its default palette. Deleting a domain deletes its document.
+An empty body means the built-in default with its own colors. `based_on` records the skin and version the choice was
+made from; `places` (the blocks of each place on a page) stays `null` until layouts can be edited. `colors` holds the
+seed colors ([styles.md](styles.md), "Seed colors") and is left out while the skin's own colors are used; only the two
+seeds are stored, and the colors are derived from them for whichever skin is in use. Each domain may have an override
+document, `settings.domain_layout.<domain id>.{body,title,updated_at}`, with the same structure; keys it leaves out
+come from the site's, and its `colors` may also be `"skin"`, the skin's own colors even where the site has seeds. A
+request uses the domain's skin, then the site's, then `default`; a palette the skin does not have falls back to its
+default palette; it uses the domain's colors unless the domain leaves them out, then the site's. Deleting a domain
+deletes its document, and a domain document left with neither a skin nor colors of its own is deleted too.
 
-Choosing is done at `/manage/skins` (the site) and on a domain's page under Multiple domains; both lock the
-document's rows, check the administrator and, for an imported skin, that its row still exists, then write the
-document, record `skin.select` and clear the settings block. An imported skin that a page uses cannot be deleted.
+Choosing is done at `/manage/skins` (the site) and on a domain's page under Multiple domains, and seed colors at
+Appearance › Colors and on a domain's page; all of these lock the document's rows, check the administrator and, for an
+imported skin, that its row still exists, then write the document, record `skin.select` (a skin) or `skin.colors`
+(colors, with the seeds before and after) and clear the settings block. Changing skins keeps the colors. An imported
+skin that a page uses cannot be deleted.
 
 ## Frame
 
@@ -243,17 +257,21 @@ Appearance › Skins (`/manage/skins`, administrators only, see [roles.md](roles
 - **Instance directory**: "Rescan" reads `$GONOF_HOME/skins/` again here and, through the cache broadcast, in every
   other process.
 
-`/manage/skins` itself always uses the built-in default skin, so a skin that breaks pages can always be switched back
-there.
+`/manage/skins` itself always uses the built-in default skin without seed colors, so a skin that breaks pages can
+always be switched back there. The seed colors have their own page, Appearance › Colors ([styles.md](styles.md),
+"Seed colors"); a domain's page under Multiple domains chooses its skin and its colors.
 
 ## Preview
 
-"Preview" shows a skin to the administrator who started it, on every page, without changing what anyone else sees.
-The choice lives in a cookie sealed with the cookie key (`gonof_skin_preview`, eight hours) and is applied only while
-the signed-in member is that administrator; publishing, exiting and signing out clear it. A bar at the top of every page offers **Publish** (make it the site's
-skin, recording `skin.select`) and **Exit preview**. Pages of signed-in members are never stored by shared caches
-(`private, no-store`) and the anonymous caches are not used for them; the stylesheet of a skin no page uses is served
-`private`.
+"Preview" shows a skin, or unsaved seed colors, to the administrator who started it, on every page, without changing
+what anyone else sees. The choice lives in a cookie sealed with the cookie key (`gonof_skin_preview`, eight hours) and
+is applied only while the signed-in member is that administrator; publishing, exiting and signing out clear it. A
+preview of a skin shows it with the colors the page has anyway (the site's or the domain's seeds, derived again for
+that skin); a preview from Appearance › Colors shows the entered seeds over the site's skin and replaces any preview of
+a skin. A bar at the top of every page offers **Publish** (make the skin the site's, recording `skin.select`, or save
+the colors as the site's, recording `skin.colors`) and **Exit preview**. Pages of signed-in members are never stored
+by shared caches (`private, no-store`) and the anonymous caches are not used for them; the stylesheet of a skin or of
+colors no page uses is served `private`.
 
 ## The hooks
 

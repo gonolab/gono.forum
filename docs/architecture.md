@@ -247,7 +247,8 @@ language is in [translating.md](translating.md).
 Stylesheets are plain CSS in `frontend/styles/`, combined by `npm run build` (esbuild) into `forum.css` in cascade
 layers: `guards` (rules nothing may override), `core`, then `skin` and `member` for the skin's and a member's
 stylesheets. Colors come from one set of design tokens (`frontend/styles/themes/default.json`) with light, dark and
-system themes; the server writes them, merged with the skin's palettes, into the skin's stylesheet. Layout uses
+system themes; the server writes them, merged with the skin's palettes (and derived from two seed colors when the
+administrator set them), into the skin's stylesheet. Layout uses
 logical properties (`margin-inline-start`, not `margin-left`) so that right-to-left languages mirror correctly.
 Scripts are small, framework-free and optional: htmx plus a few enhancements and the editor.
 

@@ -85,7 +85,7 @@ A unit test (`skins::palette`) fails on an invalid token name or value (braces, 
 outside the checker's list), a `var()` reference to an undefined token, a reference cycle, or light and dark modes
 with different token sets, and checks the contrast pairs of [skins.md](skins.md), "Contrast": text 4.5:1, input
 borders and the focus ring 3:1. Values may be colors, `transparent` or `var()` of another token. Visitors cannot
-choose a palette; a skin's palettes are chosen by the administrator.
+choose a palette; a skin's palettes and the seed colors (see "Seed colors") are chosen by the administrator.
 
 Stylesheets contain no literal colors: every color is a `var(--…)` from the scheme. The black in the SVG masks in
 `composer.css` only gives the mask its shape. Reuse a role where its meaning fits. When a component needs a color of
@@ -116,6 +116,49 @@ differs.
 | `--avatar-bg`, `--avatar-text`, `--avatar-green-*`, `--avatar-amber-*` | Initials tiles for members without an avatar |
 | `--inverse`, `--inverse-text`, `--backdrop`, `--selection` | The skip link, the drawer backdrop, text selection |
 | `--shadow-base`, `--shadow-medium` | Panels and cards; menus, the drawer and other raised surfaces |
+
+## Seed colors
+
+Appearance › Colors (`/manage/appearance/colors`, administrators only) takes two seed colors, a primary and a
+secondary, and derives the color tokens of the site's skin from them, in light and dark mode (`skins/seed.rs`).
+Visitors cannot choose colors. A domain follows the site's seeds, uses its skin's own colors, or has seeds of its own
+(its page under Multiple domains). Skins and personal styles keep reading the tokens themselves (`--primary-bg` and
+the like); the seeds are not variables of the contract.
+
+- **The primary** drives every colored role, each with its three variants:
+
+  | Role | Fill | Text on the fill | As text |
+  | --- | --- | --- | --- |
+  | Main actions, current items, links | `--primary-bg`, `--primary-border`, `--primary-hover` | `--primary-text` | `--accent`, `--accent-hover`, `--link`, `--link-hover` |
+  | Brand block | `--mark`, `--mark-deep`, `--brand-bg`, `--brand-hover-bg` | `--mark-text`, `--brand-text` | `--mark-soft-text` on `--mark-soft` |
+  | Info, avatars, editor toolbar | the soft grounds `--info-soft`, `--avatar-bg`, `--toolbar-selected-bg` (and `--accent-soft`, `--link-soft`, `--selection`) | `--info-soft-text`, `--avatar-text`, `--toolbar-selected-text` | `--info` |
+
+  and also `--choice-accent` and `--focus-ring`. Roles that refer to these (`--selected-*` and the like) follow them.
+- **The secondary** only lends its hue, with a small share of its chroma, to the neutrals: grounds and panels, lines
+  and borders, body, muted and disabled text, the inverse colors, secondary buttons, form fields, code and quotes. A
+  grey keeps them neutral.
+- **The skin's structure stays.** A token the skin writes as `var(--…)` or `transparent` is left as it is and follows
+  what it refers to; shadows, the backdrop, status colors and tags keep the skin's values unless a pair below needs
+  them raised. A literal color takes its hue and chroma from its seed and its lightness from the skin's own value in
+  that mode (in OKLCH), and a translucent one keeps its alpha. In light mode the fills are the primary itself, in dark
+  mode the primary at the skin's lightness for that fill; a hovered fill or text keeps the skin's step from its base.
+- **Contrast.** Text on a fill is white or the light mode's `--text-strong`, whichever stands out more, and a fill that
+  still falls short of 4.5:1 moves away from it. Then every pair is raised to its minimum by moving the text's
+  lightness no further than needed (black or white when no lightness is enough): the pairs of [skins.md](skins.md),
+  "Contrast" (text 4.5:1, field borders and the focus ring 3:1), and the text of fills, soft grounds, status colors,
+  code, quotes, the editor, the inverse colors and tags on their grounds. The page lists the tokens the seeds change
+  and the contrast of every pair in both modes.
+- **Stored as seeds.** Only the two colors are stored, as `colors` in the layout document ([skins.md](skins.md),
+  "Choosing a skin"). They apply over any skin, built in or external, stay when the skin changes and are derived again
+  for the new one. The skin's stylesheet is compiled again with the derived palettes into a colored variant at
+  `/skin/<id>.css?c=<seeds>&v=<hash>` ([skins.md](skins.md), "The stylesheet of a skin"), whose footer guard colors
+  come from the derived palette. Without seeds nothing changes: the skin and its address are as they were.
+- **The form** works without JavaScript. The fields are `<input type="color">`; where a browser shows a text field
+  instead, the value must be `#` and six hexadecimal digits, which the server checks either way. "Show the derived
+  colors" derives without saving, "Preview" shows the entered colors to this administrator only ([skins.md](skins.md),
+  "Preview"), "Save colors" saves them and "Use the skin's own colors" removes them; saving locks the layout document,
+  records `skin.colors` and clears the settings block. The swatches on the page are SVG with `fill` attributes, since
+  the Content-Security-Policy allows no `style` attributes.
 
 ## Tag colors
 

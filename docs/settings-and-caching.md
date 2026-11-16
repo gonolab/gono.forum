@@ -16,7 +16,7 @@ migration seeds.
 | --- | --- | --- |
 | `gonof_common_settings`, `settings.{group}.{field}` | 134 scalar settings, one row each | `apps/web/src/runtime.rs`, `runtime/settings.rs`, `runtime/kv.rs` |
 | `gonof_common_settings`, `settings.navigation.{body,title,updated_at}` | the header navigation document | `runtime.rs` |
-| `gonof_common_settings`, `settings.layout.{body,title,updated_at}` and `settings.domain_layout.<domain id>.{body,title,updated_at}` | the site's skin choice and each domain's override ([skins.md](skins.md), "Choosing a skin") | `skins/selection.rs` |
+| `gonof_common_settings`, `settings.layout.{body,title,updated_at}` and `settings.domain_layout.<domain id>.{body,title,updated_at}` | the site's skin choice and seed colors, and each domain's override ([skins.md](skins.md), "Choosing a skin"; [styles.md](styles.md), "Seed colors") | `skins/selection.rs` |
 | `gonof_common_skin` | imported skins, one row per id, with a `version` column for optimistic locking ([skins.md](skins.md)) | `skins/store.rs` |
 | `gonof_common_settings`, `mail.transport`, `media.storage`, `login.providers` | one JSON value each (SMTP, attachment storage, SMS and sign-in providers). The SMTP, SMS and sign-in provider secrets inside are encrypted with `[common] encryption_key`; the attachment storage keys are not in the database at all: each storage configuration names a file under `[media] local_directory` (`secrets/<id>`, mode 0600, plain JSON) | `mail/settings.rs`, `media.rs`, `sms.rs` |
 | `gonof_common_settings`, `identity.bootstrap_admin`, `identity.username_namespace` | lock rows, not settings (see "Write gate and locks") | `identity.rs`, `identity/profile.rs` |
@@ -26,7 +26,8 @@ migration seeds.
 `gonof_common_settings` has two columns, `skey varchar(190)` (primary key, `utf8mb4_bin`) and `svalue text`. The
 migrations seed 142 rows: the 134 scalar settings, the three navigation rows, the three rows of the layout document and
 the two lock rows; the JSON rows are inserted on their first save, and a domain's layout document when its own skin is
-first chosen (it is deleted with the domain or when the domain follows the site again). A policy or mail template with no row for a language uses that language's built-in text
+first chosen or its colors first set (it is deleted with the domain, or when the domain follows the site again in
+both). A policy or mail template with no row for a language uses that language's built-in text
 (a mail template with a blank subject and body counts as not customized; "Restore built-in text" deletes the row).
 Per-member choices are in their own tables, where `NULL` means "follow the site default" in `settings.reading.*`.
 
@@ -194,7 +195,7 @@ on `AppState` and is passed explicitly to every function that saves cached data.
 
 | Block | Holds | Cleared by |
 | --- | --- | --- |
-| `settings` | scalar settings, the navigation document and its parsed entries, the layout documents (the site's and every domain's skin choice) | settings saves, navigation saves, skin choices, domain deletion |
+| `settings` | scalar settings, the navigation document and its parsed entries, the layout documents (the site's and every domain's skin choice and seed colors) | settings saves, navigation saves, skin choices, color saves, domain deletion |
 | `policy.*` | one slot per policy kind, with every saved language | saving any language of that policy |
 | `branding` | brand image bindings | replacing a brand image |
 | `credit-rules` | credit reward rules, for display (reward transactions read the rules with locks) | saving a rule |
@@ -204,7 +205,7 @@ on `AppState` and is passed explicitly to every function that saves cached data.
 | `honors` | honor group directory | honor group saves |
 | `forums` | readable boards, one slot for anonymous visitors and one for members | board saves, ordering, deletion, merges |
 | `domains` | the domain table, read only while `settings.domains.enabled` is on | domain saves, the switch, the forum address, board saves and deletion |
-| `skins` | every skin of the three sources, checked and compiled ([skins.md](skins.md), "Sources"); built-in skins are checked once per process, imported ones on every load, the instance directory is read again only after the block is cleared | skin imports and deletes, "Rescan" at `/manage/skins` |
+| `skins` | every skin of the three sources, checked and compiled ([skins.md](skins.md), "Sources"); built-in skins are checked once per process, imported ones on every load, the instance directory is read again only after the block is cleared; also the colored variants pages use (a skin with seed colors, compiled on first use, at most 32) | skin imports and deletes, "Rescan" at `/manage/skins` |
 
 Statistics live here too but are not cleared by writes. Site statistics, scoped statistics (per domain scope, at most
 128 slots), the newest members for anonymous visitors and board statistics are keyed by a time segment of their
@@ -247,9 +248,10 @@ publish. Other rules:
   by the next beat, reaches no subscriber or cannot be sent counts as a disconnect, so a half-broken connection is
   replaced within about a minute.
 
-Skin stylesheets (`/skin/<id>.css?v=<hash>`) are not cached by the server beyond the `skins` block, which holds them
-compiled; browsers keep the one with the current hash for a year (`public` when a page of the site uses the skin,
-`private` otherwise, so a previewed skin stays out of shared caches). An administrator's preview is a sealed cookie,
+Skin stylesheets (`/skin/<id>.css?v=<hash>`, and `?c=<seeds>&v=<hash>` for a skin with seed colors) are not cached
+by the server beyond the `skins` block, which holds them compiled; browsers keep the one with the current hash for a
+year (`public` when a page of the site uses the skin, or the skin with those colors, `private` otherwise, so a
+previewed skin or colors stay out of shared caches). An administrator's preview is a sealed cookie,
 not a cache entry, and the pages it changes are those of a signed-in member, which are never cached for others
 ([skins.md](skins.md), "Preview").
 
