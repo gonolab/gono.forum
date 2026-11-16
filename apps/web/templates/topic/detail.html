@@ -2,6 +2,7 @@
 {% block content %}
 <div class="layout topic">
   <div class="layout__main topic__main">
+    {%- include "partials/floor_icons.html" %}
     <nav class="crumbs" aria-label="{{ p.t.common_breadcrumb() }}">
       {%- for (name, href) in breadcrumb %}{% if !loop.first %}<span class="crumbs__sep" aria-hidden="true"></span>{% endif %}<a href="{{ crate::site::href(href) }}">{{ name }}</a>{% endfor %}
     </nav>

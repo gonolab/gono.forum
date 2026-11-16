@@ -280,14 +280,22 @@ async fn thread_profile_and_directory_hooks_are_present() {
         "<a class=\"button button--small thread-head__reply\" href=\"#reply-editor\" data-optional>Reply</a>"
     ));
     assert!(thread.contains("id=\"reply-editor\""));
+    // The action icons are <use> references to symbols drawn once per page.
+    assert_eq!(
+        thread
+            .matches("class=\"action-icon-sprite\" hidden")
+            .count(),
+        1
+    );
     for action in ["reply", "quote"] {
+        assert!(thread.contains(&format!("<symbol id=\"action-icon-{action}\"")));
         let class = format!("<a class=\"floor__action floor__action--{action}\" href=\"");
         let at = thread.find(&class).unwrap_or_else(|| panic!("{class}"));
         let link = &thread[at..at + thread[at..].find("</a>").unwrap()];
-        assert!(
-            link.contains("floor__action-icon\" data-optional"),
-            "{link}"
+        let icon = format!(
+            "<svg class=\"floor__action-icon\" data-optional aria-hidden=\"true\" focusable=\"false\"><use href=\"#action-icon-{action}\"></use></svg>"
         );
+        assert!(link.contains(&icon), "{link}");
         assert!(
             link.contains("<span class=\"floor__action-label\">"),
             "{link}"

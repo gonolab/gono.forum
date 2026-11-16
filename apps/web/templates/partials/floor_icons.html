@@ -1,0 +1,5 @@
+{#- The optional Reply and Quote icons of floor actions (partials/reply_icon.html, quote_icon.html), drawn once per thread page and referenced with <use>, so that a long page does not repeat the drawing in every action (docs/skins.md, "Optional elements"). Hidden itself: <use> still clones the symbols. currentColor resolves to the color of the using element. The ids must not start with "floor-": that prefix is the floors' own (#floor-N), which scripts and tests look for. -#}
+<svg class="action-icon-sprite" hidden aria-hidden="true" focusable="false"><defs>
+<symbol id="action-icon-reply" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 7-5 5 5 5"/><path d="M4 12h10a6 6 0 0 1 6 6v1"/></symbol>
+<symbol id="action-icon-quote" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6H6a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h3v1a4 4 0 0 1-4 4"/><path d="M20 6h-4a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h3v1a4 4 0 0 1-4 4"/></symbol>
+</defs></svg>

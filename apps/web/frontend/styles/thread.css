@@ -1,4 +1,4 @@
-/* Topic page: topic, thread, thread-head, thread-stats, floor (floor-card, floor__*), blocked-content, actions-bar, icon-button, interaction-form, tip-picker, tip-hint, tip-form, tip-summary, mod-tools, sub-replies, pager--compact, replies, spotlight, highlight-*, replies-pane, replies-head, rows--posts, reply-box, reply-gate. Body HTML (prose, reveal, code-block, topic-embed, video-embed) is styled elsewhere. */
+/* Topic page: topic, thread, thread-head, thread-stats, floor (floor-card, floor__*), action-icon-sprite, blocked-content, actions-bar, icon-button, interaction-form, tip-picker, tip-hint, tip-form, tip-summary, mod-tools, sub-replies, pager--compact, replies, spotlight, highlight-*, replies-pane, replies-head, rows--posts, reply-box, reply-gate. Body HTML (prose, reveal, code-block, topic-embed, video-embed) is styled elsewhere. */
 
 /* ------------------------------------------------------------------ */
 /* Page column                                                         */
@@ -252,6 +252,18 @@
   font-weight: 500;
   text-decoration: none;
   white-space: nowrap;
+}
+
+/* The optional Reply and Quote icons (partials/reply_icon.html, quote_icon.html), hidden unless a skin shows them; the
+   Reply arrow points against the reading direction. */
+.floor__action-icon {
+  flex: none;
+  inline-size: 14px;
+  block-size: 14px;
+}
+
+.floor__action--reply .floor__action-icon:dir(rtl) {
+  scale: -1 1;
 }
 
 .floor__action:hover {

@@ -267,6 +267,9 @@ technology; the text beside it names the control, or an icon-only control gets a
   `partials/favorite_icon.html`, `reaction_icon.html`, `downvote_icon.html`, `tip_icon.html`, `user_icon.html`, and
   the optional icons of [skins.md](skins.md), "Optional elements": `pinned_icon.html` and `locked_icon.html` (list
   rows, each with its `sr-only` text) and `reply_icon.html` and `quote_icon.html` (floor actions).
+- An icon repeated many times on one page is drawn once as a `<symbol>` and referenced with `<use>`: the floor action
+  icons are symbols in `partials/floor_icons.html`, which the thread page includes once, outside the part that HTMX
+  replaces after a reply.
 - List metadata icons get the class `meta-glyph` (14px). Add `meta-glyph--mirror` to an icon that points along the
   reading direction.
 - Admin module icons are `<symbol>` elements in `partials/manage_icons.html` (stroke width 1.6), used as
