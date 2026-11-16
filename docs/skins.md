@@ -220,6 +220,10 @@ The skin's manifest and the request's choice are written on `<html>`:
 When the skin fixes the avatar shape, a member's reading settings say so; their own choice is kept and applies again
 under a skin that leaves the shape to them.
 
+A boosted navigation (`hx-boost`) replaces the body and merges the head but keeps `<html>`; `site.js` copies these
+attributes from the new page in the same step as the new skin stylesheet arrives, so moving between pages with
+different skins (`/manage/skins` always uses the default) never pairs one skin's stylesheet with another's palette.
+
 ## The admin page
 
 Appearance › Skins (`/manage/skins`, administrators only, see [roles.md](roles.md)) works without JavaScript:
