@@ -54,6 +54,14 @@ enum Command {
     PurgeNonImageAttachments {
         confirm: bool,
     },
+    SkinCheck {
+        path: std::path::PathBuf,
+        builtin: bool,
+    },
+    SkinPack {
+        dir: std::path::PathBuf,
+        output: Option<std::path::PathBuf>,
+    },
 }
 
 /// Problems listed per kind by check-content and import-content; the rest are counted.
@@ -68,7 +76,7 @@ async fn main() -> Result<()> {
     }
     if args.is_empty() || args == ["--help"] || args == ["-h"] {
         println!(
-            "Gono Forum database tool\n\n  gono-forum-cli migrate                       Run migrations; creates the SQLite database file if it does not exist (creates no forums: on a fresh install the administrator creates them at /manage/forums)\n  gono-forum-cli seed-demo                     Run migrations, create the fixture's six forums when the forum table is empty, and import the development fixture into an empty content database\n  gono-forum-cli seed-sample [--language=<tag>]  Add the optional sample content offered by the setup wizard (10 members, 5 forums, 100 threads and 1,000 replies; in English unless --language names another language that has a sample, such as zh-CN) to a site that has no forums, threads or posts yet\n  gono-forum-cli export-sample <dir> [--language=<tag>]  Write the same sample content as a content dataset in a new directory, as a starting point for content of your own (docs/content-import.md)\n  gono-forum-cli check-content <dir>           Check a content dataset and list every problem with its file, line and thread key; needs no database or configuration\n  gono-forum-cli import-content <dir> [--members-out=<file>]  Check a content dataset, then import its boards, members, threads and replies into a site that has no forums, threads or posts yet; --members-out writes the new members' uids as a profile list for enable-api-keys and enable-interactions\n  gono-forum-cli import-profiles <path> --confirm-reset=<database>  Bulk-import accounts into the member table from a JSON profile list (empties the member table first; only for test environments that may be reset; the database name must match the currently connected database)\n  gono-forum-cli enable-api-keys <list> <output>  Issue API tokens in bulk for every uid in the profile list; the raw tokens are written to a newly created local output file (mode 0600, refused if it already exists; must not be committed to the repository)\n  gono-forum-cli enable-interactions <list>    Give accounts other than uid=1 that have no e-mail yet a placeholder e-mail and verified status, meeting the e-mail requirement of the like/favorite/reply endpoints\n  gono-forum-cli set-password <uid>            Set a uid's password to the plaintext read from standard input (not echoed, not left in the command-line arguments)\n  gono-forum-cli run-campaign-plan <admin-uid> <plan.json>  Following a plan, in bulk: grant credits / create bounty, red packet, lottery, poll and news campaigns / cast poll votes / accept bounty replies\n  gono-forum-cli settle-due <limit>            Settle due lotteries/bounties/red packets (lottery draws, etc.)\n  gono-forum-cli reset-two-factor <uid> --reason=<reason>  After verifying the member in person offline, turn off their two-factor authentication: delete the authenticator and recovery codes, sign out all devices, revoke API tokens and feed URLs, and send the member a security notice\n  gono-forum-cli rekey-two-factor              After rotating the [identity.two_factor] key, re-encrypt authenticator secrets and lottery redemption codes still encrypted with an old key under the current key; remove the old key only after both report 0 old-key items\n  gono-forum-cli set-site-url <forum-url>      Change the forum URL directly (may include a path, e.g. https://demo.com/bbs; \"\" leaves it empty); for recovery when the admin area is unreachable, and before the first start of a new sub-path install; validated like the admin area, without the second confirmation\n  gono-forum-cli purge-non-image-attachments [--confirm]  List ready non-image attachments (only images are allowed since 2026-11-08); only with --confirm are the post references removed and the attachments marked for cleanup; the objects are deleted by the running Web process, irreversibly\n\nConfiguration: GONOF_HOME sets the instance directory (release packages default to the directory holding this binary); GONOF_CONFIG selects the config file (default config/gono-forum.toml in release packages, config/development.toml in source builds); GONOF_DATABASE_URL overrides the database connection."
+            "Gono Forum database tool\n\n  gono-forum-cli migrate                       Run migrations; creates the SQLite database file if it does not exist (creates no forums: on a fresh install the administrator creates them at /manage/forums)\n  gono-forum-cli seed-demo                     Run migrations, create the fixture's six forums when the forum table is empty, and import the development fixture into an empty content database\n  gono-forum-cli seed-sample [--language=<tag>]  Add the optional sample content offered by the setup wizard (10 members, 5 forums, 100 threads and 1,000 replies; in English unless --language names another language that has a sample, such as zh-CN) to a site that has no forums, threads or posts yet\n  gono-forum-cli export-sample <dir> [--language=<tag>]  Write the same sample content as a content dataset in a new directory, as a starting point for content of your own (docs/content-import.md)\n  gono-forum-cli check-content <dir>           Check a content dataset and list every problem with its file, line and thread key; needs no database or configuration\n  gono-forum-cli import-content <dir> [--members-out=<file>]  Check a content dataset, then import its boards, members, threads and replies into a site that has no forums, threads or posts yet; --members-out writes the new members' uids as a profile list for enable-api-keys and enable-interactions\n  gono-forum-cli import-profiles <path> --confirm-reset=<database>  Bulk-import accounts into the member table from a JSON profile list (empties the member table first; only for test environments that may be reset; the database name must match the currently connected database)\n  gono-forum-cli enable-api-keys <list> <output>  Issue API tokens in bulk for every uid in the profile list; the raw tokens are written to a newly created local output file (mode 0600, refused if it already exists; must not be committed to the repository)\n  gono-forum-cli enable-interactions <list>    Give accounts other than uid=1 that have no e-mail yet a placeholder e-mail and verified status, meeting the e-mail requirement of the like/favorite/reply endpoints\n  gono-forum-cli set-password <uid>            Set a uid's password to the plaintext read from standard input (not echoed, not left in the command-line arguments)\n  gono-forum-cli run-campaign-plan <admin-uid> <plan.json>  Following a plan, in bulk: grant credits / create bounty, red packet, lottery, poll and news campaigns / cast poll votes / accept bounty replies\n  gono-forum-cli settle-due <limit>            Settle due lotteries/bounties/red packets (lottery draws, etc.)\n  gono-forum-cli reset-two-factor <uid> --reason=<reason>  After verifying the member in person offline, turn off their two-factor authentication: delete the authenticator and recovery codes, sign out all devices, revoke API tokens and feed URLs, and send the member a security notice\n  gono-forum-cli rekey-two-factor              After rotating the [identity.two_factor] key, re-encrypt authenticator secrets and lottery redemption codes still encrypted with an old key under the current key; remove the old key only after both report 0 old-key items\n  gono-forum-cli set-site-url <forum-url>      Change the forum URL directly (may include a path, e.g. https://demo.com/bbs; \"\" leaves it empty); for recovery when the admin area is unreachable, and before the first start of a new sub-path install; validated like the admin area, without the second confirmation\n  gono-forum-cli purge-non-image-attachments [--confirm]  List ready non-image attachments (only images are allowed since 2026-11-08); only with --confirm are the post references removed and the attachments marked for cleanup; the objects are deleted by the running Web process, irreversibly\n  gono-forum-cli skin check <dir|file> [--builtin]  Check a skin directory or skin pack exactly as an import does and list every problem and warning (docs/skins.md); --builtin applies the rules of built-in skins; needs no database or configuration\n  gono-forum-cli skin pack <dir> [--output=<file>]  Check a skin directory and write it as one skin pack file for import in the admin area (default <id>-<version>.skin.json in the current directory; refused if the file exists)\n\nConfiguration: GONOF_HOME sets the instance directory (release packages default to the directory holding this binary); GONOF_CONFIG selects the config file (default config/gono-forum.toml in release packages, config/development.toml in source builds); GONOF_DATABASE_URL overrides the database connection."
         );
         return Ok(());
     }
@@ -156,6 +164,28 @@ async fn main() -> Result<()> {
         "purge-non-image-attachments" if args.len() == 2 && args[1] == "--confirm" => {
             Command::PurgeNonImageAttachments { confirm: true }
         }
+        "skin" if args.get(1).map(String::as_str) == Some("check")
+            && (args.len() == 3 || (args.len() == 4 && args[3] == "--builtin")) =>
+        {
+            Command::SkinCheck {
+                path: std::path::PathBuf::from(&args[2]),
+                builtin: args.len() == 4,
+            }
+        }
+        "skin" if args.get(1).map(String::as_str) == Some("pack") && (3..=4).contains(&args.len()) => {
+            Command::SkinPack {
+                dir: std::path::PathBuf::from(&args[2]),
+                output: match args.get(3) {
+                    None => None,
+                    Some(option) => Some(std::path::PathBuf::from(
+                        option
+                            .strip_prefix("--output=")
+                            .filter(|path| !path.is_empty())
+                            .ok_or_else(|| anyhow::anyhow!("skin pack takes only --output=<file> after the directory"))?,
+                    )),
+                },
+            }
+        }
         "migrate"
         | "seed-demo"
         | "seed-sample"
@@ -171,7 +201,8 @@ async fn main() -> Result<()> {
         | "reset-two-factor"
         | "rekey-two-factor"
         | "set-site-url"
-        | "purge-non-image-attachments" => {
+        | "purge-non-image-attachments"
+        | "skin" => {
             bail!("{}: wrong number of arguments; run gono-forum-cli --help", args[0]);
         }
         _ => bail!("unknown command; run gono-forum-cli --help"),
@@ -187,6 +218,48 @@ async fn main() -> Result<()> {
                 content::sample::MEMBERS,
                 content::sample::FORUMS,
                 content::sample::REPLIES
+            );
+            return Ok(());
+        }
+        Command::SkinCheck { path, builtin } => {
+            let source = if *builtin {
+                gono_forum_web::skins::Source::Builtin
+            } else {
+                gono_forum_web::skins::Source::Imported
+            };
+            let (_, checked) = gono_forum_web::skins::check_path(path, source);
+            print!("{}", gono_forum_web::skins::report(&checked));
+            if checked.skin.is_none() {
+                bail!("the skin has errors; fix them and check again");
+            }
+            println!("The skin passes the checks.");
+            return Ok(());
+        }
+        Command::SkinPack { dir, output } => {
+            if !dir.is_dir() {
+                bail!("{} is not a skin directory", dir.display());
+            }
+            let (draft, checked) =
+                gono_forum_web::skins::check_path(dir, gono_forum_web::skins::Source::Imported);
+            print!("{}", gono_forum_web::skins::report(&checked));
+            let (Some(draft), Some(_)) = (draft, &checked.skin) else {
+                bail!("the skin has errors, so no pack was written; fix them and check again");
+            };
+            let path = output.clone().unwrap_or_else(|| {
+                std::path::PathBuf::from(format!(
+                    "{}-{}.skin.json",
+                    draft.manifest.id, draft.manifest.version
+                ))
+            });
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .map_err(|error| anyhow::anyhow!("cannot create {}: {error}", path.display()))?;
+            std::io::Write::write_all(&mut file, gono_forum_web::skins::pack(&draft).as_bytes())?;
+            println!(
+                "Wrote {}; import it at Appearance > Skins (/manage/skins).",
+                path.display()
             );
             return Ok(());
         }
@@ -240,7 +313,10 @@ async fn main() -> Result<()> {
             content::seed_fixture(&db).await?;
             println!("Development fixture imported; pages now show it via database queries.");
         }
-        Command::ExportSample { .. } | Command::CheckContent { .. } => {
+        Command::ExportSample { .. }
+        | Command::CheckContent { .. }
+        | Command::SkinCheck { .. }
+        | Command::SkinPack { .. } => {
             unreachable!("handled before connecting to the database")
         }
         Command::ImportContent { members_out, .. } => {

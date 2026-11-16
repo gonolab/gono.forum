@@ -441,10 +441,11 @@ pub fn check(css: &str, profile: Profile, max_bytes: usize, max_rules: usize) ->
     findings
 }
 
-type Failure<'i> = ParseError<'i, Problem>;
+/// Boxed, so a parse result stays small on the recursive walk.
+type Failure<'i> = ParseError<'i, Box<Problem>>;
 
 fn reject<'i>(parser: &Parser<'i, '_>, problem: Problem) -> Failure<'i> {
-    parser.new_custom_error(problem)
+    parser.new_custom_error(Box::new(problem))
 }
 
 fn is_end<'i>(result: &Result<&Token<'i>, cssparser::BasicParseError<'i>>) -> bool {
@@ -798,7 +799,7 @@ impl Walk {
 
     fn record(&mut self, error: Failure<'_>) {
         let problem = match error.kind {
-            ParseErrorKind::Custom(problem) => problem,
+            ParseErrorKind::Custom(problem) => *problem,
             ParseErrorKind::Basic(_) => Problem::Syntax,
         };
         self.push(error.location.line + 1, Severity::Error, problem);

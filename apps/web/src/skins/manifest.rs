@@ -171,14 +171,15 @@ fn plain(text: &str, max: usize) -> bool {
 }
 
 impl Manifest {
-    pub fn from_toml(text: &str) -> Result<Self, Finding> {
+    /// Reads `skin.toml`; the error is the one finding that says why it cannot be read.
+    pub fn from_toml(text: &str) -> Result<Self, Vec<Finding>> {
         toml::from_str(text).map_err(|error| {
-            finding(
+            vec![finding(
                 Severity::Error,
                 Problem::ManifestSyntax {
                     detail: error.message().to_owned(),
                 },
-            )
+            )]
         })
     }
 
@@ -380,7 +381,7 @@ avatar_shape = "circle"
                 .into_iter()
                 .map(|f| f.problem)
                 .collect(),
-            Err(finding) => vec![finding.problem],
+            Err(findings) => findings.into_iter().map(|f| f.problem).collect(),
         }
     }
 

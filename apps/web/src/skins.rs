@@ -179,7 +179,7 @@ pub fn from_files<'a>(
                     },
                 )]);
             }
-            manifest = Some(Manifest::from_toml(text).map_err(|finding| vec![finding])?);
+            manifest = Some(Manifest::from_toml(text)?);
         } else if path == "skin.css" {
             css = text.to_owned();
         } else if let Some(name) = path
@@ -555,6 +555,61 @@ fn compile(
         }
     }
     out.push_str("}\n");
+    out
+}
+
+/// Reads a skin directory or a pack file and checks it as a skin of `source` (`gono-forum-cli skin check` and
+/// `skin pack`). The draft is `None` when the files could not be read at all.
+pub fn check_path(path: &Path, source: Source) -> (Option<Draft>, Checked) {
+    let read = if path.is_dir() {
+        read_dir(path)
+    } else {
+        match std::fs::metadata(path) {
+            Ok(meta) if meta.len() > MAX_PACK_BYTES as u64 => Err(vec![error(
+                "",
+                Problem::PackTooLong {
+                    kib: MAX_PACK_BYTES / 1024,
+                },
+            )]),
+            _ => std::fs::read_to_string(path)
+                .map_err(|error_| {
+                    vec![error(
+                        "",
+                        Problem::PackSyntax {
+                            detail: error_.to_string(),
+                        },
+                    )]
+                })
+                .and_then(|text| from_pack(&text).map(|draft| (draft, Vec::new()))),
+        }
+    };
+    match read {
+        Ok((draft, mut found)) => {
+            let mut checked = check(&draft, source, None);
+            found.append(&mut checked.findings);
+            checked.findings = found;
+            (Some(draft), checked)
+        }
+        Err(findings) => (None, Checked::failed(findings)),
+    }
+}
+
+/// A plain-text report of a check, one finding per line, for the command line.
+pub fn report(checked: &Checked) -> String {
+    let t = crate::i18n::current();
+    let mut out = String::new();
+    for finding in &checked.findings {
+        let kind = match finding.severity {
+            Severity::Error => "error",
+            Severity::Warning => "warning",
+        };
+        out.push_str(&format!("{kind}: {}\n", finding.text(t)));
+    }
+    out.push_str(&format!(
+        "{} errors, {} warnings\n",
+        checked.errors().count(),
+        checked.warnings().count()
+    ));
     out
 }
 
