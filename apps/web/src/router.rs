@@ -27,6 +27,7 @@ mod moderation;
 pub mod my;
 mod nav_fit;
 mod organization;
+mod page_data;
 mod posting;
 mod privacy;
 mod reading;
@@ -511,6 +512,9 @@ struct PageMeta<'a> {
     /// nothing is output when empty. Thread pages have `DiscussionForumPosting` then `BreadcrumbList`, forum pages
     /// `BreadcrumbList`, indexable profile pages `ProfilePage`.
     json_ld: Vec<String>,
+    /// The page data block (docs/skins.md, "Page data"): the kind of page and its ids; handlers of the home, board,
+    /// search, thread and member pages fill it, every other page is `other`.
+    page_data: page_data::PageData,
     /// Feeds for `<link rel="alternate">` autodiscovery, given only on the home page and forum lists.
     feeds: Vec<syndication::FeedLink>,
     read_only_message: String,
@@ -852,6 +856,7 @@ fn meta<'a>(
         og_type: "website",
         profile_username: String::new(),
         json_ld: Vec::new(),
+        page_data: page_data::PageData::default(),
         feeds: Vec::new(),
         read_only_message: if state.frame.settings.site.read_only {
             state
@@ -999,6 +1004,11 @@ impl PageMeta<'_> {
             Markup::text(query),
             Markup::text(text)
         ))
+    }
+
+    /// The page data block's JSON, escaped for `<script type="application/json">` (docs/skins.md, "Page data").
+    fn page_data_json(&self) -> String {
+        self.page_data.json(self)
     }
 
     /// A shown time inside a translated sentence, for its `*_html` slot: `text` in a `<time>` element whose
@@ -1687,6 +1697,11 @@ async fn browse(
         _ => state.frame.settings.site.description.clone(),
     };
     let mut page_meta = meta(&state, title, description, &path, slug, q);
+    page_meta.page_data = match current_forum {
+        _ if search => page_data::PageData::list(page_data::Kind::Search, None, route.page()),
+        Some(f) => page_data::PageData::list(page_data::Kind::Board, Some(f.fid), route.page()),
+        None => page_data::PageData::list(page_data::Kind::Home, None, route.page()),
+    };
     // A forum page's canonical points to its canonical domain (multi-domain sites).
     let forum_top = current_forum
         .filter(|_| !search)
@@ -2863,6 +2878,8 @@ async fn topic_response(
                 "",
             );
             p.og_type = "article";
+            p.page_data =
+                page_data::PageData::thread(thread, (page, page_count), page_floors(thread, &rows));
             // The thread page's canonical and structured data point to the canonical domain of its forum (multi-domain
             // sites).
             let top = state
@@ -2975,6 +2992,25 @@ async fn topic_response(
     } else {
         render(&template)
     }
+}
+
+/// The floors a thread page shows, for its page data block: the opening post, then each reply followed by its nested
+/// replies, in page order.
+fn page_floors(thread: &Thread, rows: &[Reply<'_>]) -> Vec<page_data::Floor> {
+    let opening = page_data::Floor::new(
+        1,
+        u64::try_from(thread.first_pid).unwrap_or(0),
+        thread.created,
+    );
+    std::iter::once(opening)
+        .chain(rows.iter().flat_map(|row| {
+            std::iter::once(row)
+                .chain(row.children.iter())
+                .map(|reply| {
+                    page_data::Floor::new(reply.post.position, reply.post.pid, reply.post.dateline)
+                })
+        }))
+        .collect()
 }
 
 fn category_url(mut path: String, category: Option<i64>) -> String {

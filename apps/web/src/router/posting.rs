@@ -1395,6 +1395,7 @@ async fn member_space(state: &AppState, path: &str) -> Response {
         "",
         "",
     );
+    p.page_data = super::page_data::PageData::member(member.uid, route.page);
     // Profile and collection pages (including pagination) whose visibility is "Everyone" are indexable for anonymous
     // visitors, regardless of freezes and the account deletion cooling-off period.
     // The indexable list in `meta` only knows paths and cannot see visibility, so it is set here after the gate

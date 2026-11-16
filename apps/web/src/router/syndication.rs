@@ -738,9 +738,13 @@ pub(super) fn profile_json_ld(
 }
 
 fn script_json(value: &serde_json::Value) -> String {
-    value
-        .to_string()
-        .replace('<', "\\u003c")
+    script_escape(&value.to_string())
+}
+
+/// JSON text made safe inside a `<script>` data block: `<`, `>` and `&` written as JSON escapes (see
+/// [`thread_json_ld`]). The page data block uses it as well.
+pub(super) fn script_escape(json: &str) -> String {
+    json.replace('<', "\\u003c")
         .replace('>', "\\u003e")
         .replace('&', "\\u0026")
 }

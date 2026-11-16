@@ -31,6 +31,8 @@
   {%- for block in p.json_ld %}
   <script type="application/ld+json">{{ block|safe }}</script>
   {%- endfor %}
+  {#- The page data block for scripts and skins (docs/skins.md, "Page data"): a data block like JSON-LD, so the CSP allows it without a nonce. #}
+  <script type="application/json" id="gonof-page">{{ p.page_data_json()|safe }}</script>
   <link rel="icon" type="image/png" sizes="32x32" href="{{ crate::site::href(p.favicon) }}">
   <link rel="apple-touch-icon" href="{{ crate::site::href(p.app_icon) }}">
   <link rel="manifest" href="{{ crate::site::base() }}/site.webmanifest">
