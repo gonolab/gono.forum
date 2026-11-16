@@ -4,10 +4,10 @@
 contract = 1
 id = "default"
 version = "1.0.0"
-# zh-CN: "Default" in Simplified Chinese.
-name = { en = "Default", zh-CN = "默认" }
-# zh-CN: "The standard look of Gono Forum." in Simplified Chinese.
-description = { en = "The standard look of Gono Forum.", zh-CN = "Gono Forum 的标准外观。" }
+# Built-in skins write only English here: their names and descriptions are translated in the translation files
+# (skin-builtin-default-name and -description in locales/<language>/skin.ftl, docs/skins.md, "The manifest").
+name = { en = "Default" }
+description = { en = "The standard look of Gono Forum." }
 author = "Gono Forum"
 license = "MIT OR Apache-2.0"
 

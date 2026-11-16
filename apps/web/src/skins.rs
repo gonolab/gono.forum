@@ -110,6 +110,11 @@ impl Skin {
         &self.manifest.id
     }
 
+    /// The name in `t` ([`display_name`]).
+    pub fn name(&self, t: crate::i18n::Lang) -> String {
+        display_name(&self.manifest, self.source, t)
+    }
+
     /// The palette to use: `wanted` when the skin has it, else its default.
     pub fn palette<'a>(&'a self, wanted: Option<&'a str>) -> &'a str {
         match wanted {
@@ -121,6 +126,29 @@ impl Skin {
     /// The stylesheet address without the deployment prefix.
     pub fn href(&self) -> String {
         format!("/skin/{}.css?v={}", self.manifest.id, self.version_hash)
+    }
+}
+
+/// The name and description of a built-in skin in `t`: messages (`skin-builtin-<id>-name` and `-description` in
+/// `locales/<language>/skin.ftl`), so built-in skins are translated like the rest of the interface and no language but
+/// English is written outside the translation files. `skin.toml` keeps the English text too, because the contract
+/// requires it and packs and the command line show it; a unit test keeps the two equal. External skins carry no
+/// translation files and write each language in their `skin.toml`. `None` for an id without messages.
+pub fn builtin_text(id: &str, t: crate::i18n::Lang) -> Option<(&'static str, &'static str)> {
+    match id {
+        DEFAULT_ID => Some((
+            t.skin_builtin_default_name(),
+            t.skin_builtin_default_description(),
+        )),
+        _ => None,
+    }
+}
+
+/// A skin's name in `t`: a built-in skin's from the translation files, any other's from its manifest.
+pub fn display_name(manifest: &Manifest, source: Source, t: crate::i18n::Lang) -> String {
+    match (source, builtin_text(&manifest.id, t)) {
+        (Source::Builtin, Some((name, _))) => name.to_owned(),
+        _ => manifest.name_in(t).to_owned(),
     }
 }
 
@@ -700,6 +728,32 @@ mod tests {
         assert_eq!(DEFAULT_SKIN.palettes, ["default"]);
     }
 
+    /// Built-in skins write only English in skin.toml, and their messages say the same in English.
+    #[test]
+    fn built_in_names_come_from_the_translation_files() {
+        let en = crate::i18n::Lang::default();
+        for (directory, checked) in BUILTIN_SKINS.iter() {
+            let skin = checked.skin.as_ref().expect("built-in skins are usable");
+            let (name, description) =
+                builtin_text(directory, en).unwrap_or_else(|| panic!("{directory} has messages"));
+            assert_eq!(
+                skin.manifest.name.keys().collect::<Vec<_>>(),
+                ["en"],
+                "{directory}"
+            );
+            assert_eq!(skin.manifest.name["en"], name, "{directory}");
+            assert_eq!(
+                skin.manifest.description.get("en").map(String::as_str),
+                Some(description),
+                "{directory}"
+            );
+            assert_eq!(skin.name(en), name);
+        }
+        let zh = crate::i18n::Lang::parse("zh-CN").unwrap();
+        assert_eq!(DEFAULT_SKIN.name(zh), zh.skin_builtin_default_name());
+        assert_ne!(DEFAULT_SKIN.name(zh), DEFAULT_SKIN.manifest.name["en"]);
+    }
+
     #[test]
     fn the_default_skin_writes_the_base_scheme_unchanged() {
         let css = &DEFAULT_SKIN.stylesheet;
@@ -764,10 +818,15 @@ mod tests {
         );
         let warnings: Vec<_> = skin.warnings.iter().map(|w| w.file.as_str()).collect();
         assert_eq!(warnings, ["skin.toml", "skin.css"]);
-        // The same draft as a built-in skin is refused for the same reasons.
+        // The same draft as a built-in skin is refused for the same reasons, and because no messages name it.
         let builtin = check(&draft, Source::Builtin, Some("ledger"));
         assert!(builtin.skin.is_none());
-        assert_eq!(builtin.errors().count(), 2);
+        assert_eq!(builtin.errors().count(), 3);
+        assert!(
+            builtin
+                .errors()
+                .any(|f| matches!(f.problem, Problem::ManifestBuiltinMessages { .. }))
+        );
         // An instance directory must be named after the id.
         assert!(
             check(&draft, Source::Instance, Some("other"))

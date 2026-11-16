@@ -30,6 +30,10 @@ apps/web/locales/
   zh-CN/              Simplified Chinese, same file names
 ```
 
+`skin.ftl` also holds the names and descriptions of the built-in skins (`skin-builtin-<id>-name` and `-description`),
+which are translated like any other message. Skins imported in the admin area or placed in the instance directory
+bring their own names in each language in their manifest instead ([skins.md](skins.md), "The manifest").
+
 A language is a directory named with its [BCP 47](https://www.rfc-editor.org/info/bcp47) tag: `de`, `fr`, `pt-BR`,
 `zh-TW`, `ar`. The tag is matched exactly, so `pt-BR` and `pt` are different languages. Use the same file names as
 `en/`; which file a message is in does not matter at run time, but keeping the same layout makes review and later

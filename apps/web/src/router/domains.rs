@@ -347,10 +347,9 @@ async fn domain_skin(state: &AppState, domain_id: i64, saved: bool) -> anyhow::R
         .map(|(_, layout)| layout)
         .filter(|layout| layout.skin.is_some());
     let (site_skin, _) = crate::skins::selection::choose(block.layout.as_ref(), None);
-    let site_name = catalog.get(site_skin).map_or_else(
-        || site_skin.to_owned(),
-        |skin| skin.manifest.name_in(t).to_owned(),
-    );
+    let site_name = catalog
+        .get(site_skin)
+        .map_or_else(|| site_skin.to_owned(), |skin| skin.name(t));
     let current = own.and_then(|layout| {
         let skin = catalog.get(layout.skin.as_deref()?)?;
         Some((skin.id(), skin.palette(layout.palette.as_deref())))

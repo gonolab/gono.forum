@@ -965,3 +965,34 @@ async fn personal_styles_sit_in_the_member_layer_after_the_skin() {
     assert_eq!(served.html, format!("@layer member {{\n{css}\n}}\n"));
     site.services.cleanup().await.unwrap();
 }
+
+#[tokio::test]
+async fn built_in_skin_names_come_from_the_translation_files() {
+    let site = Site::new(&[("ledger", &ledger_dir())]).await;
+    test_support::set_setting(site.db(), "settings.site.language", "zh-CN")
+        .await
+        .unwrap();
+    site.services.global.clear_local();
+    let zh = gono_forum_web::i18n::Lang::parse("zh-CN").unwrap();
+    let page = site.get("/manage/skins", Some(&site.admin)).await;
+    assert_eq!(page.status, StatusCode::OK);
+    let builtin = row(&page.html, "default", zh.skin_source_builtin());
+    assert!(
+        builtin.contains(&format!(
+            "<span translate=\"no\">{}</span>",
+            zh.skin_builtin_default_name()
+        )),
+        "{builtin}"
+    );
+    assert!(!builtin.contains(">Default<"), "{builtin}");
+    // The choices of the select use it too; an external skin keeps the name its manifest gives.
+    assert!(page.html.contains(&format!(
+        "<option value=\"default:default\" selected>{}</option>",
+        zh.skin_builtin_default_name()
+    )));
+    assert!(
+        row(&page.html, "ledger", zh.skin_source_instance())
+            .contains("<span translate=\"no\">Ledger</span>")
+    );
+    site.services.cleanup().await.unwrap();
+}

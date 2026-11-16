@@ -47,7 +47,11 @@ avatar_shape = "member"              # circle, rounded or square fixes every ava
 
 Unknown keys are errors. `[behaviors]` and `[layout]` are part of the contract but not supported yet: they must be
 empty. A skin brings no interface text: names and descriptions are written per language, everything else on the page
-is the core's. The manifest is stored as normalized JSON (`gonof_common_skin.manifest` and the pack).
+is the core's. Built-in skins are the exception: their `skin.toml` writes `name` and `description` only in English,
+and the names and descriptions shown in every language are the messages `skin-builtin-<id>-name` and
+`skin-builtin-<id>-description` in `locales/<language>/skin.ftl` (listed in `skins::builtin_text`; a unit test keeps
+the English message equal to `skin.toml`). External skins carry no translation files, so they write each language in
+`skin.toml`. The manifest is stored as normalized JSON (`gonof_common_skin.manifest` and the pack).
 
 ### Palettes
 
@@ -123,6 +127,7 @@ keep the site safe and the "Built on Gono Forum" line block them, and the rest a
 | The fixed values of the style guide: weights 400, 500 and 600; radii 0, 4, 6, 8, 12, 9999 px and 50%; borders 0, 1 and 2 px; body text 15px with a line height of 1.75; the design variables (`--r*`, `--container`, `--sidebar-w`, `--gap`, `--post-image-max`, `--masthead-h`, `--sticky-top`, `--safe-*`) | Blocks | Warns |
 | Selectors that depend on `aria-label`, `title` or child positions (`:nth-child()`, `:first-child`, …) rather than the classes listed below | Blocks | Warns |
 | Contrast (see below) | Blocks | Warns |
+| A built-in skin's `skin.toml` writing a name or description in a language other than English, or no `skin-builtin-<id>-*` messages for its id | Blocks | — |
 | A palette token the core does not have; a palette file the manifest does not name; a file that is not part of a skin | Warns | Warns |
 
 Problems are stored and listed as codes with their values (`gonof_common_skin.warnings` holds the warnings the

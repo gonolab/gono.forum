@@ -160,12 +160,12 @@ pub(super) fn choices(
 ) -> Vec<(String, String, bool)> {
     let mut choices = Vec::new();
     for skin in catalog.usable() {
-        let name = skin.manifest.name_in(t);
+        let name = skin.name(t);
         for palette in &skin.palettes {
             let label = if skin.palettes.len() > 1 {
                 format!("{name} · {palette}")
             } else {
-                name.to_owned()
+                name.clone()
             };
             let selected = current == Some((skin.id(), palette.as_str()));
             choices.push((format!("{}:{palette}", skin.id()), label, selected));

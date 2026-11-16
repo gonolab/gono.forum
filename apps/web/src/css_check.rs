@@ -206,6 +206,12 @@ pub enum Problem {
     ManifestMinForum {
         version: String,
     },
+    ManifestBuiltinText {
+        field: String,
+    },
+    ManifestBuiltinMessages {
+        id: String,
+    },
     PaletteSyntax {
         detail: String,
     },
@@ -328,6 +334,8 @@ impl Problem {
             Self::ManifestMinForum { version } => {
                 t.skin_manifest_min_forum(version.as_str(), crate::VERSION)
             }
+            Self::ManifestBuiltinText { field } => t.skin_manifest_builtin_text(field.as_str()),
+            Self::ManifestBuiltinMessages { id } => t.skin_manifest_builtin_messages(id.as_str()),
             Self::PaletteSyntax { detail } => t.skin_palette_syntax(detail.as_str()),
             Self::PaletteTooLong { kib } => t.skin_palette_too_long(*kib),
             Self::PaletteMissing { name } => t.skin_palette_missing(name.as_str()),

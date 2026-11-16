@@ -983,14 +983,10 @@ fn meta<'a>(
             skin.palettes[0].clone()
         },
         skin,
-        skin_preview: state.frame.preview.then(|| {
-            state
-                .frame
-                .skin
-                .manifest
-                .name_in(crate::i18n::current())
-                .to_owned()
-        }),
+        skin_preview: state
+            .frame
+            .preview
+            .then(|| state.frame.skin.name(crate::i18n::current())),
         custom_style: custom_style::href(state, path),
     }
 }

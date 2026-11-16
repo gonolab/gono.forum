@@ -9,6 +9,11 @@ skin-source-instance = Instance directory
 skin-mode-light = light mode
 skin-mode-dark = dark mode
 
+## The names and descriptions of the built-in skins (apps/web/skins/<id>/), shown in the admin area and the preview
+## bar. External skins write their own names in each language in skin.toml.
+skin-builtin-default-name = Default
+skin-builtin-default-description = The standard look of Gono Forum.
+
 ## Problems found in a skin. $file is the file of the skin (skin.toml, palettes/<name>.json, skin.css), $text the
 ## problem.
 skin-finding-file = { $file }: { $text }
@@ -54,6 +59,10 @@ skin-manifest-value = { $field } has an invalid value
 skin-manifest-unsupported = { $field } is not supported by this version of Gono Forum
 # $version is the version the skin needs, $current the running one.
 skin-manifest-min-forum = The skin needs Gono Forum { $version } or later; this is { $current }
+# $field is name or description.
+skin-manifest-builtin-text = A built-in skin writes { $field } only in English (en): its other languages are translations in skin.ftl
+# $id is the skin's id.
+skin-manifest-builtin-messages = The built-in skin { $id } has no name in the translation files: add skin-builtin-{ $id }-name and -description to skin.ftl and to the list in skins.rs
 
 skin-palette-syntax = The palette cannot be read: { $detail }
 skin-palette-too-long = The palettes can be at most { $max } KiB together

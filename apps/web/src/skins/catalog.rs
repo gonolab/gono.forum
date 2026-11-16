@@ -84,7 +84,7 @@ impl Listed {
     pub fn name(&self, t: crate::i18n::Lang) -> String {
         self.manifest.as_ref().map_or_else(
             || self.id.clone(),
-            |manifest| manifest.name_in(t).to_owned(),
+            |manifest| super::display_name(manifest, self.source, t),
         )
     }
 

@@ -5,6 +5,9 @@ skin-source-instance = 实例目录
 skin-mode-light = 浅色模式
 skin-mode-dark = 深色模式
 
+skin-builtin-default-name = 默认
+skin-builtin-default-description = Gono Forum 的标准外观。
+
 skin-finding-file = { $file }：{ $text }
 skin-more-findings = { $count ->
    *[other] 另有 { $count } 处问题
@@ -35,6 +38,8 @@ skin-manifest-text = { $field } 含有未知的语言标签、空文字或过长
 skin-manifest-value = { $field } 的值无效
 skin-manifest-unsupported = 当前版本的 Gono Forum 不支持 { $field }
 skin-manifest-min-forum = 皮肤需要 Gono Forum { $version } 或更新版本；当前是 { $current }
+skin-manifest-builtin-text = 内置皮肤的 { $field } 只写英文（en）：其他语言写在 skin.ftl 的翻译里
+skin-manifest-builtin-messages = 翻译文件里没有内置皮肤 { $id } 的名称：请在 skin.ftl 加上 skin-builtin-{ $id }-name 和 -description，并加进 skins.rs 的列表
 
 skin-palette-syntax = 无法读取配色：{ $detail }
 skin-palette-too-long = 所有配色合计最多 { $max } KiB

@@ -321,6 +321,27 @@ impl Manifest {
                 field: "layout".into(),
             });
         }
+        // A built-in skin writes only English here; its names are messages (`super::builtin_text`), which must exist.
+        if trust == Trust::Builtin {
+            for (field, texts) in [("name", &self.name), ("description", &self.description)] {
+                if texts.keys().any(|tag| tag != "en") {
+                    findings.push(finding(
+                        Severity::Error,
+                        Problem::ManifestBuiltinText {
+                            field: field.into(),
+                        },
+                    ));
+                }
+            }
+            if super::builtin_text(&self.id, crate::i18n::Lang::default()).is_none() {
+                findings.push(finding(
+                    Severity::Error,
+                    Problem::ManifestBuiltinMessages {
+                        id: self.id.clone(),
+                    },
+                ));
+            }
+        }
         // A built-in skin keeps the header the core measured (docs/styles.md, "Header navigation widths").
         if self.frame.masthead_height.is_some() {
             findings.push(finding(
@@ -383,10 +404,11 @@ avatar_shape = "circle"
         assert_eq!(serde_json::from_str::<Manifest>(&json).unwrap(), manifest);
     }
 
+    /// The problems of a manifest checked as an external skin (the built-in rules are tested on their own below).
     fn problems(text: &str) -> Vec<Problem> {
         match Manifest::from_toml(text) {
             Ok(manifest) => manifest
-                .check(Trust::Builtin)
+                .check(Trust::External)
                 .into_iter()
                 .map(|f| f.problem)
                 .collect(),
@@ -434,14 +456,42 @@ avatar_shape = "circle"
             problems(&format!("{base}color = \"red\"\n"))[..],
             [Problem::ManifestSyntax { .. }]
         ));
+        // Built-in skins write only English and need messages for their id; external skins write any language.
+        let builtin = |text: &str| {
+            Manifest::from_toml(text)
+                .unwrap()
+                .check(Trust::Builtin)
+                .into_iter()
+                .map(|f| f.problem)
+                .collect::<Vec<_>>()
+        };
+        let default = base.replace("\"ledger\"", "\"default\"");
+        assert_eq!(builtin(&default), []);
+        assert!(matches!(
+            builtin(&default.replace("en = \"Ledger\"", "en = \"Ledger\", fr = \"Registre\""))[..],
+            [Problem::ManifestBuiltinText { .. }]
+        ));
+        assert!(matches!(
+            builtin(base)[..],
+            [Problem::ManifestBuiltinMessages { .. }]
+        ));
+        let external = Manifest::from_toml(
+            &base.replace("en = \"Ledger\"", "en = \"Ledger\", fr = \"Registre\""),
+        )
+        .unwrap();
+        assert_eq!(external.check(Trust::External), []);
         // A declared header height is a style rule: it blocks built-in skins and warns for the others.
         let manifest =
             Manifest::from_toml(&format!("{base}[frame]\nmasthead_height = \"52px\"\n")).unwrap();
-        assert_eq!(manifest.check(Trust::Builtin)[0].severity, Severity::Error);
-        assert_eq!(
-            manifest.check(Trust::External)[0].severity,
-            Severity::Warning
-        );
+        let severity = |trust| {
+            manifest
+                .check(trust)
+                .into_iter()
+                .find(|f| matches!(f.problem, Problem::MastheadSize { .. }))
+                .map(|f| f.severity)
+        };
+        assert_eq!(severity(Trust::Builtin), Some(Severity::Error));
+        assert_eq!(severity(Trust::External), Some(Severity::Warning));
     }
 
     #[test]
