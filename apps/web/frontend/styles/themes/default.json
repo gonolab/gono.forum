@@ -26,7 +26,6 @@
     "--avatar-green-text": "#007a4e",
     "--avatar-amber-bg": "#fff4c4",
     "--avatar-amber-text": "#746019",
-    "--sticky-top": "60px",
     "--danger-text": "#c0392b",
     "--input-bg": "var(--panel)",
     "--input-text": "var(--text)",

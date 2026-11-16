@@ -164,8 +164,23 @@ window.addEventListener('hashchange', flashTargetFloor);
 // replaceState, without adding history entries. The floor container is looked up on every use: boosted navigation
 // swaps the whole body (a thread opened from the home page has no container at DOMContentLoaded), and a reply
 // replaces the floor list. Each page load and swap starts over, so no anchor or timer of the page before is used.
+// The height the sticky header covers, declared in CSS as --sticky-top (docs/skins.md, "Sticky header") rather than
+// measured from the header, so a layout without the top header can declare its own. The stylesheet registers it as a
+// length, so it reads back resolved ("61px"); a browser without @property returns the calc() as written, and a probe
+// element lets the browser resolve that.
+function stickyTop() {
+  const value = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sticky-top'));
+  if (Number.isFinite(value)) return value;
+  const probe = document.createElement('div');
+  probe.style.setProperty('position', 'absolute');
+  probe.style.setProperty('visibility', 'hidden');
+  probe.style.setProperty('block-size', 'var(--sticky-top)');
+  document.documentElement.append(probe);
+  const height = probe.getBoundingClientRect().height;
+  probe.remove();
+  return height || 0;
+}
 {
-  const headerBottom = () => document.querySelector('.masthead')?.getBoundingClientRect().bottom || 0;
   const repliesList = () => document.getElementById('topic-replies');
   let anchor = null;
   let offset = 0;
@@ -175,7 +190,7 @@ window.addEventListener('hashchange', flashTargetFloor);
   let height = innerHeight;
   function locate() {
     const replies = repliesList();
-    const header = headerBottom();
+    const header = stickyTop();
     const floors = replies ? [...replies.querySelectorAll('[id^="floor-"]')] : [];
     // A floor showing only its bottom edge does not count as "being read"; a threshold of about one line of text
     // avoids jitter at the boundary.
@@ -216,7 +231,7 @@ window.addEventListener('hashchange', flashTargetFloor);
     resizeTimer = setTimeout(() => {
       resizeTimer = 0;
       if (!anchor?.isConnected) return;
-      const top = scrollY + anchor.getBoundingClientRect().top - headerBottom() - offset;
+      const top = scrollY + anchor.getBoundingClientRect().top - stickyTop() - offset;
       scrollTo({ top: Math.max(0, top), behavior: 'instant' });
     }, 120);
   });
@@ -549,4 +564,13 @@ function waitForUpgrade() {
   upgradeWait = setTimeout(poll, 3000);
 }
 document.addEventListener('DOMContentLoaded', waitForUpgrade);
+
+// Fixed events for page scripts and skins (docs/skins.md, "Script events"), both dispatched on document and
+// registered last, so they come after this file's own handlers: gonof:ready once the page has loaded, gonof:swap
+// after every HTMX swap has settled, with the swapped element as detail.target (document.body after a boosted
+// navigation).
+document.addEventListener('DOMContentLoaded', () => document.dispatchEvent(new CustomEvent('gonof:ready')));
+document.addEventListener('htmx:afterSettle', event => {
+  document.dispatchEvent(new CustomEvent('gonof:swap', { detail: { target: event.detail?.target ?? null } }));
+});
 })();

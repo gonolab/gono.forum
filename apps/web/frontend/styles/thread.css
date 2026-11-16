@@ -93,7 +93,7 @@
   column-gap: 12px;
   align-items: start;
   min-inline-size: 0;
-  scroll-margin-block-start: calc(var(--sticky-top) + var(--safe-top) + 12px);
+  scroll-margin-block-start: calc(var(--sticky-top) + 11px);
 }
 
 .floor > .row-avatar {
@@ -588,7 +588,7 @@ summary.mod-tools__link::-webkit-details-marker {
   grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   min-inline-size: 0;
-  scroll-margin-block-start: calc(var(--sticky-top) + var(--safe-top) + 12px);
+  scroll-margin-block-start: calc(var(--sticky-top) + 11px);
 }
 
 .spotlight,
@@ -752,7 +752,7 @@ summary.mod-tools__link::-webkit-details-marker {
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   padding: 16px;
-  scroll-margin-block-start: calc(var(--sticky-top) + var(--safe-top) + 12px);
+  scroll-margin-block-start: calc(var(--sticky-top) + 11px);
 }
 
 .reply-box__title {

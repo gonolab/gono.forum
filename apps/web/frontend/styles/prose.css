@@ -336,5 +336,5 @@
 
 /* Members get the editor directly; guests, unverified members and locked threads get a boxed notice instead. */
 .reply-editor {
-  scroll-margin-block-start: calc(72px + var(--safe-top));
+  scroll-margin-block-start: calc(var(--sticky-top) + 11px);
 }

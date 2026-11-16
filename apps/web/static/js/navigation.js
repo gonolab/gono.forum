@@ -23,6 +23,22 @@
   const position = entry.position;
   const restoring = initialRestore && !location.hash && Number.isFinite(position?.y);
   if (restoring) history.scrollRestoration = 'manual';
+  // The height the sticky header covers, declared in CSS as --sticky-top (docs/skins.md, "Sticky header") rather than
+  // measured from the header, so a layout without the top header can declare its own. The stylesheet registers it as a
+  // length, so it reads back resolved ("61px"); a browser without @property returns the calc() as written, and a probe
+  // element lets the browser resolve that.
+  function stickyTop() {
+    const value = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sticky-top'));
+    if (Number.isFinite(value)) return value;
+    const probe = document.createElement('div');
+    probe.style.setProperty('position', 'absolute');
+    probe.style.setProperty('visibility', 'hidden');
+    probe.style.setProperty('block-size', 'var(--sticky-top)');
+    document.documentElement.append(probe);
+    const height = probe.getBoundingClientRect().height;
+    probe.remove();
+    return height || 0;
+  }
 
   function write() {
     try { history.replaceState({ ...history.state, [key]: entry }, ''); }
@@ -34,7 +50,7 @@
     const list = document.querySelector('[data-scroll-list]');
     if (list) {
       const items = [...list.querySelectorAll('[data-thread-id]')];
-      const header = document.querySelector('.masthead')?.getBoundingClientRect().bottom || 0;
+      const header = stickyTop();
       const anchor = items.find(item => item.dataset.threadId === departure)
         || items.find(item => item.getBoundingClientRect().bottom > header);
       entry.position = { y: scrollY, tid: anchor?.dataset.threadId, offset: anchor?.getBoundingClientRect().top };
@@ -107,7 +123,7 @@
       if (!cancelled && !reloading) {
         const anchor = [...document.querySelectorAll('[data-scroll-list] [data-thread-id]')]
           .find(item => item.dataset.threadId === position.tid);
-        const header = document.querySelector('.masthead')?.getBoundingClientRect().bottom || 0;
+        const header = stickyTop();
         const lowest = anchor ? header - anchor.getBoundingClientRect().height + 1 : header;
         const offset = Math.max(lowest, Math.min(position.offset ?? header, innerHeight - 24));
         const top = anchor ? scrollY + anchor.getBoundingClientRect().top - offset : position.y;

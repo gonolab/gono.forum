@@ -212,7 +212,7 @@ span.social-control {
   grid-column: 2;
   grid-row: 1;
   position: sticky;
-  inset-block-start: calc(var(--sticky-top) + 16px);
+  inset-block-start: calc(var(--sticky-top) + 15px);
 }
 
 /* Reading width shared by the explanatory pages. */

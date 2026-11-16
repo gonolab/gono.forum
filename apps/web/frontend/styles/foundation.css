@@ -25,3 +25,18 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
 }
+
+/* The height the sticky header covers at the top of the viewport (docs/skins.md, "Sticky header"): the header itself
+   (--masthead-h, which frame.css sets per breakpoint beside the header's sizes) plus the safe area above it. Sticky
+   asides and anchor targets leave it free (scroll margins add 11px and sticky asides 15px, 72px and 76px from the top
+   under the desktop header), and site.js and navigation.js read it instead of measuring the header. Registered as a
+   length so that scripts get the resolved value ("61px"), not the calc() written here. */
+@property --sticky-top {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+:root {
+  --sticky-top: calc(var(--masthead-h) + var(--safe-top));
+}

@@ -425,7 +425,7 @@ select.control:dir(rtl) {
   border-radius: var(--r);
   background: var(--panel);
   box-shadow: var(--shadow-base);
-  scroll-margin-block-start: calc(72px + var(--safe-top));
+  scroll-margin-block-start: calc(var(--sticky-top) + 11px);
 }
 
 .panel__title {
@@ -1267,7 +1267,7 @@ a.row-title:hover {
 
 .layout--sticky > .layout__aside {
   position: sticky;
-  inset-block-start: calc(var(--sticky-top) + 16px);
+  inset-block-start: calc(var(--sticky-top) + 15px);
 }
 
 /* ------------------------------------------------------------------ */

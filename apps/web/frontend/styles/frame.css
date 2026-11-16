@@ -78,6 +78,12 @@ html[data-history-revalidating] body {
 /* ------------------------------------------------------------------ */
 
 /* site.js and navigation.js read the bottom edge of .masthead as the sticky header's edge. */
+/* The header's height with its bottom border, without the safe area; --sticky-top (foundation.css) is built from it.
+   The breakpoints below lower it together with the header's other sizes. */
+:root {
+  --masthead-h: 61px;
+}
+
 .masthead {
   position: sticky;
   inset-block-start: 0;
@@ -93,7 +99,8 @@ html[data-history-revalidating] body {
   display: flex;
   align-items: center;
   gap: 12px;
-  block-size: 60px;
+  /* The masthead's 1px bottom border is the rest of --masthead-h. */
+  block-size: calc(var(--masthead-h) - 1px);
 }
 
 .masthead__brand {
@@ -1053,9 +1060,12 @@ html[data-theme="dark"] .theme-switch__dark {
     padding-inline: max(16px, var(--safe-left), var(--safe-right));
   }
 
+  :root {
+    --masthead-h: 57px;
+  }
+
   .masthead__inner {
     gap: 10px;
-    block-size: 56px;
   }
 
   .masthead__boards {
@@ -1114,9 +1124,12 @@ html[data-theme="dark"] .theme-switch__dark {
     padding-block: 12px 32px;
   }
 
+  :root {
+    --masthead-h: 53px;
+  }
+
   .masthead__inner {
     gap: 6px;
-    block-size: 52px;
   }
 
   .masthead__tools {
