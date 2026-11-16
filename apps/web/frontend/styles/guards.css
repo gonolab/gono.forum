@@ -11,8 +11,8 @@
 /* Visually hidden text stays out of sight and in the accessibility tree. */
 .sr-only {
   position: absolute !important;
-  width: 1px !important;
-  height: 1px !important;
+  inline-size: 1px !important;
+  block-size: 1px !important;
   padding: 0 !important;
   overflow: hidden !important;
   clip-path: inset(50%) !important;
