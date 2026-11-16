@@ -4,6 +4,30 @@ What changed in each release of Gono Forum. A version's section is also the titl
 (see "Publishing a release" in [docs/releasing.md](docs/releasing.md)), so links in a section are absolute: the
 release page does not resolve relative ones.
 
+## 0.1.3 (early alpha)
+
+The update page waits through the restart of a one-click upgrade, and the footer performance line is shorter.
+
+### Fixed
+
+- During a one-click upgrade the update page no longer stops on the reverse proxy's 502 page while the service
+  restarts: it waits until the new version answers, then reloads. The waiting page is served by the version being
+  replaced, so this takes effect for upgrades from 0.1.3 on; when upgrading from an earlier version, reload the page
+  by hand if it shows a 502. Without JavaScript the page still reloads every 3 seconds.
+- Reloading the update page after an upgrade no longer repeats "The upgrade has started".
+
+### Changed
+
+- The optional footer performance line (Appearance › Display) is shorter: a lightning icon, then
+  "19.1 ms · MySQL 11 · Redis 23", with a tooltip saying what the figures are. Without Redis the Redis count is left
+  out.
+- The footer says "Built on Gono Forum" instead of "Powered by Gono Forum".
+
+### Upgrading from 0.1.2
+
+No database migrations. As with every upgrade during the alpha, back up the database and the instance directory
+first ([docs/install.md](https://github.com/gonolab/gono.forum/blob/v0.1.3/docs/install.md), "Files to back up").
+
 ## 0.1.2 (early alpha)
 
 Participation requirements can be left empty.
