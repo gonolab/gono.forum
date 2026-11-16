@@ -8,7 +8,7 @@
   {% for row in rows %}
     <li class="rows__item" data-member-uid="{{ row.uid }}">
       <span class="row-avatar">{% let avatar = row.avatar %}{% include "partials/avatar.html" %}</span>
-      <div class="row-body"><div class="row-headline"><a class="row-title" href="{{ crate::site::href(row.avatar.profile_href) }}" translate="no">{{ row.username }}</a></div><p class="row-meta"><span>UID {{ row.uid }}</span><span>{{ p.t.profile_joined(row.joined) }}</span></p>{% if !row.bio.is_empty() %}<p class="row-excerpt">{{ row.bio }}</p>{% endif %}</div>
+      <div class="row-body"><div class="row-headline"><a class="row-title" href="{{ crate::site::href(row.avatar.profile_href) }}" translate="no">{{ row.username }}</a></div><p class="row-meta"><span>UID {{ row.uid }}</span><span>{{ p.t.profile_joined(p.time_tag(row.joined_at, row.joined))|safe }}</span></p>{% if !row.bio.is_empty() %}<p class="row-excerpt">{{ row.bio }}</p>{% endif %}</div>
     </li>
   {% else %}<li class="empty">{% if q.is_empty() %}{{ p.t.search_members_prompt() }}{% else %}{{ p.t.search_members_empty(q) }}{% endif %}</li>{% endfor %}
   </ul>

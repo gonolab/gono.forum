@@ -18,7 +18,7 @@
         <span class="row-meta__author"><svg class="meta-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg><span class="row-author" translate="no">{{ row.thread.author }}</span></span>
         <span class="row-meta__board"><a href="{{ crate::site::base() }}/{{ row.forum_slug }}">{{ row.forum_name }}</a></span>
         <span class="row-meta__replies" aria-label="{{ p.t.home_replies_label(row.thread.reply_count) }}"><span class="stat">{{ p.t.home_replies_short(p.stat_value(row.thread.reply_count), p.stat_label(p.t.home_replies_short_label(row.thread.reply_count)))|safe }}</span></span>
-        <span class="row-meta__time">{{ row.time }}</span>
+        <time class="row-meta__time" datetime="{{ crate::clock::iso(row.thread.updated as i64) }}">{{ row.time }}</time>
       </p>
     </div>
     {#- Optional board badge, as in the main list: it stands in for .row-meta__board (docs/skins.md, "Optional elements"). #}

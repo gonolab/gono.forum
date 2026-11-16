@@ -1090,6 +1090,8 @@ struct UserRow {
     title: String,
     excerpt: String,
     time: String,
+    /// The post time as a timestamp, for the `datetime` of the shown time.
+    dateline: u64,
     forum_name: String,
     forum_slug: String,
     category: &'static str,
@@ -1114,6 +1116,8 @@ struct UserTemplate<'a> {
     /// Escaped bio HTML with addresses already wrapped as links (`bio::html`).
     bio: String,
     joined: String,
+    /// The sign-up time as a timestamp, for the `datetime` of the shown date.
+    joined_at: i64,
     own_profile: bool,
     stats: content::MemberStats,
     /// Level and growth points, queried only after the space visibility gate.
@@ -1306,6 +1310,7 @@ async fn member_space(state: &AppState, path: &str) -> Response {
                 crate::markdown::excerpt(&post.message, &names, 180)
             },
             time: post.time,
+            dateline: post.dateline,
             forum_name: post.forum_name,
             forum_slug: post.forum_slug,
             category: content::category_label(post.category),
@@ -1429,6 +1434,7 @@ async fn member_space(state: &AppState, path: &str) -> Response {
         uid: member.uid,
         bio: crate::bio::html(&member.bio),
         joined: crate::clock::date(member.regdate, &crate::clock::current()),
+        joined_at: member.regdate,
         stats,
         level,
         next_level,

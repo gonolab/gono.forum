@@ -117,7 +117,7 @@
                 {%- if !row.thread.last_reply_author.is_empty() %}
                 <span class="row-meta__last" translate="no">{% include "partials/user_icon.html" %}{{ row.thread.last_reply_author }}</span>
                 {%- endif %}
-                <span class="row-meta__time" title="{{ row.time_title }}">{{ row.time }}</span>
+                <time class="row-meta__time" datetime="{{ crate::clock::iso(row.thread.updated as i64) }}" title="{{ row.time_title }}">{{ row.time }}</time>
               </p>
               {%- if !row.thumbs.is_empty() %}
               <div class="row-thumbs">{% for thumb in row.thumbs %}<img class="row-thumb" src="{{ crate::site::href(thumb.url) }}" alt="" width="{{ thumb.width }}" height="{{ thumb.height }}" loading="lazy" decoding="async">{% endfor %}</div>

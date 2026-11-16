@@ -54,7 +54,7 @@
               {%- endfor %}
               <span class="tag floor__op">{{ p.t.topic_author() }}</span>
             </span>
-            <span class="row-time">{{ thread.created_time }}</span>
+            <time class="row-time" datetime="{{ crate::clock::iso(thread.created as i64) }}">{{ thread.created_time }}</time>
             {%- if thread.edited_at > 0 %}
             <span class="floor__edited">{{ p.t.topic_edited() }}</span>
             {%- endif %}
@@ -128,7 +128,7 @@
                   <span class="tag tag--honor" title="{{ honor.description }}" data-honor-badge>{{ honor.name }}</span>
                   {%- endfor %}
                 </span>
-                <span class="row-time">{{ row.post.time }}</span>
+                <time class="row-time" datetime="{{ crate::clock::iso(row.post.dateline as i64) }}">{{ row.post.time }}</time>
                 {%- if row.post.edited_at > 0 && !row.post.hidden && !row.post.withdrawn %}
                 <span class="floor__edited">{{ p.t.topic_edited() }}</span>
                 {%- endif %}
@@ -195,7 +195,7 @@
                         <span class="tag tag--honor" title="{{ honor.description }}" data-honor-badge>{{ honor.name }}</span>
                         {%- endfor %}
                       </span>
-                      <span class="row-time">{{ child.post.time }}</span>
+                      <time class="row-time" datetime="{{ crate::clock::iso(child.post.dateline as i64) }}">{{ child.post.time }}</time>
                       {%- if child.post.edited_at > 0 && !child.post.hidden && !child.post.withdrawn %}
                       <span class="floor__edited">{{ p.t.topic_edited() }}</span>
                       {%- endif %}

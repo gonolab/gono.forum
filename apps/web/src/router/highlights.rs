@@ -7,6 +7,8 @@ pub(super) struct Row {
     pub position: usize,
     pub author: String,
     pub time: String,
+    /// The post time as a timestamp, for the `datetime` of the shown time.
+    pub dateline: u64,
     pub avatar: AvatarView,
     pub href: String,
     pub summary: String,
@@ -80,6 +82,7 @@ async fn render_ranked(
                 position: post.position,
                 author: post.author.clone(),
                 time: post.time.clone(),
+                dateline: post.dateline,
                 // Highlighted replies come from the floor data; like floors, the avatar is served by uid (2026-11-08).
                 avatar: list_avatar(post.authorid.filter(|_| !post.author_deleted), &post.author),
                 href,

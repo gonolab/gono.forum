@@ -1751,6 +1751,8 @@ pub struct MemberPost {
     pub subject: String,
     pub message: String,
     pub time: String,
+    /// The post time as a timestamp, for the `datetime` of the shown time.
+    pub dateline: u64,
     pub forum_name: String,
     pub forum_slug: String,
     pub category: i64,
@@ -1838,6 +1840,7 @@ fn decode_member_post(row: DbRow, paging: crate::urls::Paging) -> Result<MemberP
     let root_position = root_position(&row)?;
     let sub_position =
         usize::try_from(row.try_get::<Option<i64>, _>("sub_position")?.unwrap_or(0))?;
+    let dateline = u64::try_from(row.try_get::<i64, _>("dateline")?)?;
     ensure!(
         position > 0
             && (position == 1 || root_position > 0)
@@ -1865,7 +1868,8 @@ fn decode_member_post(row: DbRow, paging: crate::urls::Paging) -> Result<MemberP
             row.try_get("subject")?
         },
         message: decode_text(&row, "message")?,
-        time: display_time(u64::try_from(row.try_get::<i64, _>("dateline")?)?)?,
+        time: display_time(dateline)?,
+        dateline,
         forum_name: row.try_get("forum_name")?,
         forum_slug: row.try_get("forum_slug")?,
         category: row.try_get("category")?,

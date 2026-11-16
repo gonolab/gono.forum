@@ -6,7 +6,8 @@ profile-view-threads = Threads
 profile-view-replies = Replies
 profile-deleted = This account has been deleted
 # When a member joined; $date is a date.
-profile-joined = Joined { $date }
+# When the member signed up; $date_html is the date in a <time> element.
+profile-joined = Joined { $date_html }
 # A verification badge; $category is the verified kind (merchant, blogger and so on).
 profile-verified = Verified { $category }
 profile-frozen = Frozen

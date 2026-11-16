@@ -36,6 +36,8 @@ struct MemberRow {
     uid: i64,
     avatar: AvatarView,
     joined: String,
+    /// The sign-up time as a timestamp, for the `datetime` of the shown date.
+    joined_at: i64,
     bio: String,
 }
 
@@ -102,6 +104,7 @@ async fn member_search_page(
                 &member.username,
             ),
             joined: crate::clock::date(member.regdate, &clock),
+            joined_at: member.regdate,
             uid: member.uid,
             username: member.username,
             bio: member.bio,

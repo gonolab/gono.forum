@@ -25,7 +25,7 @@
             </p>
             <p class="person__role">
               <span>UID {{ uid }}</span>
-              <span>{{ p.t.profile_joined(joined) }}</span>
+              <span>{{ p.t.profile_joined(p.time_tag(joined_at, joined))|safe }}</span>
               {%- if !presence.is_empty() %}
               <span data-presence>{{ presence }}</span>
               {%- endif %}
@@ -123,7 +123,7 @@
             <p class="row-meta">
               {#- Shown only where the board chip at the row end is hidden (narrow screens). #}
               <a class="profile__meta-board row-meta__board" href="{{ crate::site::base() }}/{{ row.forum_slug }}">{{ row.forum_name }}</a>
-              <span class="row-meta__time">{{ row.time }}</span>
+              <time class="row-meta__time" datetime="{{ crate::clock::iso(row.dateline as i64) }}">{{ row.time }}</time>
               {%- if row.position == 1 %}
               <span class="row-meta__replies"><span class="stat">{{ p.t.profile_reply_count(p.stat_value(row.replies), p.stat_label(p.t.profile_reply_count_label(row.replies)))|safe }}</span></span>
               {%- else %}

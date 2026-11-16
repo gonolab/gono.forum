@@ -393,9 +393,10 @@ pub fn day_label(timestamp: i64, now: i64, format: &TimeFormat) -> String {
 }
 
 /// The `datetime` of a `<time>` element and the times of the page data block (docs/skins.md, "Times"): the
-/// instant in UTC to the second, `2026-11-16T05:27:55Z`. Empty when the timestamp cannot be represented.
-pub fn iso(timestamp: i64) -> String {
-    chrono::DateTime::from_timestamp(timestamp, 0)
+/// instant in UTC to the second, `2026-11-16T05:27:55Z`. Empty when the timestamp cannot be represented. Takes the
+/// timestamp by value or by reference, as templates pass it.
+pub fn iso(timestamp: impl std::borrow::Borrow<i64>) -> String {
+    chrono::DateTime::from_timestamp(*timestamp.borrow(), 0)
         .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
         .unwrap_or_default()
 }

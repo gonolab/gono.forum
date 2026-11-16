@@ -1001,6 +1001,20 @@ impl PageMeta<'_> {
         ))
     }
 
+    /// A shown time inside a translated sentence, for its `*_html` slot: `text` in a `<time>` element whose
+    /// `datetime` is the instant in UTC (docs/skins.md, "Times").
+    fn time_tag(
+        &self,
+        timestamp: impl std::borrow::Borrow<i64>,
+        text: impl std::fmt::Display,
+    ) -> crate::i18n::Markup {
+        crate::i18n::Markup::trusted(format!(
+            "<time datetime=\"{}\">{}</time>",
+            crate::clock::iso(timestamp),
+            crate::i18n::Markup::text(&text.to_string())
+        ))
+    }
+
     /// The number slot of a count (docs/skins.md, "Counts"), written the way this language writes numbers, as
     /// `{ $count }` in a translation would write it.
     fn stat_value(&self, value: impl crate::i18n::Count) -> crate::i18n::Markup {
