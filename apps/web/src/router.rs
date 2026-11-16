@@ -4,6 +4,7 @@ mod api;
 mod appeals;
 mod attachments;
 mod auth;
+mod colors;
 mod custom_style;
 mod directory;
 mod domains;
@@ -338,6 +339,7 @@ pub fn build_with_updater(
         .merge(reading::routes())
         .merge(custom_style::routes())
         .merge(skins::routes())
+        .merge(colors::routes())
         .merge(forum_filters::routes())
         .merge(feed_settings::routes())
         .merge(site::routes(upload_limit))
@@ -536,7 +538,7 @@ struct PageMeta<'a> {
     /// default, so a skin that breaks the page can still be switched back there.
     skin: Arc<crate::skins::Skin>,
     palette: String,
-    /// While the administrator previews a skin: its name, for the bar at the top of every page.
+    /// While the administrator previews a skin or colors: the text of the bar at the top of every page.
     skin_preview: Option<String>,
     /// The address of the member's personal style sheet; empty when there is none, it is not the member's own, or
     /// this page does not apply it.
@@ -983,10 +985,15 @@ fn meta<'a>(
             skin.palettes[0].clone()
         },
         skin,
-        skin_preview: state
-            .frame
-            .preview
-            .then(|| state.frame.skin.name(crate::i18n::current())),
+        skin_preview: state.frame.preview.then(|| {
+            let t = crate::i18n::current();
+            let name = state.frame.skin.name(t);
+            if state.frame.preview_colors {
+                t.skin_preview_colors_bar(name)
+            } else {
+                t.skin_preview_bar(name)
+            }
+        }),
         custom_style: custom_style::href(state, path),
     }
 }

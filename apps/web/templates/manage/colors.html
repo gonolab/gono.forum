@@ -1,0 +1,42 @@
+{% extends "layout/manage.html" %}{% block panel %}
+{#- Appearance › Colors (docs/styles.md, "Seed colors"). Swatches are SVG with fill attributes, since the page's CSP allows no style attributes. #}
+{%- if success %}<p class="form-feedback form-feedback--success" role="status">{{ message }}</p>{% else if !message.is_empty() %}<p class="form-feedback" role="alert" data-colors-error>{{ message }}</p>{% endif %}
+<section class="panel" id="section-colors" aria-labelledby="section-colors-title"><h1 class="panel__title" id="section-colors-title">{{ p.t.skin_colors_heading() }}</h1>
+<p>{{ p.t.skin_colors_lead(p.link("/manage/domains", p.t.manage_module_domains()))|safe }}</p>
+<p data-colors-current>{{ current }}</p>
+<form class="fields fields--two" method="post" action="{{ crate::site::base() }}/manage/appearance/colors"><input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<div class="field">
+  <label class="field__label" for="colors-primary">{{ p.t.skin_colors_field_primary() }}</label>
+  <input class="color-field" type="color" id="colors-primary" name="primary" value="{{ primary }}" maxlength="7" pattern="#[0-9a-fA-F]{6}" required aria-describedby="colors-primary-hint" data-colors-primary>
+  <p class="field__hint" id="colors-primary-hint">{{ p.t.skin_colors_field_primary_hint() }}</p>
+</div>
+<div class="field">
+  <label class="field__label" for="colors-secondary">{{ p.t.skin_colors_field_secondary() }}</label>
+  <input class="color-field" type="color" id="colors-secondary" name="secondary" value="{{ secondary }}" maxlength="7" pattern="#[0-9a-fA-F]{6}" required aria-describedby="colors-secondary-hint" data-colors-secondary>
+  <p class="field__hint" id="colors-secondary-hint">{{ p.t.skin_colors_field_secondary_hint() }}</p>
+</div>
+<div class="form-actions"><button class="button" type="submit">{{ p.t.skin_colors_submit() }}</button><button class="button button--secondary" type="submit" formaction="{{ crate::site::base() }}/manage/appearance/colors/show">{{ p.t.skin_colors_show() }}</button><button class="button button--secondary" type="submit" formaction="{{ crate::site::base() }}/manage/appearance/colors/preview">{{ p.t.skin_colors_preview() }}</button></div>
+</form>
+{%- if seeded %}
+<form method="post" action="{{ crate::site::base() }}/manage/appearance/colors/restore" data-colors-restore><input type="hidden" name="_csrf" value="{{ p.csrf }}"><div class="form-actions"><button class="button button--secondary" type="submit">{{ p.t.skin_colors_restore() }}</button></div></form>
+{%- endif %}
+</section>
+{%- if !derived_lead.is_empty() %}
+<section class="panel" id="section-colors-derived" aria-labelledby="section-colors-derived-title"><h2 class="panel__title" id="section-colors-derived-title">{{ p.t.skin_colors_derived_heading() }}</h2>
+<p>{{ derived_lead }}</p>
+<table class="data-table" data-colors-derived><thead><tr><th scope="col">{{ p.t.skin_colors_column_token() }}</th><th scope="col">{{ p.t.skin_colors_column_light() }}</th><th scope="col">{{ p.t.skin_colors_column_dark() }}</th></tr></thead><tbody>
+{%- for row in derived %}
+<tr data-colors-token="{{ row.name }}"><th scope="row"><code>{{ row.name }}</code></th>
+{%- for cell in row.cells() %}<td>{% if let Some(swatch) = cell %}<span class="color-value"><svg class="color-swatch" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect width="16" height="16" fill="{{ swatch.paint }}"></rect></svg><code>{{ swatch.value }}</code></span>{% else %}{{ p.t.skin_colors_kept() }}{% endif %}</td>{% endfor %}</tr>
+{%- endfor %}
+</tbody></table></section>
+<section class="panel" id="section-colors-contrast" aria-labelledby="section-colors-contrast-title"><h2 class="panel__title" id="section-colors-contrast-title">{{ p.t.skin_colors_contrast_heading() }}</h2>
+<p>{{ p.t.skin_colors_contrast_lead() }}</p>
+<table class="data-table" data-colors-contrast><thead><tr><th scope="col">{{ p.t.skin_colors_column_text() }}</th><th scope="col">{{ p.t.skin_colors_column_ground() }}</th><th scope="col">{{ p.t.skin_colors_column_required() }}</th><th scope="col">{{ p.t.skin_colors_column_light() }}</th><th scope="col">{{ p.t.skin_colors_column_dark() }}</th></tr></thead><tbody>
+{%- for pair in pairs %}
+<tr data-colors-pair="{{ pair.front }} {{ pair.back }}"><th scope="row"><code>{{ pair.front }}</code></th><td><code>{{ pair.back }}</code></td><td>{{ pair.min }}</td>
+{%- for ratio in pair.cells() %}<td{% if ratio.low %} data-colors-low{% endif %}><span class="color-value"><svg class="color-swatch color-swatch--pair" viewBox="0 0 32 16" aria-hidden="true" focusable="false"><rect width="32" height="16" fill="{{ ratio.back }}"></rect><rect x="6" y="6" width="20" height="4" fill="{{ ratio.front }}"></rect></svg>{{ ratio.text }}</span></td>{% endfor %}</tr>
+{%- endfor %}
+</tbody></table></section>
+{%- endif %}
+{% endblock %}

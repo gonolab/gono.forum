@@ -63,10 +63,10 @@
     Everything from <body> up to <main> is the frame header for tests/i18n_leaks_http.rs, so the notices stay above <main>.
     The footer timing line must stay after the content block: processed_milliseconds() is read when the template reaches it. #}
 <a class="skip-link" href="#main">{{ p.t.frame_skip_to_content() }}</a>
-{%- if let Some(name) = p.skin_preview %}
+{%- if let Some(text) = p.skin_preview %}
 <div class="banner-row banner-row--warning" data-skin-preview>
   <div class="banner banner--split container">
-    <p class="banner__text">{{ p.t.skin_preview_bar(name) }}</p>
+    <p class="banner__text">{{ text }}</p>
     <ul class="banner__actions">
       <li><form method="post" action="{{ crate::site::base() }}/manage/skins/preview/publish" hx-boost="false"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><button class="button button--small" type="submit">{{ p.t.skin_preview_publish() }}</button></form></li>
       <li><form method="post" action="{{ crate::site::base() }}/manage/skins/preview/exit" hx-boost="false"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><button class="button button--small button--secondary" type="submit">{{ p.t.skin_preview_exit() }}</button></form></li>

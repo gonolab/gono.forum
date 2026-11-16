@@ -129,5 +129,28 @@
   <p class="field__hint" id="domain-skin-hint">{{ p.t.skin_domain_lead() }}</p>
 </div>
 <div class="form-actions"><button class="button" type="submit">{{ p.t.skin_domain_submit() }}</button></div>
+</form>
+{% if skin.colors.saved %}<p class="form-feedback form-feedback--success" role="status">{{ p.t.skin_domain_colors_saved() }}</p>{% else if !skin.colors.error.is_empty() %}<p class="form-feedback" role="alert" data-colors-error>{{ skin.colors.error }}</p>{% endif %}
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/domains/{{ domain_id }}/colors" data-domain-colors><input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<fieldset class="option-group" aria-describedby="domain-colors-hint">
+  <legend class="option-group__legend">{{ p.t.skin_domain_colors_legend() }}</legend>
+  <p class="option-group__hint" id="domain-colors-hint">{{ p.t.skin_domain_colors_lead() }}</p>
+  <div class="option-group__options">
+    <div class="checkline"><label class="checkline__label"><input type="radio" name="mode" value="site"{% if skin.colors.mode == "site" %} checked{% endif %}><span>{{ p.t.skin_domain_colors_follow(skin.colors.site_state) }}</span></label></div>
+    <div class="checkline"><label class="checkline__label"><input type="radio" name="mode" value="skin"{% if skin.colors.mode == "skin" %} checked{% endif %}><span>{{ p.t.skin_domain_colors_skin() }}</span></label></div>
+    <div class="checkline"><label class="checkline__label"><input type="radio" name="mode" value="own"{% if skin.colors.mode == "own" %} checked{% endif %}><span>{{ p.t.skin_domain_colors_own() }}</span></label></div>
+  </div>
+</fieldset>
+<div class="field">
+  <label class="field__label" for="domain-colors-primary">{{ p.t.skin_colors_field_primary() }}</label>
+  <input class="color-field" type="color" id="domain-colors-primary" name="primary" value="{{ skin.colors.primary }}" maxlength="7" pattern="#[0-9a-fA-F]{6}" aria-describedby="domain-colors-primary-hint">
+  <p class="field__hint" id="domain-colors-primary-hint">{{ p.t.skin_colors_field_primary_hint() }}</p>
+</div>
+<div class="field">
+  <label class="field__label" for="domain-colors-secondary">{{ p.t.skin_colors_field_secondary() }}</label>
+  <input class="color-field" type="color" id="domain-colors-secondary" name="secondary" value="{{ skin.colors.secondary }}" maxlength="7" pattern="#[0-9a-fA-F]{6}" aria-describedby="domain-colors-secondary-hint">
+  <p class="field__hint" id="domain-colors-secondary-hint">{{ p.t.skin_colors_field_secondary_hint() }}</p>
+</div>
+<div class="form-actions"><button class="button" type="submit">{{ p.t.skin_domain_colors_submit() }}</button></div>
 </form></section>
 {%- endif %}{% endblock %}

@@ -168,3 +168,31 @@
   white-space: nowrap;
 }
 }
+
+/* Appearance › Colors (docs/styles.md, "Seed colors"): the seed color fields, and the swatches of derived colors and
+   contrast pairs, drawn as SVG with fill attributes because the CSP allows no style attributes. */
+.color-field {
+  inline-size: 88px;
+  block-size: 38px;
+  padding: 2px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--r-xs);
+  background: var(--input-bg);
+  color: var(--input-text);
+  cursor: pointer;
+}
+.color-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.color-swatch {
+  flex: none;
+  inline-size: 16px;
+  block-size: 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-xs);
+}
+.color-swatch--pair {
+  inline-size: 32px;
+}

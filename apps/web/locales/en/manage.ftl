@@ -25,6 +25,7 @@ manage-tab-storage = Attachment storage
 manage-tab-languages = Languages
 manage-tab-appearance-parameters = Display
 manage-tab-skins = Skins
+manage-tab-colors = Colors
 manage-tab-navigation = Navigation
 manage-tab-branding = Brand images
 manage-tab-links = Friend links

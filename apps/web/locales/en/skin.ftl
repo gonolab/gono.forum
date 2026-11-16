@@ -150,16 +150,65 @@ skin-error-in-use = The skin is in use. Choose another skin for the site and for
 ## The preview bar at the top of every page while an administrator previews a skin.
 # $name is the skin's name.
 skin-preview-bar = Previewing { $name }. Only you see it.
+# While an administrator previews unsaved seed colors; $name is the skin they are laid over.
+skin-preview-colors-bar = Previewing new colors on { $name }. Only you see them.
 skin-preview-publish = Publish
 skin-preview-exit = Exit preview
 
+## Appearance › Colors (/manage/appearance/colors): two seed colors from which the colors of the skin are derived.
+skin-colors-page-title = Colors
+skin-colors-page-description = Pick a primary and a secondary color, and every color of the skin is derived from them in light and dark mode.
+skin-colors-heading = Seed colors
+# $domains_html links to Multiple domains.
+skin-colors-lead = The primary color goes to buttons, the brand block, links, current items, avatars and the focus ring. The secondary color lends its hue, lightly, to grounds, panels, lines and text. Lightness follows the skin, and every text is raised to a contrast of 4.5:1 on its ground, field borders and the focus ring to 3:1, in light and dark mode. The colors stay when you change skins and are derived again for the new one. Domains follow them or choose their own on their page under { $domains_html }; visitors cannot choose colors.
+# $name is the site's skin.
+skin-colors-state-skin = The site uses the colors that come with { $name }.
+# $primary and $secondary are colors written #rrggbb; $name is the site's skin.
+skin-colors-state-seeds = The site uses the seed colors { $primary } and { $secondary } on { $name }.
+skin-colors-field-primary = Primary color
+skin-colors-field-primary-hint = Buttons, the brand block, links, current items, avatars and the focus ring.
+skin-colors-field-secondary = Secondary color
+skin-colors-field-secondary-hint = Its hue tints grounds, panels, lines and text; a grey keeps them neutral.
+skin-colors-submit = Save colors
+skin-colors-show = Show the derived colors
+skin-colors-preview = Preview
+skin-colors-restore = Use the skin's own colors
+skin-colors-saved = The colors were saved.
+skin-colors-restored = The site uses the skin's own colors again.
+skin-colors-error-format = Write each color as # and six hexadecimal digits, such as #4f46e5.
+skin-colors-derived-heading = Derived colors
+# $primary and $secondary are the seed colors shown; $name is the skin and $palette its palette.
+skin-colors-derived-lead = What { $primary } and { $secondary } make of { $name } (palette { $palette }). Tokens not listed keep the skin's values.
+skin-colors-column-token = Token
+skin-colors-column-light = Light mode
+skin-colors-column-dark = Dark mode
+skin-colors-column-text = Text
+skin-colors-column-ground = Ground
+skin-colors-column-required = At least
+# Shown in the light or dark column when that mode keeps the skin's value.
+skin-colors-kept = The skin's value
+skin-colors-contrast-heading = Contrast
+skin-colors-contrast-lead = Every pair of text and ground the derivation keeps legible, with its contrast in each mode.
+# $ratio is a contrast ratio such as 4.62.
+skin-colors-ratio = { $ratio }:1
+skin-colors-ratio-low = { $ratio }:1, too low
+skin-colors-ratio-unknown = Cannot be measured
+
 ## A domain's own choice, on its page under Multiple domains.
-skin-domain-heading = Skin
+skin-domain-heading = Appearance
 # $name is the site's skin.
 skin-domain-follow = Same as the whole site ({ $name })
 skin-domain-lead = The skin this domain uses. A palette not offered by the chosen skin falls back to its default.
 skin-domain-submit = Save skin
 skin-domain-saved = The domain's skin was saved.
+skin-domain-colors-legend = Colors
+skin-domain-colors-lead = Seed colors for this domain, over its skin (see Appearance › Colors).
+# $state says what the whole site uses (skin-colors-state-seeds or skin-colors-state-skin).
+skin-domain-colors-follow = Same as the whole site: { $state }
+skin-domain-colors-skin = The skin's own colors
+skin-domain-colors-own = Own seed colors
+skin-domain-colors-submit = Save colors
+skin-domain-colors-saved = The domain's colors were saved.
 
 ## Personal settings: the avatar shape when the skin fixes it. $shape is one of the shapes below.
 skin-avatar-fixed = The current skin shows every avatar { $shape }.

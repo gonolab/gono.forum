@@ -99,12 +99,22 @@ struct FormTemplate<'a> {
     skin: Option<DomainSkin>,
 }
 
-/// The skin section of a domain's page: the `id:palette` choices (the domain's own selected) and the site's skin.
+/// The appearance section of a domain's page: the `id:palette` choices (the domain's own selected), the site's skin,
+/// and the domain's colors (docs/styles.md, "Seed colors").
 struct DomainSkin {
     choices: Vec<(String, String, bool)>,
     follows: bool,
     site_name: String,
     saved: bool,
+    colors: super::colors::DomainColors,
+}
+
+/// What the appearance section of a domain's page reports: a saved skin or colors, or refused colors to show again.
+#[derive(Default)]
+struct Appearance {
+    skin_saved: bool,
+    colors_saved: bool,
+    colors_entered: Option<(&'static str, String, String)>,
 }
 
 impl ListTemplate<'_> {
@@ -287,7 +297,7 @@ async fn new_form(AdminPage(state): AdminPage) -> Response {
         String::new(),
         None,
         StatusCode::OK,
-        false,
+        Appearance::default(),
     )
     .await
 }
@@ -296,6 +306,7 @@ async fn new_form(AdminPage(state): AdminPage) -> Response {
 #[serde(default)]
 struct EditQuery {
     skin: String,
+    colors: String,
 }
 
 async fn edit_form(
@@ -319,7 +330,6 @@ async fn edit_form(
         );
     };
     let main = row.site_url == settings.site.url;
-    let saved = query.skin == "saved";
     form_page(
         &state,
         &row,
@@ -327,13 +337,59 @@ async fn edit_form(
         String::new(),
         None,
         StatusCode::OK,
-        saved,
+        Appearance {
+            skin_saved: query.skin == "saved",
+            colors_saved: query.colors == "saved",
+            colors_entered: None,
+        },
     )
     .await
 }
 
-/// The skin section of a saved domain other than the main one.
-async fn domain_skin(state: &AppState, domain_id: i64, saved: bool) -> anyhow::Result<DomainSkin> {
+/// A domain's colors form that was refused (a field that is not `#rrggbb`): the page again with what was entered,
+/// 422.
+pub(super) async fn colors_refused(
+    state: &AppState,
+    id: i64,
+    entered: (&'static str, String, String),
+) -> Response {
+    let (map, settings) = match tokio::try_join!(current(state), async {
+        crate::runtime::read(&state.db)
+            .await
+            .map_err(anyhow::Error::new)
+    }) {
+        Ok(found) => found,
+        Err(error) => return database_error(state, error),
+    };
+    let Some(row) = map.get(id).cloned() else {
+        return error_page(
+            state,
+            StatusCode::NOT_FOUND,
+            crate::i18n::current().domain_error_not_found(),
+        );
+    };
+    let main = row.site_url == settings.site.url;
+    form_page(
+        state,
+        &row,
+        main,
+        String::new(),
+        None,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Appearance {
+            colors_entered: Some(entered),
+            ..Appearance::default()
+        },
+    )
+    .await
+}
+
+/// The appearance section of a saved domain other than the main one.
+async fn domain_skin(
+    state: &AppState,
+    domain_id: i64,
+    appearance: Appearance,
+) -> anyhow::Result<DomainSkin> {
     let t = crate::i18n::current();
     let block = state.global.settings(&state.db).await?;
     let catalog = state
@@ -358,7 +414,14 @@ async fn domain_skin(state: &AppState, domain_id: i64, saved: bool) -> anyhow::R
         choices: super::skins::choices(&catalog, current, t),
         follows: own.is_none(),
         site_name,
-        saved,
+        saved: appearance.skin_saved,
+        colors: super::colors::domain_colors(
+            state,
+            domain_id,
+            appearance.colors_saved,
+            appearance.colors_entered,
+        )
+        .await?,
     })
 }
 
@@ -371,7 +434,7 @@ async fn form_page(
     message: String,
     confirm: Option<ConfirmView>,
     status: StatusCode,
-    skin_saved: bool,
+    appearance: Appearance,
 ) -> Response {
     let Some(session) = &state.viewer.session else {
         return auth::redirect("/login?return_to=/manage/domains");
@@ -389,7 +452,7 @@ async fn form_page(
         Err(error) => return super::media_failure(state, error),
     };
     let skin = if row.domain_id > 0 && !main {
-        match domain_skin(state, row.domain_id, skin_saved).await {
+        match domain_skin(state, row.domain_id, appearance).await {
             Ok(skin) => Some(skin),
             Err(error) => return database_error(state, error),
         }
@@ -593,7 +656,7 @@ async fn save(Page(state): Page, CsrfForm(form): CsrfForm<HashMap<String, String
                 message,
                 Some(confirm),
                 StatusCode::OK,
-                false,
+                Appearance::default(),
             )
             .await
         }
@@ -605,7 +668,7 @@ async fn save(Page(state): Page, CsrfForm(form): CsrfForm<HashMap<String, String
                 DomainError::Moved.to_string(),
                 None,
                 StatusCode::CONFLICT,
-                false,
+                Appearance::default(),
             )
             .await
         }
@@ -617,7 +680,7 @@ async fn save(Page(state): Page, CsrfForm(form): CsrfForm<HashMap<String, String
                 message,
                 None,
                 StatusCode::UNPROCESSABLE_ENTITY,
-                false,
+                Appearance::default(),
             )
             .await
         }
@@ -629,7 +692,7 @@ async fn save(Page(state): Page, CsrfForm(form): CsrfForm<HashMap<String, String
                 message.into(),
                 None,
                 StatusCode::CONFLICT,
-                false,
+                Appearance::default(),
             )
             .await
         }

@@ -64,6 +64,7 @@ impl Entry {
             "languages" => t.manage_tab_languages(),
             "appearance-parameters" => t.manage_tab_appearance_parameters(),
             "skins" => t.manage_tab_skins(),
+            "colors" => t.manage_tab_colors(),
             "navigation" => t.manage_tab_navigation(),
             "branding" => t.manage_tab_branding(),
             "links" => t.manage_tab_links(),
@@ -237,6 +238,12 @@ pub(in crate::router) const PAGES: &[Entry] = &[
     Entry {
         id: "skins",
         path: "/manage/skins",
+        module: "appearance",
+        access: Access::Admin,
+    },
+    Entry {
+        id: "colors",
+        path: "/manage/appearance/colors",
         module: "appearance",
         access: Access::Admin,
     },

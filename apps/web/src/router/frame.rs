@@ -61,6 +61,8 @@ pub(super) struct SiteFrame {
     pub palette: String,
     /// The skin comes from the viewer's preview, not from the site's choice.
     pub preview: bool,
+    /// The preview is one of unsaved colors (docs/styles.md, "Seed colors") rather than of a skin.
+    pub preview_colors: bool,
 }
 
 /// Scope of multi-domain sites: forums readable by this visitor within the scope.
@@ -93,6 +95,7 @@ impl Default for SiteFrame {
             skin: crate::skins::DEFAULT_SKIN.clone(),
             palette: crate::skins::DEFAULT_SKIN.palettes[0].clone(),
             preview: false,
+            preview_colors: false,
         }
     }
 }
@@ -245,7 +248,7 @@ impl SiteFrame {
         super::nav_fit::fit(&mut navigation, &header);
         let mut directory = directory_link();
         super::nav_fit::fit_tail(&navigation, &mut directory, &header);
-        let (skin, palette, preview) = skin(state, &block, viewer_uid, ttl).await;
+        let (skin, palette, preview, preview_colors) = skin(state, &block, viewer_uid, ttl).await;
         // The page frame is the only place this request fetches site settings, so the time basis is written into the
         // task-local storage along the way, sparing every call site that displays a time from passing it all the way
         // down. The whole site uses only the site time zone; members have no time zone of their own.
@@ -266,6 +269,7 @@ impl SiteFrame {
             skin,
             palette,
             preview,
+            preview_colors,
         })
     }
 
@@ -342,15 +346,17 @@ impl SiteFrame {
     }
 }
 
-/// The skin, palette and preview flag of this request. A broken skin never fails the page: the catalog failing to
-/// load, or the chosen skin being unusable (deleted, shadowed, failing its checks after an upgrade), falls back to the
-/// built-in default and logs an error (at most once a minute per skin, so a busy site does not flood the log).
+/// The skin (with the seed colors in use, docs/styles.md, "Seed colors"), its palette and whether it comes from a
+/// preview of a skin or of colors. A broken skin never fails the page: the catalog failing to load, or the chosen
+/// skin being unusable (deleted, shadowed, failing its checks after an upgrade), falls back to the built-in default
+/// and logs an error (at most once a minute per skin, so a busy site does not flood the log); without a catalog the
+/// default has no seed colors either.
 async fn skin(
     state: &AppState,
     block: &crate::cache::SettingsBlock,
     viewer_uid: Option<i64>,
     ttl: u64,
-) -> (Arc<crate::skins::Skin>, String, bool) {
+) -> (Arc<crate::skins::Skin>, String, bool, bool) {
     let domain = crate::site::other(|row| row.domain_id).and_then(|id| {
         block
             .domain_layouts
@@ -359,6 +365,7 @@ async fn skin(
             .map(|(_, layout)| layout)
     });
     let (mut wanted, mut palette) = crate::skins::selection::choose(block.layout.as_ref(), domain);
+    let mut colors = crate::skins::selection::colors(block.layout.as_ref(), domain);
     let preview = state
         .viewer
         .session
@@ -373,6 +380,11 @@ async fn skin(
     if let Some(preview) = &preview {
         wanted = &preview.skin;
         palette = Some(&preview.palette);
+        match preview.colors {
+            crate::skins::selection::Colors::Inherit => {}
+            crate::skins::selection::Colors::Skin => colors = None,
+            crate::skins::selection::Colors::Seeds(seeds) => colors = Some(seeds),
+        }
     }
     let catalog = match state.global.skins(&state.db, &state.skins_dir, ttl).await {
         Ok(catalog) => Some(catalog),
@@ -381,17 +393,26 @@ async fn skin(
             None
         }
     };
-    let skin = match catalog.as_ref().and_then(|catalog| catalog.get(wanted)) {
-        Some(skin) => skin.clone(),
-        None => {
-            if catalog.is_some() {
-                unusable(wanted, "no usable skin has this id");
-            }
-            crate::skins::DEFAULT_SKIN.clone()
+    let skin = match &catalog {
+        Some(catalog) => {
+            let skin = match catalog.get(wanted) {
+                Some(skin) => skin,
+                None => {
+                    unusable(wanted, "no usable skin has this id");
+                    catalog
+                        .get(crate::skins::DEFAULT_ID)
+                        .unwrap_or(&*crate::skins::DEFAULT_SKIN)
+                }
+            };
+            catalog.colored(skin, colors, true)
         }
+        None => crate::skins::DEFAULT_SKIN.clone(),
     };
     let palette = skin.palette(palette).to_owned();
-    (skin, palette, preview.is_some())
+    let preview_colors = preview
+        .as_ref()
+        .is_some_and(|preview| !preview.colors.inherits());
+    (skin, palette, preview.is_some(), preview_colors)
 }
 
 /// Logs that a chosen skin cannot be used, at most once a minute per skin id.

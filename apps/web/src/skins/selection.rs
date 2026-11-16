@@ -3,9 +3,13 @@
 //! stored like the navigation document and read by the page frame in the same single statement as the settings.
 //!
 //! The body is JSON: `{"v":1,"skin":"ledger","palette":"main","based_on":{"skin":"ledger","version":"1.2.0"},
-//! "places":null}`. Only `skin`, `palette` and `based_on` are used so far; `places` (the blocks of each place on a
-//! page) stays `null` until layouts arrive. A domain document leaves out what it inherits from the site's.
-use serde::{Deserialize, Serialize};
+//! "places":null}`, with `"colors":{"primary":"#rrggbb","secondary":"#rrggbb"}` when the administrator chose seed
+//! colors (docs/styles.md, "Seed colors"). `places` (the blocks of each place on a page) stays `null` until layouts
+//! arrive. A domain document leaves out what it inherits from the site's; its `colors` may also be `"skin"`, the
+//! skin's own colors even where the site has seeds.
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use super::seed::Seeds;
 
 use crate::cache::{Block, GlobalCache};
 use crate::db::{self, Database, Tx};
@@ -33,6 +37,54 @@ pub struct Layout {
     /// Blocks per place; `null` until layouts are edited (phase 2).
     #[serde(default)]
     pub places: serde_json::Value,
+    /// Seed colors over the skin's palettes; left out when the document inherits them.
+    #[serde(default, skip_serializing_if = "Colors::inherits")]
+    pub colors: Colors,
+}
+
+/// The colors a document chooses: inherit (the key is absent: the site's for a domain, the skin's own for the site),
+/// the skin's own colors (`"skin"`, only written in domain documents) or seed colors.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Colors {
+    #[default]
+    Inherit,
+    Skin,
+    Seeds(Seeds),
+}
+
+impl Colors {
+    pub fn inherits(&self) -> bool {
+        *self == Self::Inherit
+    }
+}
+
+impl Serialize for Colors {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            // Never written: the field is skipped.
+            Self::Inherit => serializer.serialize_none(),
+            Self::Skin => serializer.serialize_str("skin"),
+            Self::Seeds(seeds) => seeds.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Colors {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Written {
+            Word(String),
+            Seeds(Seeds),
+        }
+        match Written::deserialize(deserializer)? {
+            Written::Word(word) if word == "skin" => Ok(Self::Skin),
+            Written::Word(word) => Err(serde::de::Error::custom(format!(
+                "unknown colors \"{word}\""
+            ))),
+            Written::Seeds(seeds) => Ok(Self::Seeds(seeds)),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,6 +128,35 @@ pub fn choose<'a>(
     (super::DEFAULT_ID, None)
 }
 
+/// The seed colors a page uses: the domain's choice unless it inherits, then the site's; `None` for the skin's own
+/// colors. They apply over whichever skin the page uses.
+pub fn colors(site: Option<&Layout>, domain: Option<&Layout>) -> Option<Seeds> {
+    for layout in [domain, site].into_iter().flatten() {
+        match layout.colors {
+            Colors::Inherit => {}
+            Colors::Skin => return None,
+            Colors::Seeds(seeds) => return Some(seeds),
+        }
+    }
+    None
+}
+
+/// Every skin and seed colors a page of the site uses: the site's and each domain's. The stylesheets of these are
+/// the ones shared caches may keep.
+pub fn in_use(site: Option<&Layout>, domains: &[(i64, Layout)]) -> Vec<(String, Option<Seeds>)> {
+    let mut found = vec![(choose(site, None).0.to_owned(), colors(site, None))];
+    for (_, domain) in domains {
+        let used = (
+            choose(site, Some(domain)).0.to_owned(),
+            colors(site, Some(domain)),
+        );
+        if !found.contains(&used) {
+            found.push(used);
+        }
+    }
+    found
+}
+
 /// The site's document and every domain's override, from the rows the page frame read.
 pub fn from_rows(rows: &crate::runtime::kv::Rows) -> (Option<Layout>, Vec<(i64, Layout)>) {
     let site = rows
@@ -115,16 +196,119 @@ pub struct Selection<'a> {
     pub palette: Option<&'a str>,
 }
 
-/// Saves a selection: locks the document's rows, checks the administrator and, for an imported skin, that its row
-/// still exists (a delete takes it under a lock), writes the document, records `skin.select` and clears the settings
-/// block after commit.
+/// Saves a selection ([`edit`]): the skin and palette, and the skin and version they were chosen from; for a domain
+/// that follows the site again (`skin: None`), its own skin is removed. Records `skin.select`.
 pub async fn save(
     db: &Database,
     global: &GlobalCache,
     actor: Actor,
     selection: Selection<'_>,
 ) -> Result<(), IdentityError> {
-    let prefix = match selection.domain_id {
+    let imported = selection
+        .skin
+        .filter(|skin| skin.source == super::Source::Imported)
+        .map(super::Skin::id);
+    edit(
+        db,
+        global,
+        actor,
+        selection.domain_id,
+        imported,
+        "skin.select",
+        |before| {
+            let previous = before.as_ref().and_then(|layout| layout.skin.clone());
+            let mut layout = before.unwrap_or(Layout {
+                v: 1,
+                ..Layout::default()
+            });
+            match selection.skin {
+                Some(skin) => {
+                    layout.skin = Some(skin.id().to_owned());
+                    layout.palette = Some(skin.palette(selection.palette).to_owned());
+                    layout.based_on = Some(BasedOn {
+                        skin: skin.id().to_owned(),
+                        version: skin.manifest.version.clone(),
+                    });
+                }
+                None => {
+                    layout.skin = None;
+                    layout.palette = None;
+                    layout.based_on = None;
+                }
+            }
+            let data = serde_json::json!({
+                "domain_id": selection.domain_id,
+                "skin": selection.skin.map(super::Skin::id),
+                "palette": selection.skin.map(|skin| skin.palette(selection.palette)),
+                "previous": previous,
+            });
+            (layout, data)
+        },
+    )
+    .await
+}
+
+/// The audit form of a color choice: the seeds, `"skin"` or `null` (inherit).
+fn colors_json(colors: Colors) -> serde_json::Value {
+    serde_json::to_value(colors).unwrap_or_default()
+}
+
+/// Saves the seed colors of the site or a domain ([`edit`]); the skin and palette stay as they are. On the site's
+/// document the skin's own colors are the absent key. Records `skin.colors`.
+pub async fn save_colors(
+    db: &Database,
+    global: &GlobalCache,
+    actor: Actor,
+    domain_id: Option<i64>,
+    colors: Colors,
+) -> Result<(), IdentityError> {
+    let colors = match (domain_id, colors) {
+        (None, Colors::Skin) => Colors::Inherit,
+        (_, colors) => colors,
+    };
+    edit(
+        db,
+        global,
+        actor,
+        domain_id,
+        None,
+        "skin.colors",
+        |before| {
+            let previous = before
+                .as_ref()
+                .map(|layout| layout.colors)
+                .unwrap_or_default();
+            let mut layout = before.unwrap_or(Layout {
+                v: 1,
+                ..Layout::default()
+            });
+            layout.colors = colors;
+            let data = serde_json::json!({
+                "domain_id": domain_id,
+                "colors": colors_json(colors),
+                "previous": colors_json(previous),
+            });
+            (layout, data)
+        },
+    )
+    .await
+}
+
+/// Changes a layout document: locks its rows, checks the administrator, that the domain exists and, for an imported
+/// skin, that its row still exists (a delete takes it under a lock); then writes what `change` makes of the stored
+/// document, records `kind` with the data `change` returns and clears the settings block after commit. A document
+/// left with nothing of its own is emptied (the site's rows are seeded and stay) or, for a domain, deleted, so the
+/// domain follows the site again.
+async fn edit(
+    db: &Database,
+    global: &GlobalCache,
+    actor: Actor,
+    domain_id: Option<i64>,
+    imported: Option<&str>,
+    kind: &str,
+    change: impl FnOnce(Option<Layout>) -> (Layout, serde_json::Value),
+) -> Result<(), IdentityError> {
+    let prefix = match domain_id {
         None => LAYOUT_PREFIX.to_owned(),
         Some(id) => domain_prefix(id),
     };
@@ -137,7 +321,7 @@ pub async fn save(
         .fetch_all(db.observe(&mut *tx))
         .await?;
     crate::runtime::admin_locked(db, &mut tx, actor).await?;
-    if let Some(id) = selection.domain_id {
+    if let Some(id) = domain_id {
         let found = db::query(
             "SELECT domain_id FROM gonof_common_site_domain WHERE domain_id=? LOCK IN SHARE MODE",
         )
@@ -148,12 +332,10 @@ pub async fn save(
             return Err(IdentityError::NotFound);
         }
     }
-    if let Some(skin) = selection.skin
-        && skin.source == super::Source::Imported
-    {
+    if let Some(id) = imported {
         let found =
             db::query("SELECT skin_id FROM gonof_common_skin WHERE skin_id=? LOCK IN SHARE MODE")
-                .bind(skin.id())
+                .bind(id)
                 .fetch_optional(db.observe(&mut *tx))
                 .await?;
         if found.is_none() {
@@ -163,35 +345,19 @@ pub async fn save(
         }
     }
     let mut before = None;
+    let mut title = String::new();
     for row in &rows {
-        if db::text(row, "skey")? == keys[0] {
+        let key = db::text(row, "skey")?;
+        if key == keys[0] {
             before = Layout::parse(&db::text(row, "svalue")?).unwrap_or_default();
+        } else if key == keys[1] {
+            title = db::text(row, "svalue")?;
         }
     }
-    let previous = before.as_ref().and_then(|layout| layout.skin.clone());
-    let now = crate::identity::now();
-    match selection.skin {
-        Some(skin) => {
-            let mut layout = before.unwrap_or(Layout {
-                v: 1,
-                ..Layout::default()
-            });
-            layout.skin = Some(skin.id().to_owned());
-            layout.palette = Some(skin.palette(selection.palette).to_owned());
-            layout.based_on = Some(BasedOn {
-                skin: skin.id().to_owned(),
-                version: skin.manifest.version.clone(),
-            });
-            let title = rows
-                .iter()
-                .find(|row| db::text(row, "skey").ok().as_deref() == Some(keys[1].as_str()))
-                .map(|row| db::text(row, "svalue"))
-                .transpose()?
-                .unwrap_or_default();
-            crate::runtime::write_document(db, &mut tx, &prefix, &layout.body(), &title, now)
-                .await?;
-        }
-        None => {
+    let (layout, data) = change(before);
+    let empty = layout.skin.is_none() && layout.colors.inherits() && layout.places.is_null();
+    match (empty, domain_id) {
+        (true, Some(_)) => {
             db::query("DELETE FROM gonof_common_settings WHERE skey IN (?,?,?)")
                 .bind(&keys[0])
                 .bind(&keys[1])
@@ -199,20 +365,30 @@ pub async fn save(
                 .execute(db.observe(&mut *tx))
                 .await?;
         }
+        (true, None) => {
+            crate::runtime::write_document(
+                db,
+                &mut tx,
+                &prefix,
+                "",
+                &title,
+                crate::identity::now(),
+            )
+            .await?;
+        }
+        (false, _) => {
+            crate::runtime::write_document(
+                db,
+                &mut tx,
+                &prefix,
+                &layout.body(),
+                &title,
+                crate::identity::now(),
+            )
+            .await?;
+        }
     }
-    crate::runtime::audit(
-        db,
-        &mut tx,
-        actor,
-        "skin.select",
-        serde_json::json!({
-            "domain_id": selection.domain_id,
-            "skin": selection.skin.map(super::Skin::id),
-            "palette": selection.skin.map(|skin| skin.palette(selection.palette)),
-            "previous": previous,
-        }),
-    )
-    .await?;
+    crate::runtime::audit(db, &mut tx, actor, kind, data).await?;
     tx.commit().await?;
     global
         .announce(&[Block::Settings])
@@ -288,6 +464,91 @@ mod tests {
         assert!(Layout::parse(r#"{"v":1,"places":{}}"#).is_err());
         assert!(Layout::parse(r#"{"v":1,"colour":"red"}"#).is_err());
         assert!(Layout::parse("not json").is_err());
+    }
+
+    #[test]
+    fn colors_are_written_only_when_chosen() {
+        let layout = Layout::parse(
+            r##"{"v":1,"skin":"ledger","colors":{"primary":"#4F46E5","secondary":"#57637a"},"places":null}"##,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            layout.colors,
+            Colors::Seeds(Seeds::parse("#4f46e5", "#57637a").unwrap())
+        );
+        assert_eq!(
+            layout.body(),
+            r##"{"v":1,"skin":"ledger","palette":null,"based_on":null,"places":null,"colors":{"primary":"#4f46e5","secondary":"#57637a"}}"##
+        );
+        let skin = Layout::parse(r#"{"v":1,"colors":"skin"}"#)
+            .unwrap()
+            .unwrap();
+        assert_eq!(skin.colors, Colors::Skin);
+        assert!(skin.body().contains(r#""colors":"skin""#));
+        let plain = Layout::parse(r#"{"v":1,"skin":"ledger"}"#)
+            .unwrap()
+            .unwrap();
+        assert!(!plain.body().contains("colors"));
+        for bad in [
+            r#"{"v":1,"colors":"site"}"#,
+            r##"{"v":1,"colors":{"primary":"red","secondary":"#000000"}}"##,
+            r##"{"v":1,"colors":{"primary":"#000000"}}"##,
+            r#"{"v":1,"colors":null}"#,
+        ] {
+            assert!(Layout::parse(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_domain_inherits_the_site_colors_or_chooses_its_own() {
+        let seeds = Seeds::parse("#0f766e", "#f97316").unwrap();
+        let other = Seeds::parse("#e11d48", "#7c3aed").unwrap();
+        let site = Layout {
+            v: 1,
+            skin: Some("ledger".into()),
+            colors: Colors::Seeds(seeds),
+            ..Layout::default()
+        };
+        let follow = Layout {
+            v: 1,
+            skin: Some("harbor".into()),
+            ..Layout::default()
+        };
+        let own_skin_colors = Layout {
+            v: 1,
+            colors: Colors::Skin,
+            ..Layout::default()
+        };
+        let own = Layout {
+            v: 1,
+            colors: Colors::Seeds(other),
+            ..Layout::default()
+        };
+        assert_eq!(colors(None, None), None);
+        assert_eq!(colors(Some(&site), None), Some(seeds));
+        assert_eq!(colors(Some(&site), Some(&follow)), Some(seeds));
+        assert_eq!(colors(Some(&site), Some(&own_skin_colors)), None);
+        assert_eq!(colors(Some(&site), Some(&own)), Some(other));
+        assert_eq!(colors(None, Some(&own)), Some(other));
+        // A domain's own colors leave its skin to the site.
+        assert_eq!(choose(Some(&site), Some(&own)).0, "ledger");
+        assert_eq!(
+            in_use(
+                Some(&site),
+                &[
+                    (2, follow.clone()),
+                    (3, own.clone()),
+                    (4, own_skin_colors.clone())
+                ]
+            ),
+            [
+                ("ledger".to_owned(), Some(seeds)),
+                ("harbor".to_owned(), Some(seeds)),
+                ("ledger".to_owned(), Some(other)),
+                ("ledger".to_owned(), None),
+            ]
+        );
     }
 
     #[test]

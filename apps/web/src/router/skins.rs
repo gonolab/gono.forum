@@ -39,11 +39,14 @@ pub(super) fn routes() -> Router<Arc<AppState>> {
 #[serde(default)]
 struct StylesheetQuery {
     v: String,
+    /// The seed colors of a colored variant (docs/styles.md, "Seed colors"), as twelve hex digits.
+    c: String,
 }
 
-/// A skin's stylesheet. The address carries the stylesheet's hash, so the matching version is cached for a year;
-/// `public` only for skins a page of the site uses, so a skin being previewed stays out of shared caches. An old
-/// hash gets the current stylesheet uncached. Served without a session: it is the same for everyone.
+/// A skin's stylesheet, or with `c=` its variant with those seed colors. The address carries the stylesheet's hash,
+/// so the matching version is cached for a year; `public` only for skins and colors a page of the site uses, so a
+/// skin or colors being previewed stay out of shared caches. An old hash gets the current stylesheet uncached. Served
+/// without a session: it is the same for everyone.
 async fn stylesheet(
     State(state): State<Arc<AppState>>,
     AxumPath(file): AxumPath<String>,
@@ -51,6 +54,13 @@ async fn stylesheet(
 ) -> Response {
     let Some(id) = file.strip_suffix(".css") else {
         return StatusCode::NOT_FOUND.into_response();
+    };
+    let seeds = match query.c.as_str() {
+        "" => None,
+        code => match skins::seed::Seeds::from_code(code) {
+            Some(seeds) => Some(seeds),
+            None => return StatusCode::NOT_FOUND.into_response(),
+        },
     };
     let block = state.global.settings(&state.db).await.ok();
     let ttl = block.as_ref().map_or(0, |block| block.settings.cache_ttl());
@@ -61,19 +71,32 @@ async fn stylesheet(
             None
         }
     };
+    let active = match seeds {
+        None => {
+            id == skins::DEFAULT_ID
+                || block.as_ref().is_some_and(|block| {
+                    block
+                        .layout
+                        .iter()
+                        .chain(block.domain_layouts.iter().map(|(_, layout)| layout))
+                        .any(|layout| layout.skin.as_deref() == Some(id))
+                })
+        }
+        Some(seeds) => block.as_ref().is_some_and(|block| {
+            skins::selection::in_use(block.layout.as_ref(), &block.domain_layouts)
+                .iter()
+                .any(|(skin, colors)| skin == id && *colors == Some(seeds))
+        }),
+    };
     let skin = match catalog.as_ref().and_then(|catalog| catalog.get(id)) {
-        Some(skin) => skin.clone(),
+        // Colors no page uses (a preview, or an address made up) are compiled for this answer only.
+        Some(skin) => catalog.as_ref().map_or_else(
+            || skin.clone(),
+            |catalog| catalog.colored(skin, seeds, active),
+        ),
         None if id == skins::DEFAULT_ID => skins::DEFAULT_SKIN.clone(),
         None => return StatusCode::NOT_FOUND.into_response(),
     };
-    let active = id == skins::DEFAULT_ID
-        || block.as_ref().is_some_and(|block| {
-            block
-                .layout
-                .iter()
-                .chain(block.domain_layouts.iter().map(|(_, layout)| layout))
-                .any(|layout| layout.skin.as_deref() == Some(id))
-        });
     let cache = match (query.v == skin.version_hash, active) {
         (true, true) => "public, max-age=31536000, immutable",
         (true, false) => "private, max-age=31536000, immutable",
@@ -90,7 +113,7 @@ async fn stylesheet(
         .into_response()
 }
 
-fn actor(state: &AppState) -> crate::identity::Actor {
+pub(super) fn actor(state: &AppState) -> crate::identity::Actor {
     state
         .viewer
         .session
@@ -174,7 +197,7 @@ pub(super) fn choices(
     choices
 }
 
-async fn catalog(state: &AppState) -> anyhow::Result<Arc<skins::Catalog>> {
+pub(super) async fn catalog(state: &AppState) -> anyhow::Result<Arc<skins::Catalog>> {
     state
         .global
         .skins(&state.db, &state.skins_dir, state.cache_ttl())
@@ -432,7 +455,7 @@ async fn rescan(AdminPage(state): AdminPage, CsrfForm(_): CsrfForm<CsrfOnly>) ->
     }
 }
 
-fn preview_cookie(response: &mut Response, value: &str, seconds: i64) {
+pub(super) fn preview_cookie(response: &mut Response, value: &str, seconds: i64) {
     auth::auxiliary_set_cookie(response, PREVIEW_COOKIE, value, seconds);
 }
 
@@ -443,10 +466,12 @@ async fn preview(AdminPage(state): AdminPage, CsrfForm(form): CsrfForm<ChoiceFor
         Err(error) => return failed(&state, error).await,
     };
     let actor = actor(&state);
-    match state
-        .identity
-        .seal_skin_preview(actor.uid, skin.id(), &palette)
-    {
+    match state.identity.seal_skin_preview(
+        actor.uid,
+        skin.id(),
+        &palette,
+        skins::selection::Colors::Inherit,
+    ) {
         Ok(sealed) => {
             let mut response = auth::redirect("/");
             preview_cookie(&mut response, &sealed, crate::identity::SKIN_PREVIEW_TTL);
@@ -462,7 +487,7 @@ async fn exit_preview(AdminPage(_): AdminPage, CsrfForm(_): CsrfForm<CsrfOnly>) 
     response
 }
 
-/// Makes the previewed skin the site's and ends the preview.
+/// Makes the previewed skin the site's, or saves the previewed colors as the site's, and ends the preview.
 async fn publish(AdminPage(state): AdminPage, CsrfForm(_): CsrfForm<CsrfOnly>) -> Response {
     let actor = actor(&state);
     let Some(preview) = state
@@ -473,6 +498,24 @@ async fn publish(AdminPage(state): AdminPage, CsrfForm(_): CsrfForm<CsrfOnly>) -
         preview_cookie(&mut response, "", 0);
         return response;
     };
+    if !preview.colors.inherits() {
+        return match skins::selection::save_colors(
+            &state.db,
+            &state.global,
+            actor,
+            None,
+            preview.colors,
+        )
+        .await
+        {
+            Ok(()) => {
+                let mut response = auth::redirect(&format!("{}?saved=saved", super::colors::PATH));
+                preview_cookie(&mut response, "", 0);
+                response
+            }
+            Err(error) => failed(&state, error).await,
+        };
+    }
     let saved = async {
         let (skin, palette) =
             chosen(&state, &format!("{}:{}", preview.skin, preview.palette)).await?;

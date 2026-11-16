@@ -76,6 +76,7 @@ maintenance-event-site-document-save = 保存导航或政策
 maintenance-event-skin-import = 导入皮肤
 maintenance-event-skin-select = 选择皮肤
 maintenance-event-skin-delete = 删除皮肤
+maintenance-event-skin-colors = 更改配色
 maintenance-event-site-branding-save = 更新品牌图片
 maintenance-event-mail-settings-save = 保存邮件配置
 maintenance-event-mail-template-save = 保存邮件模板
