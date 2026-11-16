@@ -33,6 +33,7 @@ mod privacy;
 mod reading;
 mod restorations;
 mod site;
+mod skins;
 mod social;
 mod syndication;
 mod updates;
@@ -83,6 +84,8 @@ pub(crate) struct AppState {
     updater: crate::updates::Updater,
     /// The instance directory: binaries, `config/`, `data/` (one-click upgrade replaces the binaries here).
     instance: crate::updates::Paths,
+    /// `skins/` under the instance root: the instance directory of skins (docs/skins.md, "Sources").
+    skins_dir: Arc<Path>,
 }
 
 impl AppState {
@@ -309,6 +312,7 @@ pub fn build_with_updater(
         frame: Arc::new(frame::SiteFrame::default()),
         updater,
         instance: crate::updates::Paths::for_process(root),
+        skins_dir: root.join("skins").into(),
     });
     let router = static_files
         .mount(auth::routes(upload_limit))
@@ -333,6 +337,7 @@ pub fn build_with_updater(
         .merge(social::routes())
         .merge(reading::routes())
         .merge(custom_style::routes())
+        .merge(skins::routes())
         .merge(forum_filters::routes())
         .merge(feed_settings::routes())
         .merge(site::routes(upload_limit))
@@ -524,8 +529,15 @@ struct PageMeta<'a> {
     /// Two-level admin navigation; None for non-moderators or outside /manage, and `layout/manage.html` falls back
     /// to a single column.
     manage: Option<manage::catalog::ManageFrame>,
-    /// The member chose round avatars (only changes what they see themselves).
-    avatar_circle: bool,
+    /// `<html data-avatar-shape>`: the skin's fixed shape, or the member's choice of round avatars when the skin leaves
+    /// it to them (which only changes what they see themselves); `None` for the default rounded corners.
+    avatar_shape: Option<&'static str>,
+    /// The skin and palette of this page (docs/skins.md, "Choosing a skin"). `/manage/skins` always uses the built-in
+    /// default, so a skin that breaks the page can still be switched back there.
+    skin: Arc<crate::skins::Skin>,
+    palette: String,
+    /// While the administrator previews a skin: its name, for the bar at the top of every page.
+    skin_preview: Option<String>,
     /// The address of the member's personal style sheet; empty when there is none, it is not the member's own, or
     /// this page does not apply it.
     custom_style: String,
@@ -830,6 +842,11 @@ fn meta<'a>(
     let session = state.viewer.session.as_ref();
     let is_admin = session.is_some_and(|s| s.member.is_admin);
     let is_staff = session.is_some_and(|s| s.member.is_staff());
+    let skin = if path == "/manage/skins" || path.starts_with("/manage/skins/") {
+        crate::skins::DEFAULT_SKIN.clone()
+    } else {
+        state.frame.skin.clone()
+    };
     PageMeta {
         metrics: crate::metrics::current(),
         database: state.db.backend().label(),
@@ -954,7 +971,26 @@ fn meta<'a>(
                 .session
                 .as_ref()
                 .is_some_and(|session| session.member.is_admin),
-        avatar_circle: state.frame.reading.avatar_circle,
+        avatar_shape: match skin.manifest.frame.avatar_shape {
+            crate::skins::AvatarShape::Member => {
+                state.frame.reading.avatar_circle.then_some("circle")
+            }
+            fixed => fixed.attribute(),
+        },
+        palette: if Arc::ptr_eq(&skin, &state.frame.skin) {
+            state.frame.palette.clone()
+        } else {
+            skin.palettes[0].clone()
+        },
+        skin,
+        skin_preview: state.frame.preview.then(|| {
+            state
+                .frame
+                .skin
+                .manifest
+                .name_in(crate::i18n::current())
+                .to_owned()
+        }),
         custom_style: custom_style::href(state, path),
     }
 }

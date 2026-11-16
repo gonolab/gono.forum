@@ -136,6 +136,7 @@ debug-cache-moderators = Moderator roster
 debug-cache-honors = Honor group directory
 debug-cache-forums = Readable forums (visitors, members)
 debug-cache-domains = Domain table of multi-domain sites
+debug-cache-skins = Skins
 debug-cache-statistics = Site statistics
 debug-cache-scoped-statistics = Community statistics by scope (multi-domain sites)
 debug-cache-recent-members = Newest members for visitors

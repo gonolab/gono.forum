@@ -173,6 +173,7 @@ pub(crate) const RESERVED_SEGMENTS: &[&str] = &[
     "rules",
     "search",
     "settings",
+    "skin",
     "space",
     "static",
     "terms",

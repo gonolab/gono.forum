@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="{{ p.t.tag() }}"{% if p.t.is_rtl() %} dir="rtl"{% endif %} data-base="{{ crate::site::base() }}" data-palette="default"{% if p.avatar_circle %} data-avatar-shape="circle"{% endif %}>
+<html lang="{{ p.t.tag() }}"{% if p.t.is_rtl() %} dir="rtl"{% endif %} data-base="{{ crate::site::base() }}" data-skin="{{ p.skin.id() }}" data-skin-source="{{ p.skin.source.as_str() }}" data-palette="{{ p.palette }}" data-nav="{{ p.skin.manifest.frame.nav_attribute() }}" data-header-boards="{{ p.skin.manifest.frame.header_boards }}"{% if let Some(shape) = p.avatar_shape %} data-avatar-shape="{{ shape }}"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -41,8 +41,10 @@
   <script src="{{ crate::site::base() }}/static/js/navigation.js?v={{ p.asset_version }}"></script>
   <link rel="stylesheet" href="{{ crate::site::base() }}/static/css/fonts.css?v={{ p.asset_version }}">
   <link rel="stylesheet" href="{{ crate::site::base() }}/static/css/forum.css?v={{ p.asset_version }}">
-  {# The member's own personal style: appears only on the member's own pages, and comes after the site styles so it
-     can override them (C1-A, C8-A). #}
+  {#- The skin: its palettes and stylesheet, in the skin cascade layer (docs/skins.md). #}
+  <link rel="stylesheet" href="{{ crate::site::base() }}{{ p.skin.href() }}" data-skin-style>
+  {# The member's own personal style: appears only on the member's own pages, and comes after the skin in its own
+     cascade layer so it can override the site styles (docs/skins.md, "Cascade layers"). #}
   {% if !p.custom_style.is_empty() %}<link rel="stylesheet" href="{{ crate::site::href(p.custom_style) }}" data-custom-style>{% endif %}
   {# composer.js (about 95 KB / 32 KB gzipped) is loaded only on pages that actually render the editor.
      The published branch cannot be dropped: mount() consumes the composer-published flash and discards the matching
@@ -61,6 +63,17 @@
     Everything from <body> up to <main> is the frame header for tests/i18n_leaks_http.rs, so the notices stay above <main>.
     The footer timing line must stay after the content block: processed_milliseconds() is read when the template reaches it. #}
 <a class="skip-link" href="#main">{{ p.t.frame_skip_to_content() }}</a>
+{%- if let Some(name) = p.skin_preview %}
+<div class="banner-row banner-row--warning" data-skin-preview>
+  <div class="banner banner--split container">
+    <p class="banner__text">{{ p.t.skin_preview_bar(name) }}</p>
+    <ul class="banner__actions">
+      <li><form method="post" action="{{ crate::site::base() }}/manage/skins/preview/publish" hx-boost="false"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><button class="button button--small" type="submit">{{ p.t.skin_preview_publish() }}</button></form></li>
+      <li><form method="post" action="{{ crate::site::base() }}/manage/skins/preview/exit" hx-boost="false"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><button class="button button--small button--secondary" type="submit">{{ p.t.skin_preview_exit() }}</button></form></li>
+    </ul>
+  </div>
+</div>
+{%- endif %}
 {% include "partials/header.html" %}
 {%- if !p.read_only_message.is_empty() %}
 <div class="banner-row banner-row--info">
@@ -116,7 +129,8 @@
         <li><a href="{{ crate::site::base() }}/links">{{ p.t.frame_footer_links() }}</a></li>
       </ul>
     </nav>
-    <p class="colophon__legal">Built on <a class="colophon__brand" href="https://www.gono.forum" target="_blank" rel="noopener noreferrer">Gono Forum</a>{% if p.frame.settings.display.footer_metrics %} <span class="colophon__metrics" title="{{ p.t.frame_footer_metrics() }}"><svg class="colophon__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M13.5 2.75 4.75 13.25h6.5l-1 8 8.75-10.5h-6.5l1-8Z"></path></svg>{{ p.processed_milliseconds() }} ms · {{ p.database }} {{ p.sql_queries() }}{% if p.redis_enabled %} · Redis {{ p.redis_queries() }}{% endif %}</span>{% endif %}</p>
+    {#- "Built on Gono Forum" is English in every language on purpose (docs/translating.md); skins cannot hide it (docs/skins.md, "Built on Gono Forum"). The performance line after it is translated again. #}
+    <p class="colophon__legal" translate="no">Built on <a class="colophon__brand" href="https://www.gono.forum" target="_blank" rel="noopener noreferrer">Gono Forum</a>{% if p.frame.settings.display.footer_metrics %} <span class="colophon__metrics" translate="yes" title="{{ p.t.frame_footer_metrics() }}"><svg class="colophon__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M13.5 2.75 4.75 13.25h6.5l-1 8 8.75-10.5h-6.5l1-8Z"></path></svg>{{ p.processed_milliseconds() }} ms · {{ p.database }} {{ p.sql_queries() }}{% if p.redis_enabled %} · Redis {{ p.redis_queries() }}{% endif %}</span>{% endif %}</p>
   </div>
 </footer>
 </body>

@@ -54,6 +54,13 @@ pub(super) struct SiteFrame {
     /// NULL) and anonymous visitors take the site defaults `settings.reading.*`. Page handlers always use this copy
     /// instead of reading the database each on their own.
     pub reading: crate::reading::Reading,
+    /// The skin of this request (docs/skins.md, "Choosing a skin"): the administrator's preview, the domain's choice,
+    /// the site's, or the built-in default when the chosen one cannot be used.
+    pub skin: Arc<crate::skins::Skin>,
+    /// The palette of [`Self::skin`] this request uses.
+    pub palette: String,
+    /// The skin comes from the viewer's preview, not from the site's choice.
+    pub preview: bool,
 }
 
 /// Scope of multi-domain sites: forums readable by this visitor within the scope.
@@ -83,6 +90,9 @@ impl Default for SiteFrame {
             directory: directory_link(),
             forum_filters: ForumFilters::default(),
             reading: crate::reading::Reading::blank(),
+            skin: crate::skins::DEFAULT_SKIN.clone(),
+            palette: crate::skins::DEFAULT_SKIN.palettes[0].clone(),
+            preview: false,
         }
     }
 }
@@ -235,6 +245,7 @@ impl SiteFrame {
         super::nav_fit::fit(&mut navigation, &header);
         let mut directory = directory_link();
         super::nav_fit::fit_tail(&navigation, &mut directory, &header);
+        let (skin, palette, preview) = skin(state, &block, viewer_uid, ttl).await;
         // The page frame is the only place this request fetches site settings, so the time basis is written into the
         // task-local storage along the way, sparing every call site that displays a time from passing it all the way
         // down. The whole site uses only the site time zone; members have no time zone of their own.
@@ -252,6 +263,9 @@ impl SiteFrame {
             directory,
             forum_filters,
             reading,
+            skin,
+            palette,
+            preview,
         })
     }
 
@@ -326,6 +340,78 @@ impl SiteFrame {
     pub(super) fn any_forum_by_fid(&self, fid: i64) -> Option<&ForumRecord> {
         self.all_forums.iter().find(|forum| forum.fid == fid)
     }
+}
+
+/// The skin, palette and preview flag of this request. A broken skin never fails the page: the catalog failing to
+/// load, or the chosen skin being unusable (deleted, shadowed, failing its checks after an upgrade), falls back to the
+/// built-in default and logs an error (at most once a minute per skin, so a busy site does not flood the log).
+async fn skin(
+    state: &AppState,
+    block: &crate::cache::SettingsBlock,
+    viewer_uid: Option<i64>,
+    ttl: u64,
+) -> (Arc<crate::skins::Skin>, String, bool) {
+    let domain = crate::site::other(|row| row.domain_id).and_then(|id| {
+        block
+            .domain_layouts
+            .iter()
+            .find(|(domain, _)| *domain == id)
+            .map(|(_, layout)| layout)
+    });
+    let (mut wanted, mut palette) = crate::skins::selection::choose(block.layout.as_ref(), domain);
+    let preview = state
+        .viewer
+        .session
+        .as_ref()
+        .filter(|session| session.member.is_admin)
+        .zip(viewer_uid)
+        .and_then(|(_, uid)| {
+            state
+                .identity
+                .open_skin_preview(&state.viewer.skin_preview, uid)
+        });
+    if let Some(preview) = &preview {
+        wanted = &preview.skin;
+        palette = Some(&preview.palette);
+    }
+    let catalog = match state.global.skins(&state.db, &state.skins_dir, ttl).await {
+        Ok(catalog) => Some(catalog),
+        Err(error) => {
+            unusable(wanted, &format!("the skins could not be loaded: {error:#}"));
+            None
+        }
+    };
+    let skin = match catalog.as_ref().and_then(|catalog| catalog.get(wanted)) {
+        Some(skin) => skin.clone(),
+        None => {
+            if catalog.is_some() {
+                unusable(wanted, "no usable skin has this id");
+            }
+            crate::skins::DEFAULT_SKIN.clone()
+        }
+    };
+    let palette = skin.palette(palette).to_owned();
+    (skin, palette, preview.is_some())
+}
+
+/// Logs that a chosen skin cannot be used, at most once a minute per skin id.
+fn unusable(id: &str, reason: &str) {
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+    static LOGGED: Mutex<Vec<(String, Instant)>> = Mutex::new(Vec::new());
+    let mut logged = LOGGED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    logged.retain(|(_, at)| at.elapsed() < Duration::from_secs(60));
+    if logged.iter().any(|(seen, _)| seen == id) {
+        return;
+    }
+    logged.push((id.to_owned(), Instant::now()));
+    tracing::error!(
+        skin = id,
+        reason,
+        "the chosen skin cannot be used; pages use the built-in default skin"
+    );
 }
 
 /// Filters forums by the scope of this request's site: returns the in-scope list, the scope (`None` when unrestricted)

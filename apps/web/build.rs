@@ -2,6 +2,9 @@
 //! `$OUT_DIR/static_assets.rs` with one `include_bytes!` per file. Source builds generate an empty table and keep
 //! reading the directory at run time.
 //!
+//! Always compiles the built-in skins under `skins/` and the base color scheme (docs/skins.md, "Sources") into
+//! `$OUT_DIR/skins.rs`.
+//!
 //! Always compiles the translations under `locales/` (docs/architecture.md, "Languages"): generates
 //! `$OUT_DIR/locales.rs` with every language's files, the languages' sample content and one typed method per base
 //! (en) message, so a wrong key or argument count fails to compile.
@@ -54,6 +57,95 @@ fn main() {
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR"));
     fs::write(out.join("locales.rs"), locales(&manifest.join("locales")))
         .expect("cannot write locales.rs");
+    fs::write(
+        out.join("skins.rs"),
+        skins(
+            &manifest.join("skins"),
+            &manifest.join("frontend/styles/themes/default.json"),
+        ),
+    )
+    .expect("cannot write skins.rs");
+}
+
+/// The built-in skins (docs/skins.md, "Sources"): `skins/<id>/` with `skin.toml`, `palettes/<name>.json` and an
+/// optional `skin.css`, embedded like the translations; and the base color scheme every palette overrides. The
+/// skins are checked by the unit tests and when the program starts; here only their layout is enforced.
+fn skins(root: &Path, base: &Path) -> String {
+    println!("cargo:rerun-if-changed={}", root.display());
+    println!("cargo:rerun-if-changed={}", base.display());
+    let mut code = format!(
+        "pub(crate) static BASE_PALETTE: &str = include_str!({:?});\n",
+        base.display().to_string()
+    );
+    code.push_str("pub(crate) static BUILTIN: &[(&str, &[(&str, &str)])] = &[\n");
+    let mut directories: Vec<PathBuf> = fs::read_dir(root)
+        .expect("cannot read the built-in skins directory")
+        .map(|entry| entry.expect("cannot read a skins entry").path())
+        .filter(|path| path.is_dir())
+        .collect();
+    directories.sort();
+    assert!(
+        directories
+            .iter()
+            .any(|path| path.file_name().is_some_and(|name| name == "default")),
+        "skins/default is missing: every site falls back to it"
+    );
+    for directory in directories {
+        println!("cargo:rerun-if-changed={}", directory.display());
+        let id = directory
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("skin directory names must be UTF-8")
+            .to_owned();
+        let mut files = Vec::new();
+        for entry in fs::read_dir(&directory).expect("cannot read a skin directory") {
+            let path = entry.expect("cannot read a skin file entry").path();
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .expect("skin file names must be UTF-8")
+                .to_owned();
+            if path.is_dir() {
+                assert_eq!(
+                    name, "palettes",
+                    "skins/{id}/{name}: only palettes/ may be a directory"
+                );
+                for palette in fs::read_dir(&path).expect("cannot read a palettes directory") {
+                    let palette = palette.expect("cannot read a palette entry").path();
+                    let file = palette
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .expect("palette file names must be UTF-8")
+                        .to_owned();
+                    assert!(
+                        file.ends_with(".json"),
+                        "skins/{id}/palettes/{file}: palettes are .json files"
+                    );
+                    files.push((format!("palettes/{file}"), palette));
+                }
+            } else {
+                assert!(
+                    matches!(name.as_str(), "skin.toml" | "skin.css"),
+                    "skins/{id}/{name}: a skin holds skin.toml, skin.css and palettes/ only"
+                );
+                files.push((name, path));
+            }
+        }
+        files.sort();
+        write!(code, "    ({id:?}, &[").expect("writing to a String cannot fail");
+        for (name, path) in files {
+            println!("cargo:rerun-if-changed={}", path.display());
+            write!(
+                code,
+                "({name:?}, include_str!({:?})), ",
+                path.display().to_string()
+            )
+            .expect("writing to a String cannot fail");
+        }
+        code.push_str("]),\n");
+    }
+    code.push_str("];\n");
+    code
 }
 
 /// The base language: every key the code uses exists in it, and other languages fall back to it.

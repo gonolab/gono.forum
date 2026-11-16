@@ -26,6 +26,9 @@ struct ReadingTemplate<'a> {
     settings: Reading,
     message: String,
     success: bool,
+    /// The shape the current skin fixes for every avatar (docs/skins.md, "Frame"), worded; `None` when the skin
+    /// leaves it to the member.
+    skin_avatar: Option<&'static str>,
 }
 
 fn login() -> Response {
@@ -72,6 +75,15 @@ async fn respond(
         settings,
         message,
         success: status.is_success(),
+        skin_avatar: {
+            let t = crate::i18n::current();
+            match state.frame.skin.manifest.frame.avatar_shape {
+                crate::skins::AvatarShape::Member => None,
+                crate::skins::AvatarShape::Circle => Some(t.skin_avatar_circle()),
+                crate::skins::AvatarShape::Rounded => Some(t.skin_avatar_rounded()),
+                crate::skins::AvatarShape::Square => Some(t.skin_avatar_square()),
+            }
+        },
     });
     *response.status_mut() = status;
     response

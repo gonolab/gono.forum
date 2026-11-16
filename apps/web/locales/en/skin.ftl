@@ -1,0 +1,152 @@
+## Skins (docs/skins.md): the admin page Appearance › Skins, the preview bar, and the problems the skin checks report.
+
+## Where a skin comes from.
+skin-source-builtin = Built in
+skin-source-imported = Imported
+skin-source-instance = Instance directory
+
+## Light or dark mode, the $mode of the contrast and palette problems below.
+skin-mode-light = light mode
+skin-mode-dark = dark mode
+
+## Problems found in a skin. $file is the file of the skin (skin.toml, palettes/<name>.json, skin.css), $text the
+## problem.
+skin-finding-file = { $file }: { $text }
+# $count problems were not listed.
+skin-more-findings = { $count ->
+    [one] and one more problem
+   *[other] and { $count } more problems
+}
+# $max is the size limit in KiB.
+skin-css-too-long = A skin stylesheet can be at most { $max } KiB, comments included
+skin-css-important = !important is not allowed in skins
+# $name is a CSS custom property.
+skin-css-reserved-variable = { $name } is reserved for the core
+skin-css-colophon = Rules may not name the footer's "Built on Gono Forum" line (colophon)
+# $property is a CSS property.
+skin-css-guarded-root = { $property } may not be set on html, body, footer, :root or every element: it could hide the footer's "Built on Gono Forum" line
+skin-css-masthead-size = { $property } changes a header size the header navigation was measured with
+skin-css-focus-hidden = Keyboard focus must stay visible
+skin-css-actions-hidden = { $property } may not hide the post actions: keyboard and touch users could not find them
+# $condition is an @media condition.
+skin-css-breakpoint = { $condition } uses a width other than 900, 760, 700, 640, 480 or 420 px
+skin-css-physical = { $property } is a physical property; use its logical form (inline or block)
+# $value is the value written.
+skin-css-fixed-value = { $property }: { $value } is not one of the fixed values of the style guide
+skin-css-design-variable = { $name } keeps the values of the style guide
+skin-css-fragile-selector = The selector depends on aria-label, title or the position of an element; use the classes of docs/skins.md
+
+skin-manifest-missing = skin.toml is missing
+# $detail is the parser's description, in English.
+skin-manifest-syntax = skin.toml cannot be read: { $detail }
+skin-manifest-too-long = The manifest can be at most { $max } KiB
+# $found is the contract version the skin states, $expected the one this version of Gono Forum reads.
+skin-manifest-contract = The skin is written for contract { $found }; this version of Gono Forum reads contract { $expected }
+# $value is the id as written.
+skin-manifest-id = The id "{ $value }" is not valid: 2 to 32 lowercase letters, digits and hyphens, starting with a letter
+# $directory is the name of the skin's directory.
+skin-manifest-directory = The directory { $directory } holds the skin { $id }; a skin's directory is named after its id
+# $field is a field of skin.toml.
+skin-manifest-version = { $field } must be a version number such as 1.2.0
+skin-manifest-name = { $field } needs an English text (en)
+skin-manifest-text = { $field } has an unknown language tag, an empty text or a text that is too long
+skin-manifest-value = { $field } has an invalid value
+skin-manifest-unsupported = { $field } is not supported by this version of Gono Forum
+# $version is the version the skin needs, $current the running one.
+skin-manifest-min-forum = The skin needs Gono Forum { $version } or later; this is { $current }
+
+skin-palette-syntax = The palette cannot be read: { $detail }
+skin-palette-too-long = The palettes can be at most { $max } KiB together
+# $name is a palette name.
+skin-palette-missing = The palette { $name } named in skin.toml is missing
+skin-palette-unused = The palette { $name } is not named in skin.toml and is not used
+skin-palette-token = { $name } is not a valid color token name
+skin-palette-value = { $name } has a value that is not allowed (no braces, semicolons, !, url() or functions outside the list)
+skin-palette-unknown = { $name } is not a color token of the core; it is ignored
+# $target is the token a value refers to.
+skin-palette-reference = In { $mode }, { $name } refers to { $target }, which does not exist
+# $chain lists the tokens that refer to each other.
+skin-palette-cycle = In { $mode }, tokens refer to each other in a circle: { $chain }
+# $foreground and $background are color tokens, $ratio the contrast found, $min the contrast required.
+skin-contrast = In { $mode }, { $foreground } on { $background } has a contrast of { $ratio }:1; at least { $min }:1 is required
+skin-contrast-unknown = In { $mode }, the contrast of { $foreground } on { $background } cannot be checked: use plain colors (hex, rgb(), hsl(), oklch())
+skin-colophon-color = In { $mode }, the footer colors (--text-muted, --text and --panel) must be plain colors
+skin-colophon-contrast = In { $mode }, { $foreground } on --panel has a contrast of { $ratio }:1; the footer's "Built on Gono Forum" line needs 4.5:1
+
+skin-pack-file = The file is not part of a skin and is ignored
+skin-pack-too-long = A skin pack can be at most { $max } KiB
+skin-pack-syntax = The skin cannot be read: { $detail }
+skin-pack-format = The file is not a Gono Forum skin pack
+
+## The admin page.
+skin-page-title = Skins
+skin-page-description = The look of the site: choose a skin, preview it, import skin packs and see what their checks found.
+skin-current-heading = Skin of the site
+skin-current-lead = The skin decides the colors and the stylesheet of every page. Domains can choose their own on their page under { $domains_html }.
+skin-field-skin = Skin
+skin-field-palette = Palette
+skin-select-submit = Use for the whole site
+skin-preview-submit = Preview
+skin-list-heading = All skins
+skin-column-skin = Skin
+skin-column-source = Source
+skin-column-state = State
+skin-column-actions = Actions
+skin-state-usable = Usable
+skin-state-current = Used by the whole site
+# $domains lists the domains whose own choice it is.
+skin-state-domains = Used by { $domains }
+# $source is where the skin that is used instead comes from (Built in, Imported, Instance directory).
+skin-state-shadowed = Not usable: the skin with this id from "{ $source }" is used
+skin-state-invalid = Not usable: it fails its checks
+skin-findings-errors = Problems
+skin-findings-warnings = Warnings
+# $time is when the skin was imported.
+skin-imported-at = Imported { $time }
+skin-delete-submit = Delete
+skin-import-heading = Import a skin
+skin-import-lead = A skin pack is one file, made from a skin directory with gono-forum-cli skin pack. It is checked before anything is saved; an imported skin is shared by every machine of the site.
+skin-import-field = Skin pack
+skin-import-submit = Check and import
+# $name and $version are the skin's name and version.
+skin-import-confirm-heading = Import { $name } { $version }?
+skin-import-confirm-warnings = The skin can be used, but it does not follow these rules of the style guide. Import it anyway?
+skin-import-confirm-none = The checks found no problems.
+# $version is the version imported earlier.
+skin-import-replaces = It replaces the imported version { $version }.
+skin-import-confirm-submit = Import
+skin-import-cancel = Cancel
+skin-import-refused = The skin cannot be imported:
+skin-rescan-heading = Instance directory
+# $dir_html is the directory.
+skin-rescan-lead = Skins in { $dir_html } are read when the forum starts and when you rescan. Every machine reads its own directory, and a skin there is only used where it exists.
+skin-rescan-submit = Rescan
+skin-saved-imported = The skin was imported.
+skin-saved-deleted = The skin was deleted.
+skin-saved-selected = The site uses the skin now.
+skin-saved-rescanned = The instance directory was read again.
+skin-error-file = Choose a skin pack file.
+skin-error-unknown = There is no usable skin with this id.
+skin-error-gone = The skin was deleted meanwhile.
+skin-error-changed = The skin was changed meanwhile. Please check it again.
+skin-error-in-use = The skin is in use. Choose another skin for the site and for the domains that use it first.
+
+## The preview bar at the top of every page while an administrator previews a skin.
+# $name is the skin's name.
+skin-preview-bar = Previewing { $name }. Only you see it.
+skin-preview-publish = Publish
+skin-preview-exit = Exit preview
+
+## A domain's own choice, on its page under Multiple domains.
+skin-domain-heading = Skin
+# $name is the site's skin.
+skin-domain-follow = Same as the whole site ({ $name })
+skin-domain-lead = The skin this domain uses. A palette not offered by the chosen skin falls back to its default.
+skin-domain-submit = Save skin
+skin-domain-saved = The domain's skin was saved.
+
+## Personal settings: the avatar shape when the skin fixes it. $shape is one of the shapes below.
+skin-avatar-fixed = The current skin shows every avatar { $shape }.
+skin-avatar-circle = round
+skin-avatar-rounded = with rounded corners
+skin-avatar-square = square

@@ -1,0 +1,21 @@
+# The built-in default skin: the standard look of Gono Forum, the base color scheme
+# (frontend/styles/themes/default.json) with nothing changed and no stylesheet of its own. Every site starts with it,
+# and every skin choice that cannot be used falls back to it (docs/skins.md).
+contract = 1
+id = "default"
+version = "1.0.0"
+# zh-CN: "Default" in Simplified Chinese.
+name = { en = "Default", zh-CN = "默认" }
+# zh-CN: "The standard look of Gono Forum." in Simplified Chinese.
+description = { en = "The standard look of Gono Forum.", zh-CN = "Gono Forum 的标准外观。" }
+author = "Gono Forum"
+license = "MIT OR Apache-2.0"
+
+[palettes]
+default = "default"
+
+[frame]
+nav = "top"
+header_boards = true
+# Members choose round or rounded avatars themselves.
+avatar_shape = "member"

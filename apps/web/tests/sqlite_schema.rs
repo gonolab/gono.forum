@@ -88,7 +88,11 @@ async fn mysql_schema(db: &Database) -> Schema {
             } else {
                 None
             },
-            bytes: (kind == "text").then_some(65535),
+            bytes: match kind.as_str() {
+                "text" => Some(65535),
+                "mediumtext" => Some(16_777_215),
+                _ => None,
+            },
             generated: extra.contains("GENERATED"),
             autoincrement: extra.contains("auto_increment"),
         });
@@ -373,8 +377,8 @@ async fn both_backends_build_the_same_schema_and_seed_rows() {
         sqlite_schema.keys().collect::<Vec<_>>(),
         "tables on both sides"
     );
-    // 82 tables in the baseline, one more from 0002.
-    assert_eq!(mysql_schema.len(), 83);
+    // 82 tables in the baseline, one more each from 0002 and 0003.
+    assert_eq!(mysql_schema.len(), 84);
     for (name, mysql) in &mysql_schema {
         assert_eq!(mysql, &sqlite_schema[name], "{name}");
     }
@@ -382,8 +386,8 @@ async fn both_backends_build_the_same_schema_and_seed_rows() {
         .values()
         .map(|table| table.indexes.len())
         .sum();
-    // 171 in the baseline.
-    assert_eq!(indexes, 171);
+    // 171 in the baseline, one more from 0003.
+    assert_eq!(indexes, 172);
 
     let mysql_rows = table_rows(&fixture.db).await;
     let sqlite_rows = table_rows(&sqlite).await;
@@ -410,8 +414,9 @@ async fn both_backends_build_the_same_schema_and_seed_rows() {
         );
         assert_eq!(mysql.len(), sqlite.len(), "seed row count of {table}");
     }
-    // 143 seed rows in the baseline: settings 139, credit rules 3, content version 1.
-    assert_eq!(mysql_rows.values().map(Vec::len).sum::<usize>(), 143);
+    // 143 seed rows in the baseline (settings 139, credit rules 3, content version 1) and the layout document's three
+    // settings rows from 0003.
+    assert_eq!(mysql_rows.values().map(Vec::len).sum::<usize>(), 146);
 
     let objects: i64 =
         db::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type IN ('trigger', 'view')")

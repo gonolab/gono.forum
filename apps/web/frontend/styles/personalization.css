@@ -1,6 +1,10 @@
-/* Only changes the avatars the member themselves sees. The default avatar placeholder also has .avatar. */
+/* The avatar shape (data-avatar-shape): fixed by the skin, or the member's own choice, which only changes the avatars
+   they see themselves (docs/skins.md, "Frame"). The default avatar placeholder also has .avatar. */
 :root[data-avatar-shape=circle] .avatar {
   border-radius: 50%;
+}
+:root[data-avatar-shape=square] .avatar {
+  border-radius: 0;
 }
 .custom-style-reset {
   margin-top: 12px;

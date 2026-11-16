@@ -36,6 +36,8 @@ config/gono-forum.toml
 
 # Runtime data: an instance's data directory (database, uploads, exports, setup token) and stray SQLite files
 /data/
+# The instance directory of skins of a source build (docs/skins.md, "Sources")
+/skins/
 *.db
 *.db-shm
 *.db-wal

@@ -95,6 +95,16 @@ struct FormTemplate<'a> {
     images: Vec<(i64, String)>,
     message: String,
     confirm: Option<ConfirmView>,
+    /// The domain's own skin (docs/skins.md, "Choosing a skin"): only for saved domains other than the main one.
+    skin: Option<DomainSkin>,
+}
+
+/// The skin section of a domain's page: the `id:palette` choices (the domain's own selected) and the site's skin.
+struct DomainSkin {
+    choices: Vec<(String, String, bool)>,
+    follows: bool,
+    site_name: String,
+    saved: bool,
 }
 
 impl ListTemplate<'_> {
@@ -270,10 +280,29 @@ async fn new_form(AdminPage(state): AdminPage) -> Response {
         dateline: 0,
         forums: Default::default(),
     };
-    form_page(&state, &blank, false, String::new(), None, StatusCode::OK).await
+    form_page(
+        &state,
+        &blank,
+        false,
+        String::new(),
+        None,
+        StatusCode::OK,
+        false,
+    )
+    .await
 }
 
-async fn edit_form(AdminPage(state): AdminPage, AxumPath(id): AxumPath<i64>) -> Response {
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct EditQuery {
+    skin: String,
+}
+
+async fn edit_form(
+    AdminPage(state): AdminPage,
+    AxumPath(id): AxumPath<i64>,
+    Query(query): Query<EditQuery>,
+) -> Response {
     let (map, settings) = match tokio::try_join!(current(&state), async {
         crate::runtime::read(&state.db)
             .await
@@ -290,7 +319,48 @@ async fn edit_form(AdminPage(state): AdminPage, AxumPath(id): AxumPath<i64>) -> 
         );
     };
     let main = row.site_url == settings.site.url;
-    form_page(&state, &row, main, String::new(), None, StatusCode::OK).await
+    let saved = query.skin == "saved";
+    form_page(
+        &state,
+        &row,
+        main,
+        String::new(),
+        None,
+        StatusCode::OK,
+        saved,
+    )
+    .await
+}
+
+/// The skin section of a saved domain other than the main one.
+async fn domain_skin(state: &AppState, domain_id: i64, saved: bool) -> anyhow::Result<DomainSkin> {
+    let t = crate::i18n::current();
+    let block = state.global.settings(&state.db).await?;
+    let catalog = state
+        .global
+        .skins(&state.db, &state.skins_dir, state.cache_ttl())
+        .await?;
+    let own = block
+        .domain_layouts
+        .iter()
+        .find(|(id, _)| *id == domain_id)
+        .map(|(_, layout)| layout)
+        .filter(|layout| layout.skin.is_some());
+    let (site_skin, _) = crate::skins::selection::choose(block.layout.as_ref(), None);
+    let site_name = catalog.get(site_skin).map_or_else(
+        || site_skin.to_owned(),
+        |skin| skin.manifest.name_in(t).to_owned(),
+    );
+    let current = own.and_then(|layout| {
+        let skin = catalog.get(layout.skin.as_deref()?)?;
+        Some((skin.id(), skin.palette(layout.palette.as_deref())))
+    });
+    Ok(DomainSkin {
+        choices: super::skins::choices(&catalog, current, t),
+        follows: own.is_none(),
+        site_name,
+        saved,
+    })
 }
 
 /// The form page: `row` holds the values to show (the current values, or just-submitted values that were not
@@ -302,6 +372,7 @@ async fn form_page(
     message: String,
     confirm: Option<ConfirmView>,
     status: StatusCode,
+    skin_saved: bool,
 ) -> Response {
     let Some(session) = &state.viewer.session else {
         return auth::redirect("/login?return_to=/manage/domains");
@@ -317,6 +388,14 @@ async fn form_page(
             .map(|upload| (upload.aid, upload.filename))
             .collect(),
         Err(error) => return super::media_failure(state, error),
+    };
+    let skin = if row.domain_id > 0 && !main {
+        match domain_skin(state, row.domain_id, skin_saved).await {
+            Ok(skin) => Some(skin),
+            Err(error) => return database_error(state, error),
+        }
+    } else {
+        None
     };
     let t = crate::i18n::current();
     let title = if row.domain_id == 0 {
@@ -372,6 +451,7 @@ async fn form_page(
         images,
         message,
         confirm,
+        skin,
     });
     *response.status_mut() = status;
     response
@@ -514,6 +594,7 @@ async fn save(Page(state): Page, CsrfForm(form): CsrfForm<HashMap<String, String
                 message,
                 Some(confirm),
                 StatusCode::OK,
+                false,
             )
             .await
         }
@@ -525,6 +606,7 @@ async fn save(Page(state): Page, CsrfForm(form): CsrfForm<HashMap<String, String
                 DomainError::Moved.to_string(),
                 None,
                 StatusCode::CONFLICT,
+                false,
             )
             .await
         }
@@ -536,6 +618,7 @@ async fn save(Page(state): Page, CsrfForm(form): CsrfForm<HashMap<String, String
                 message,
                 None,
                 StatusCode::UNPROCESSABLE_ENTITY,
+                false,
             )
             .await
         }
@@ -547,6 +630,7 @@ async fn save(Page(state): Page, CsrfForm(form): CsrfForm<HashMap<String, String
                 message.into(),
                 None,
                 StatusCode::CONFLICT,
+                false,
             )
             .await
         }

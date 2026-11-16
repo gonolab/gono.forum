@@ -277,7 +277,7 @@ async fn stylesheet(
             (header::CONTENT_TYPE, "text/css; charset=utf-8"),
             (header::CACHE_CONTROL, cache),
         ],
-        stored.css.unwrap_or_default(),
+        custom_css::served(&stored.css.unwrap_or_default()),
     )
         .into_response()
 }

@@ -87,6 +87,7 @@ impl Entry {
             "honors" => t.debug_cache_honors(),
             "forums" => t.debug_cache_forums(),
             "domains" => t.debug_cache_domains(),
+            "skins" => t.debug_cache_skins(),
             "statistics" => t.debug_cache_statistics(),
             "scoped-statistics" => t.debug_cache_scoped_statistics(),
             "recent-members" => t.debug_cache_recent_members(),
@@ -133,6 +134,7 @@ pub const MODERATORS: Entry = Entry::block("moderators", &["moderators"]);
 pub const HONORS: Entry = Entry::block("honors", &["honors"]);
 pub const FORUMS: Entry = Entry::block("forums", &["forums-public", "forums-members"]);
 pub const DOMAINS: Entry = Entry::block("domains", &["domains"]);
+pub const SKINS: Entry = Entry::block("skins", &["skins"]);
 
 // ---- Process cache + Redis: statistics (key changes by time segment) ----
 
@@ -324,6 +326,7 @@ pub const ENTRIES: &[&Entry] = &[
     &HONORS,
     &FORUMS,
     &DOMAINS,
+    &SKINS,
     &STATISTICS,
     &SCOPED_STATISTICS,
     &RECENT_MEMBERS,
@@ -451,6 +454,7 @@ mod tests {
             Block::Honors,
             Block::Forums,
             Block::Domains,
+            Block::Skins,
         ];
         blocks.extend(POLICY_KINDS.iter().map(|kind| Block::Policy(kind)));
         for block in blocks {
@@ -465,7 +469,8 @@ mod tests {
                 | Block::Moderators
                 | Block::Honors
                 | Block::Forums
-                | Block::Domains => {}
+                | Block::Domains
+                | Block::Skins => {}
             }
             let entry = block.entry();
             assert_eq!(entry.layer, Layer::Process, "{}", block.name());

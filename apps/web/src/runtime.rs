@@ -86,11 +86,19 @@ fn scalar_sql(extra: &[String], suffix: &str) -> String {
     )
 }
 static READ_SQL: LazyLock<String> = LazyLock::new(|| scalar_sql(&[], ""));
-/// The page frame's statement: scalar settings plus the navigation document, in one round trip.
+/// The page frame's statement: scalar settings, the navigation document, the site's layout document and every
+/// domain's override document (docs/skins.md, "Choosing a skin"), in one round trip. The domain documents are one
+/// key family read by range; this read takes no locks, so the range touches nothing else.
 static READ_WITH_NAVIGATION_SQL: LazyLock<String> = LazyLock::new(|| {
-    let navigation = document_prefix("navigation");
-    let keys = DOCUMENT_FIELDS.map(|field| format!("{navigation}{field}"));
-    scalar_sql(&keys, "")
+    let keys: Vec<String> = ["navigation", "layout"]
+        .into_iter()
+        .flat_map(|kind| {
+            let prefix = document_prefix(kind);
+            DOCUMENT_FIELDS.map(move |field| format!("{prefix}{field}"))
+        })
+        .collect();
+    let (low, high) = kv::range(crate::skins::selection::DOMAIN_LAYOUT_PREFIX);
+    scalar_sql(&keys, &format!(" OR (skey>='{low}' AND skey<'{high}')"))
 });
 /// The site-wide write gate. **It must stay a single SQL statement**: `cookie_auth_concurrency` asserts that an entry
 /// point whose authentication fails runs only this one query; one more would mean business queries still run after
@@ -189,16 +197,52 @@ pub async fn read(db: &Database) -> Result<SiteSettings> {
     decode_rows(&rows)
 }
 
-/// Fetches scalar settings and the navigation document in one SQL statement: this is the source for the in-process
-/// settings block.
-pub async fn read_with_navigation(db: &Database) -> Result<(SiteSettings, Document)> {
+/// What the page frame reads in its one statement.
+pub struct FrameRows {
+    pub settings: SiteSettings,
+    pub navigation: Document,
+    /// The site's skin choice (`settings.layout.*`); `None` when none was made or the body no longer parses.
+    pub layout: Option<crate::skins::selection::Layout>,
+    /// Each domain's override document, by domain id.
+    pub domain_layouts: Vec<(i64, crate::skins::selection::Layout)>,
+}
+
+/// Fetches scalar settings, the navigation document and the layout documents in one SQL statement: this is the
+/// source for the in-process settings block.
+pub async fn read_with_navigation(db: &Database) -> Result<FrameRows> {
     let rows = db::query(&READ_WITH_NAVIGATION_SQL)
         .fetch_all(db.executor())
         .await?;
     let rows = rows_of(&rows)?;
     let settings = settings::decode(&rows).map_err(broken)?;
     let navigation = document_from(&rows, &document_prefix("navigation")).map_err(broken)?;
-    Ok((settings, navigation))
+    // The layout document is checked like the navigation one: its rows must exist and be in range.
+    document_from(&rows, &document_prefix("layout")).map_err(broken)?;
+    let (layout, domain_layouts) = crate::skins::selection::from_rows(&rows);
+    Ok(FrameRows {
+        settings,
+        navigation,
+        layout,
+        domain_layouts,
+    })
+}
+
+/// Writes a document's three rows (body, title, save time) under `prefix`, in the caller's transaction, which has
+/// locked them.
+pub(crate) async fn write_document(
+    db: &Database,
+    tx: &mut Tx<'_>,
+    prefix: &str,
+    body: &str,
+    title: &str,
+    updated_at: i64,
+) -> Result<()> {
+    let pairs = [
+        (format!("{prefix}body"), body.to_owned()),
+        (format!("{prefix}title"), title.to_owned()),
+        (format!("{prefix}updated_at"), updated_at.to_string()),
+    ];
+    write_rows(db, tx, &pairs).await
 }
 
 /// Write gate: the first lock of this transaction, a shared lock on the scalar settings rows, then decoding.
@@ -813,10 +857,16 @@ mod tests {
             "the IN list is in ascending key order, the same keys as the encoding"
         );
         let mut with_navigation = scalars.clone();
-        with_navigation.extend(
-            ["body", "title", "updated_at"].map(|field| format!("settings.navigation.{field}")),
-        );
+        for document in ["navigation", "layout"] {
+            with_navigation.extend(
+                ["body", "title", "updated_at"].map(|field| format!("settings.{document}.{field}")),
+            );
+        }
         with_navigation.sort();
+        // The domain layout documents are one key family read by a half-open range after the IN list.
+        assert!(READ_WITH_NAVIGATION_SQL.ends_with(
+            ") OR (skey>='settings.domain_layout.' AND skey<'settings.domain_layout/')"
+        ));
         assert_eq!(listed(&READ_WITH_NAVIGATION_SQL), with_navigation);
         for key in listed(&READ_WITH_NAVIGATION_SQL) {
             assert!(key.starts_with("settings."), "{key}");

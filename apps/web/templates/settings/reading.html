@@ -44,6 +44,9 @@
   <fieldset class="option-group option-group--inline" aria-describedby="reading-avatar_shape-hint">
     <legend class="option-group__legend">{{ p.t.settings_reading_avatar() }}</legend>
     <p class="option-group__hint" id="reading-avatar_shape-hint">{{ p.t.settings_reading_avatar_hint() }}</p>
+    {%- if let Some(shape) = skin_avatar %}
+    <p class="form-note" data-skin-avatar>{{ p.t.skin_avatar_fixed(**shape) }}</p>
+    {%- endif %}
     <div class="option-group__options">
       <div class="checkline"><label class="checkline__label"><input type="radio" name="avatar_shape" value=""{% if settings.chosen.avatar_circle.is_none() %} checked{% endif %}><span>{% if settings.site.avatar_circle %}{{ p.t.settings_follow_site(p.t.settings_shape_circle()) }}{% else %}{{ p.t.settings_follow_site(p.t.settings_shape_rounded()) }}{% endif %}</span></label></div>
       <div class="checkline"><label class="checkline__label"><input type="radio" name="avatar_shape" value="rounded"{% if settings.chosen.avatar_circle == Some(false) %} checked{% endif %}><span>{{ p.t.settings_shape_rounded() }}</span></label></div>

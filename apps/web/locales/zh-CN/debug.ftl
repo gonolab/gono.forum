@@ -115,6 +115,7 @@ debug-cache-moderators = 版主名册
 debug-cache-honors = 荣誉组名录
 debug-cache-forums = 可读版块（匿名、会员）
 debug-cache-domains = 多域名站点的域名表
+debug-cache-skins = 皮肤
 debug-cache-statistics = 全站统计
 debug-cache-scoped-statistics = 按范围的社区统计（多域名站点）
 debug-cache-recent-members = 匿名最新会员

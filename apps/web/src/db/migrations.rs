@@ -50,6 +50,7 @@ macro_rules! sources {
 const SOURCES: &[Source] = sources! {
     1 => "0001_baseline.sql", "forum baseline";
     2 => "0002_rank_board.sql", "leaderboard computation times";
+    3 => "0003_skins.sql", "imported skins and the site's layout document";
 };
 
 /// The latest migration version. Tests read it when asserting "migrated to the latest", so adding a migration does not

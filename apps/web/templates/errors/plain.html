@@ -6,6 +6,8 @@
   <meta name="robots" content="noindex, nofollow">
   <title>{{ status }} - {{ heading }}</title>
   <link rel="stylesheet" href="{{ crate::site::base() }}/static/css/forum.css?v={{ asset_version }}">
+  {#- The colors: the built-in default skin, which needs no settings or database. #}
+  <link rel="stylesheet" href="{{ crate::site::base() }}{{ crate::skins::DEFAULT_SKIN.href() }}">
 </head>
 <body>
 <main class="panel" data-plain-error="{{ status }}">

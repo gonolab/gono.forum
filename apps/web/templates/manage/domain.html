@@ -118,4 +118,16 @@
 </div>
 {% endif %}
 <div class="form-actions form-actions--sticky"><button class="button button--primary" type="submit">{{ p.t.domain_save() }}</button><a href="{{ crate::site::base() }}/manage/domains">{{ p.t.domain_back() }}</a></div>
-</form></section>{% endblock %}
+</form></section>
+{%- if let Some(skin) = skin %}
+<section class="panel" id="section-domain-skin" data-domain-skin aria-labelledby="section-domain-skin-title"><h2 class="panel__title" id="section-domain-skin-title">{{ p.t.skin_domain_heading() }}</h2>
+{% if skin.saved %}<p class="form-feedback form-feedback--success" role="status">{{ p.t.skin_domain_saved() }}</p>{% endif %}
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/domains/{{ domain_id }}/skin"><input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<div class="field field--wide">
+  <label class="field__label" for="domain-skin">{{ p.t.skin_field_skin() }}</label>
+  <select id="domain-skin" aria-describedby="domain-skin-hint" name="choice"><option value=""{% if skin.follows %} selected{% endif %}>{{ p.t.skin_domain_follow(skin.site_name) }}</option>{% for (value, label, selected) in skin.choices %}<option value="{{ value }}"{% if *selected %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+  <p class="field__hint" id="domain-skin-hint">{{ p.t.skin_domain_lead() }}</p>
+</div>
+<div class="form-actions"><button class="button" type="submit">{{ p.t.skin_domain_submit() }}</button></div>
+</form></section>
+{%- endif %}{% endblock %}

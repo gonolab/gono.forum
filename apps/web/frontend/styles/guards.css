@@ -1,0 +1,101 @@
+/* Guards (docs/skins.md, "Cascade layers"): rules neither a skin nor a member's personal style can override.
+   forum.css declares this layer first and every declaration here is !important. Among important declarations the
+   earliest layer wins, so nothing in a later layer, important or not, changes them; skins may not use !important at
+   all. The build adds the guards that only hold under built-in skins after this file (scripts/build-styles.mjs). */
+
+/* hidden always hides, whatever display rule a component, skin or personal style has. */
+[hidden] {
+  display: none !important;
+}
+
+/* Visually hidden text stays out of sight and in the accessibility tree. */
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+}
+
+/* "Built on Gono Forum" (docs/skins.md, "Built on Gono Forum"): the footer line and every box it sits in stay shown,
+   whole and in place. Its text and ground colors are fixed for each palette in the skin's stylesheet, which checks
+   their contrast. This is a product rule of the skin layer, not a license term. */
+html,
+body,
+.colophon,
+.colophon__inner,
+.colophon__legal,
+.colophon__brand {
+  opacity: 1 !important;
+  filter: none !important;
+  transform: none !important;
+  translate: none !important;
+  rotate: none !important;
+  scale: none !important;
+  zoom: 1 !important;
+  clip-path: none !important;
+  mask: none !important;
+  content-visibility: visible !important;
+  max-block-size: none !important;
+}
+
+/* navigation.js hides the body while it revalidates a page restored from history (frame.css). */
+html,
+html:not([data-history-revalidating]) body,
+.colophon,
+.colophon__inner,
+.colophon__legal,
+.colophon__brand {
+  visibility: visible !important;
+}
+
+html {
+  display: block !important;
+}
+
+body,
+.colophon__inner {
+  display: flex !important;
+}
+
+.colophon,
+.colophon__legal {
+  display: block !important;
+}
+
+.colophon__brand {
+  display: inline !important;
+}
+
+.colophon,
+.colophon__inner,
+.colophon__legal {
+  overflow: visible !important;
+}
+
+/* Above anything a skin can stack: skins may only use z-index up to 20. */
+.colophon__legal {
+  position: relative !important;
+  z-index: 21 !important;
+  inset: auto !important;
+  margin: 0 !important;
+  font-size: 13px !important;
+  letter-spacing: normal !important;
+  word-spacing: normal !important;
+  text-indent: 0 !important;
+}
+
+.colophon__brand {
+  position: static !important;
+  font-size: inherit !important;
+  letter-spacing: inherit !important;
+}
+
+.colophon__legal::before,
+.colophon__legal::after,
+.colophon__brand::before,
+.colophon__brand::after {
+  content: none !important;
+}

@@ -85,6 +85,20 @@ impl Rows {
         Self(pairs)
     }
 
+    /// The value of one key, if the read found it.
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.raw(key)
+    }
+
+    /// The keys and values of one family (`prefix` ends with `.`), in key order.
+    pub fn with_prefix<'a>(&'a self, prefix: &'a str) -> impl Iterator<Item = (&'a str, &'a str)> {
+        let start = self.0.partition_point(|(name, _)| name.as_str() < prefix);
+        self.0[start..]
+            .iter()
+            .take_while(move |(name, _)| name.starts_with(prefix))
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+    }
+
     fn raw(&self, key: &str) -> Option<&str> {
         self.0
             .binary_search_by(|(name, _)| name.as_str().cmp(key))

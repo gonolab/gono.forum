@@ -63,6 +63,9 @@ pub(super) struct Viewer {
     /// The origin derived from this request (`http(s)://Host`); the page frame uses it as the site URL when the
     /// forum URL is empty. `None` when no usable `Host` was sent. See [`request_origin`].
     pub(super) origin: Option<String>,
+    /// The sealed skin preview cookie of a signed-in member (docs/skins.md, "Preview"); the page frame opens it and
+    /// applies it only to the administrator who started it. Empty without one.
+    pub(super) skin_preview: String,
 }
 
 #[derive(Clone)]
@@ -396,6 +399,10 @@ pub(super) async fn context(
     next: Next,
 ) -> Response {
     let path = request.uri().path();
+    // Skin stylesheets are the same for everyone and carry their own cache headers (router/skins.rs).
+    if path.starts_with("/skin/") {
+        return next.run(request).await;
+    }
     // Images whose visibility depends on the viewer: forum icons (member-only forums), post attachments and list
     // thumbnails.
     let gated_image = path.starts_with("/forum-icon/")
@@ -470,6 +477,11 @@ pub(super) async fn context(
     } else {
         None
     };
+    let skin_preview = if session.is_some() {
+        auxiliary_cookie(request.headers(), super::skins::PREVIEW_COOKIE).unwrap_or_default()
+    } else {
+        String::new()
+    };
     let viewer = Viewer {
         sensitive: crate::urls::sensitive_page(path),
         csp_nonce,
@@ -495,6 +507,7 @@ pub(super) async fn context(
             request.extensions(),
             state.config.listen,
         ),
+        skin_preview,
     };
     request.extensions_mut().insert(viewer.clone());
     // The admin area always requires login first: a visitor opening any /manage URL goes to the login page and

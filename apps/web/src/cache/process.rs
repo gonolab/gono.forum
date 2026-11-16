@@ -125,6 +125,8 @@ pub enum Block {
     Forums,
     /// The multi-domain sites' domain table and the forums each domain shows.
     Domains,
+    /// Every skin of the three sources (docs/skins.md, "Sources"); clearing it also rescans the instance directory.
+    Skins,
 }
 
 impl Block {
@@ -141,6 +143,7 @@ impl Block {
             Self::Honors => &registry::HONORS,
             Self::Forums => &registry::FORUMS,
             Self::Domains => &registry::DOMAINS,
+            Self::Skins => &registry::SKINS,
         }
     }
 
@@ -156,6 +159,7 @@ impl Block {
             Self::Honors => "honors",
             Self::Forums => "forums",
             Self::Domains => "domains",
+            Self::Skins => "skins",
         }
     }
 
@@ -170,6 +174,7 @@ impl Block {
             "honors" => Some(Self::Honors),
             "forums" => Some(Self::Forums),
             "domains" => Some(Self::Domains),
+            "skins" => Some(Self::Skins),
             other => POLICY_KINDS
                 .iter()
                 .find(|kind| **kind == other)
@@ -220,6 +225,10 @@ pub struct SettingsBlock {
     /// `None` when the navigation body is empty or existing data is invalid (rules tightened, database edited directly);
     /// the header then falls back to the default forum navigation.
     pub navigation_entries: Option<Vec<NavigationItem>>,
+    /// The site's skin choice (docs/skins.md, "Choosing a skin"); `None` for the default skin.
+    pub layout: Option<crate::skins::selection::Layout>,
+    /// Each domain's override of it, by domain id.
+    pub domain_layouts: Vec<(i64, crate::skins::selection::Layout)>,
 }
 
 /// Friend links for the directory page, grouped by category.
@@ -371,6 +380,13 @@ struct Inner {
     forums: [Slot<Vec<crate::organization::ForumRecord>>; 2],
     /// The multi-domain sites' domain table (not read when the switch is off).
     domains: Slot<crate::domains::DomainMap>,
+    /// Every skin: built in, imported and in the instance directory.
+    skins: Slot<crate::skins::Catalog>,
+    /// The last scan of the instance directory; the catalog reuses it until [`Inner::rescan`] asks for another.
+    skin_scan: Mutex<Option<Arc<Vec<crate::skins::Listed>>>>,
+    /// The instance directory is read at start and again after the skins block is cleared (import, delete,
+    /// "Rescan", a broadcast of any of them), not on every reload of the block.
+    rescan: AtomicBool,
     /// Site statistics: the bucket is `(statistics_bucket, site time zone offset)`.
     statistics: Slot<((i64, i64), Statistics)>,
     /// Scoped community statistics (multi-domain sites): the key is the forum
@@ -428,6 +444,10 @@ impl Inner {
                 }
             }
             Block::Domains => self.domains.clear(),
+            Block::Skins => {
+                self.rescan.store(true, Ordering::Relaxed);
+                self.skins.clear();
+            }
         }
     }
 
@@ -449,6 +469,8 @@ impl Inner {
             slot.clear();
         }
         self.domains.clear();
+        self.rescan.store(true, Ordering::Relaxed);
+        self.skins.clear();
         self.statistics.clear();
         self.scoped_statistics
             .lock()
@@ -518,6 +540,9 @@ impl GlobalCache {
                 honors: Slot::new(),
                 forums: [Slot::new(), Slot::new()],
                 domains: Slot::new(),
+                skins: Slot::new(),
+                skin_scan: Mutex::new(None),
+                rescan: AtomicBool::new(true),
                 statistics: Slot::new(),
                 scoped_statistics: Mutex::new(std::collections::BTreeMap::new()),
                 recent_members: Slot::new(),
@@ -659,7 +684,12 @@ impl GlobalCache {
                 bypass,
                 |block: &SettingsBlock| block.settings.cache_ttl(),
                 || async {
-                    let (settings, navigation) = crate::runtime::read_with_navigation(db).await?;
+                    let crate::runtime::FrameRows {
+                        settings,
+                        navigation,
+                        layout,
+                        domain_layouts,
+                    } = crate::runtime::read_with_navigation(db).await?;
                     inner.last_ttl.store(settings.cache_ttl(), Ordering::Relaxed);
                     let navigation_entries = if navigation.body.trim().is_empty() {
                         None
@@ -677,6 +707,8 @@ impl GlobalCache {
                         settings: Arc::new(settings),
                         navigation,
                         navigation_entries,
+                        layout,
+                        domain_layouts,
                     })
                 },
             )
@@ -719,6 +751,59 @@ impl GlobalCache {
             .get(&crate::i18n::current())
             .cloned()
             .unwrap_or_default())
+    }
+
+    /// Every skin of the three sources. `dir` is the instance directory (`$GONOF_HOME/skins`), read again only after
+    /// the block was cleared; the built-in skins are checked once per process and the imported ones on every load.
+    pub async fn skins(
+        &self,
+        db: &Database,
+        dir: &std::path::Path,
+        ttl: u64,
+    ) -> anyhow::Result<Arc<crate::skins::Catalog>> {
+        let inner = &self.inner;
+        self.inner
+            .skins
+            .get(
+                "skins",
+                ttl == 0,
+                |_| ttl,
+                || async {
+                    let imported = crate::skins::store::listed(db).await?;
+                    let scanned = if inner.rescan.swap(false, Ordering::Relaxed) {
+                        None
+                    } else {
+                        inner
+                            .skin_scan
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .clone()
+                    };
+                    let scanned = match scanned {
+                        Some(scanned) => scanned,
+                        None => {
+                            let dir = dir.to_owned();
+                            let scanned = Arc::new(
+                                tokio::task::spawn_blocking(move || {
+                                    crate::skins::catalog::scan(&dir)
+                                })
+                                .await?,
+                            );
+                            *inner
+                                .skin_scan
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                                Some(scanned.clone());
+                            scanned
+                        }
+                    };
+                    let mut listed = crate::skins::catalog::builtin();
+                    listed.extend(imported);
+                    listed.extend(scanned.iter().cloned());
+                    Ok(crate::skins::Catalog::build(listed))
+                },
+            )
+            .await
     }
 
     pub async fn branding(&self, media: &Media, ttl: u64) -> anyhow::Result<Arc<Vec<BrandAsset>>> {

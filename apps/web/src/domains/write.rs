@@ -674,7 +674,7 @@ pub async fn delete(
             result => break result?,
         }
     }
-    global.announce(&[Block::Domains]).await?;
+    global.announce(&[Block::Domains, Block::Settings]).await?;
     Ok(())
 }
 
@@ -724,6 +724,8 @@ async fn delete_once(
             .await?;
     }
     release_images(db, &mut tx, &before, &[None, None], now, orphan_seconds).await?;
+    // The domain's own skin choice goes with it (docs/skins.md, "Choosing a skin").
+    crate::skins::selection::delete_domain(db, &mut tx, domain_id).await?;
     crate::runtime::audit(
         db,
         &mut tx,
