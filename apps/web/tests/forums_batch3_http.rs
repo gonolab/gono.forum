@@ -334,7 +334,7 @@ async fn header_navigation_follows_the_family_and_breadcrumbs_match_structured_d
     assert!(!strip(&child).contains(&link("/", true)));
     let crumb = breadcrumb(&child);
     assert!(crumb.contains(
-        "<a href=\"/\">Home</a><span aria-hidden=\"true\">›</span><a href=\"/showcase\">Showcase</a>"
+        "<a href=\"/\">Home</a><span class=\"crumbs__sep\" aria-hidden=\"true\"></span><a href=\"/showcase\">Showcase</a>"
     ));
     assert!(
         !crumb.contains("/ai"),
@@ -384,7 +384,7 @@ async fn header_navigation_follows_the_family_and_breadcrumbs_match_structured_d
     // structured data has the thread first, then the breadcrumb, whose last item is the thread title.
     let (status, topic) = h.page(&format!("/thread-{tid}"), None).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(breadcrumb(&topic).contains("<a href=\"/\">Home</a><span aria-hidden=\"true\">›</span><a href=\"/showcase\">Showcase</a><span aria-hidden=\"true\">›</span><a href=\"/ai\">AI</a>"));
+    assert!(breadcrumb(&topic).contains("<a href=\"/\">Home</a><span class=\"crumbs__sep\" aria-hidden=\"true\"></span><a href=\"/showcase\">Showcase</a><span class=\"crumbs__sep\" aria-hidden=\"true\"></span><a href=\"/ai\">AI</a>"));
     assert!(header_nav(&topic).contains(&link("/showcase", true)));
     let blocks = json_ld(&topic);
     assert_eq!(blocks.len(), 2);

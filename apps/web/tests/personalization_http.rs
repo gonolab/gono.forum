@@ -515,20 +515,20 @@ async fn member_time_zone_is_gone_and_everyone_sees_site_time() {
     );
 
     // Floor times are "month-day hour:minute": first post 14:30 UTC and reply 15:30 UTC, i.e. 22:30 and 23:30 Beijing
-    // time.
+    // time. Each is a <time class="row-time"> whose datetime is the instant in UTC, so the shown text follows it.
     let path = format!("/thread-{tid}");
     let tokyo = get(&f.app, &path, &mut viewer).await;
     for jar in [&mut anonymous, &mut author] {
         let shanghai = get(&f.app, &path, jar).await;
         assert!(
-            shanghai.body.contains("row-time\">10-30 22:30<"),
+            shanghai.body.contains("T14:30:00Z\">10-30 22:30</time>"),
             "site time zone: UTC+8"
         );
-        assert!(shanghai.body.contains("row-time\">10-30 23:30<"));
+        assert!(shanghai.body.contains("T15:30:00Z\">10-30 23:30</time>"));
         assert!(!shanghai.body.contains("10-31 00:30"));
     }
     assert!(
-        tokyo.body.contains("row-time\">10-30 23:30<"),
+        tokyo.body.contains("T15:30:00Z\">10-30 23:30</time>"),
         "the member who chose Tokyo also sees site time"
     );
     assert!(!tokyo.body.contains("10-31 00:30"));

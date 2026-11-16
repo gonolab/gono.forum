@@ -532,12 +532,18 @@ async fn forum_statistics_directory_page_and_settings_block() {
         "the child forum is listed inside its parent"
     );
     let after_showcase = &page[showcase_at..ai_at];
+    // Each count is split into its number and word (docs/skins.md, "Counts"), reading "4 threads" and "Today 4".
     assert!(
-        after_showcase.contains("<span>4 threads</span>")
-            && after_showcase.contains("<span>Today 4</span>"),
+        after_showcase.contains(
+            "<span class=\"stat__value\">4</span> <span class=\"stat__label\">threads</span>"
+        ) && after_showcase.contains(
+            "<span class=\"stat__label\">Today</span> <span class=\"stat__value\">4</span>"
+        ),
         "the parent forum includes its child forum: {after_showcase}"
     );
-    assert!(page[ai_at..].contains("<span>1 thread</span>"));
+    assert!(page[ai_at..].contains(
+        "<span class=\"stat__value\">1</span> <span class=\"stat__label\">thread</span>"
+    ));
     assert!(
         !page.contains("data-forum=\"hosting\""),
         "anonymous visitors do not see members-only forums"

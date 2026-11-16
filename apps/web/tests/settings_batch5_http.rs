@@ -207,7 +207,13 @@ async fn topic_list_times_follow_the_relative_time_settings() {
     let short = clock::short_datetime(at, &absolute);
     let title = clock::datetime(at, &absolute);
     assert!(short.contains(':') && !short.contains("ago"), "{short}");
-    let row = |text: &str| format!("<span title=\"{title}\">{text}</span>");
+    // The list time is a <time> with the instant in UTC (docs/skins.md, "Times") and the absolute time as its title.
+    let datetime = clock::iso(at);
+    let row = |text: &str| {
+        format!(
+            "<time class=\"row-meta__time\" datetime=\"{datetime}\" title=\"{title}\">{text}</time>"
+        )
+    };
 
     let (status, html) = f.get("/", false).await;
     assert_eq!(status, StatusCode::OK);
@@ -252,7 +258,7 @@ async fn topic_list_times_follow_the_relative_time_settings() {
     let (_, html) = f.get("/", false).await;
     assert!(
         html.contains(&format!(
-            "<span title=\"{}\">{}</span>",
+            "<time class=\"row-meta__time\" datetime=\"{datetime}\" title=\"{}\">{}</time>",
             clock::datetime(at, &format),
             clock::short_datetime(at, &format)
         )),
