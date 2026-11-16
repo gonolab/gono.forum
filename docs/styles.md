@@ -409,6 +409,8 @@ Redis or a remote host. The pages are listed in `tests/e2e/support/pages.js`, an
 - With `GONOF_E2E_SKIN` set to a skin pack (`gono-forum-cli skin pack <dir> --output=<file>`), both sites import it
   through `/manage/skins`, confirming its warnings, and use it before the checks and screenshots run. The Ledger test
   fixture (`tests/fixtures/skins/ledger`) is an imported skin with warnings to try this with.
+- With `GONOF_E2E_COLORS` set to two seed colors (`#0f766e,#f97316`), both sites save them at Appearance › Colors
+  (after the skin of `GONOF_E2E_SKIN`, if any), so the checks and screenshots run with the derived palettes.
 - `node scripts/visual-compare.mjs before after` builds `.local/visual/compare-before-after.html` from two labelled
   screenshot sets: each page side by side, filterable by language, viewport and page. Take `before` on the old code
   and `after` on the new, and judge the change by eye; there are no pixel thresholds.

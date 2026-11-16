@@ -71,6 +71,27 @@ async function useSkin(instance, state, pack) {
   }
 }
 
+/**
+ * With GONOF_E2E_COLORS set to two seed colors (`#0f766e,#f97316`), saves them at Appearance › Colors, so the checks
+ * and screenshots run with the palettes derived from them (docs/styles.md, "Seed colors"); after GONOF_E2E_SKIN, so
+ * they are derived for that skin.
+ */
+async function useColors(instance, state, colors) {
+  const [primary, secondary] = colors.split(',').map((color) => color.trim());
+  const context = await request.newContext({ baseURL: instance.origin, storageState: state });
+  try {
+    const page = await (await context.get('/manage/appearance/colors')).text();
+    const answer = await context.post('/manage/appearance/colors', {
+      headers: { origin: instance.origin },
+      form: { _csrf: hidden(page, '_csrf'), primary, secondary },
+      maxRedirects: 0,
+    });
+    if (answer.status() !== 303) throw new Error(`${instance.language}: saving the colors ${colors} answered ${answer.status()}`);
+  } finally {
+    await context.dispose();
+  }
+}
+
 export default async function globalSetup() {
   // Both start at once; when one fails, the one that did start is stopped too (a failed one has cleaned up itself).
   const started = await Promise.allSettled([launch({ language: 'en' }), launch({ language: 'zh-CN', content: 'sample' })]);
@@ -84,6 +105,9 @@ export default async function globalSetup() {
     const states = await Promise.all(instances.map(signIn));
     if (process.env.GONOF_E2E_SKIN) {
       await Promise.all(instances.map((instance, index) => useSkin(instance, states[index], process.env.GONOF_E2E_SKIN)));
+    }
+    if (process.env.GONOF_E2E_COLORS) {
+      await Promise.all(instances.map((instance, index) => useColors(instance, states[index], process.env.GONOF_E2E_COLORS)));
     }
     process.env.GONOF_E2E_INSTANCES = JSON.stringify(
       instances.map(({ origin, language, content, admin }, index) => ({
