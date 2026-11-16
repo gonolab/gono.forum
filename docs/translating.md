@@ -7,6 +7,10 @@ falls back to English. A partial translation is therefore useful as soon as it i
 later pull requests.
 
 Posts, usernames, profiles and other member content are always shown as written; only the interface is translated.
+One line of the interface is not translated on purpose: the footer's "Built on Gono Forum" is English in every
+language. It is written in `layout/base.html` rather than in a translation file, carries `translate="no"` so that
+browser translation leaves it alone, and no skin can hide it ([skins.md](skins.md), "Built on Gono Forum"). The
+performance figures after it keep `translate="yes"`.
 A site's language is chosen by its administrator (one language per site, and optionally one per extra domain);
 members do not pick a language, and addresses carry no language prefix.
 
@@ -21,7 +25,7 @@ apps/web/locales/
     js.ftl            text used by the browser scripts
     mail.ftl          built-in mail templates
     policy.ftl        built-in terms, privacy and rules pages
-    manage.ftl …      one file per area of the site (31 files in all)
+    manage.ftl …      one file per area of the site (32 files in all)
     sample.json       the setup wizard's sample content (optional; see "Sample content")
   zh-CN/              Simplified Chinese, same file names
 ```

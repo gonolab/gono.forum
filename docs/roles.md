@@ -62,7 +62,7 @@ moderator, 5 reviewer. Staff powers need an active, unfrozen account. All five r
 | Action log | All events | Content events | Content events in own boards | Content events in own boards | No |
 | Mute and lift mutes; read sanction records | Yes | Yes | No | No | No |
 | Warn and freeze, lift them; decide appeals | Yes | No | No | No | No |
-| Settings, boards, moderators, users, invites, verified members, honor groups, data requests | Yes | No | No | No | No |
+| Settings, skins, boards, moderators, users, invites, verified members, honor groups, data requests | Yes | No | No | No | No |
 
 "Own boards" is defined under "Moderators and boards". Every staff action on a post needs a reason of 1 to 500
 characters and is written to the action log. Profile and attachment reports can only be marked handled or dismissed.

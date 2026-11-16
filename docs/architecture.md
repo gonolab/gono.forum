@@ -13,8 +13,9 @@ in `docs/` go into more detail:
 - [api.md](api.md): the member REST API under `/api/v1/`.
 - [roles.md](roles.md): staff roles, mutes, level gates and honor groups.
 - [styles.md](styles.md): the style guide for stylesheets, class names and templates, and how to check changes.
-- [skins.md](skins.md): the markup hooks stylesheets and scripts can rely on: list row classes and states, split
-  counts, `<time>`, optional elements, the page data block, script events and the declared header height.
+- [skins.md](skins.md): skins (format, sources, checks, cascade layers, choosing and previewing one) and the markup
+  hooks stylesheets and scripts can rely on: list row classes and states, split counts, `<time>`, optional elements,
+  the page data block, script events and the declared header height.
 - [assets.md](assets.md): where bundled fonts, icons, images and scripts come from, and their licences.
 - [releasing.md](releasing.md): building and publishing release packages, and how sites upgrade themselves.
 
@@ -35,6 +36,7 @@ apps/web/
   src/i18n.rs, i18n/      translations, number and date formatting
   templates/              Askama templates (compiled into the binary)
   frontend/styles/        stylesheet sources, built into static/css/ by npm run build
+  skins/                  built-in skins (compiled into the binary)
   static/                 scripts, fonts, images and the built stylesheets
   locales/<language>/     Fluent translation files and the language's sample content
   tests/                  integration tests
@@ -146,7 +148,7 @@ outside any transaction, and are stored in a private S3-compatible bucket. Image
 There are two layers, registered in `cache/registry.rs`:
 
 - **Process cache**: site-wide data with a fixed number of entries (settings, policies, branding, boards, domains,
-  moderators, pins, links). Every process keeps a copy for a configurable time. Site statistics also start here and,
+  moderators, pins, links, skins). Every process keeps a copy for a configurable time. Site statistics also start here and,
   with Redis on, are shared through Redis.
 - **Redis cache**: anonymous page content (thread lists, sidebars, rendered posts, feeds) and per-member data, only
   when Redis is enabled; with Redis off these reads go to the database.
@@ -242,10 +244,20 @@ language is in [translating.md](translating.md).
 
 ## Styles and scripts
 
-Stylesheets are plain CSS in `frontend/styles/`, combined and minified by `npm run build` (esbuild). Colors come from
-one set of design tokens (`frontend/styles/themes/default.json`) with light, dark and system themes. Layout uses
+Stylesheets are plain CSS in `frontend/styles/`, combined by `npm run build` (esbuild) into `forum.css` in cascade
+layers: `guards` (rules nothing may override), `core`, then `skin` and `member` for the skin's and a member's
+stylesheets. Colors come from one set of design tokens (`frontend/styles/themes/default.json`) with light, dark and
+system themes; the server writes them, merged with the skin's palettes, into the skin's stylesheet. Layout uses
 logical properties (`margin-inline-start`, not `margin-left`) so that right-to-left languages mirror correctly.
 Scripts are small, framework-free and optional: htmx plus a few enhancements and the editor.
+
+**Skins** ([skins.md](skins.md)) change the look without a build: a manifest, palettes over the core scheme and a
+checked stylesheet. They come from the binary (`apps/web/skins/`), from the database (imported at `/manage/skins`)
+and from the instance directory (`$GONOF_HOME/skins/`), in that priority; the process cache holds them checked and
+compiled (`skins.rs`, `skins/`). Every skin is checked by the stylesheet checker members' personal styles also use
+(`css_check.rs`): safety rules and the "Built on Gono Forum" guard block every skin, the rest of the style guide
+blocks built-in skins and warns for the others. The site's choice and each domain's are layout documents in the
+settings table, read with the settings; a choice that cannot be used falls back to the built-in default.
 
 The templates also write hooks for stylesheets and scripts that are not part of the default look, listed in
 [skins.md](skins.md):

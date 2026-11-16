@@ -182,6 +182,7 @@ belongs to the binaries of each machine and must not be shared. The database mus
 | The database | MySQL: `mysqldump --single-transaction`. SQLite: `sqlite3 data/db/gonof.db ".backup '/backup/gonof.db'"` (safe while running), or copy the file with the service stopped. |
 | `config/gono-forum.toml` | Holds the three keys. Without `[identity.two_factor] active_key`, members who use an authenticator can only sign in with recovery codes, and lottery redemption codes cannot be read; without `[common] encryption_key`, the stored SMTP and SMS secrets must be entered again; a new cookie key signs everyone out and voids SMS codes not used yet. |
 | `data/` | The attachment storage keys (`data/media/secrets/`, readable only by the service account and not encrypted: without them attachments cannot be read until the keys are entered again in the admin area), exports waiting to be downloaded, mail written to files (deleted with its event after the notification and mail event retention period, 30 days by default), text messages written to files (deleted with their code after two days, or when the account they were sent to is deleted), the upgrade state. |
+| `skins/` | Skins in the instance directory ([skins.md](skins.md), "Sources"), if you use any. Every machine of a site has its own; imported skins are in the database. |
 | The S3 bucket | The attachments themselves. |
 
 Upgrades do not take backups (next section).
@@ -289,6 +290,7 @@ Without arguments it lists its commands. The ones a site operator is most likely
 | `migrate` | Run migrations (also creates a new SQLite file). The service does this by itself at start. |
 | `seed-sample [--language=<tag>]` | Add the setup wizard's optional sample content (10 members, 5 boards, 100 threads, 1,000 replies) to a site that has no boards, threads or posts yet; in English unless `--language` names another language with a sample (`--language=zh-CN`). |
 | `export-sample <dir> [--language=<tag>]`, `check-content <dir>`, `import-content <dir>` | Write the sample as a content dataset to start from, check a dataset, and import one into a site without boards, threads or posts: see [content-import.md](content-import.md). |
+| `skin check <dir\|file> [--builtin]`, `skin pack <dir> [--output=<file>]` | Check a skin directory or pack the way an import does, and pack a skin directory into one file to import at Appearance › Skins: see [skins.md](skins.md). Neither needs a database. |
 
 ## Two-factor key rotation
 

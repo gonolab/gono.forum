@@ -16,22 +16,25 @@ migration seeds.
 | --- | --- | --- |
 | `gonof_common_settings`, `settings.{group}.{field}` | 134 scalar settings, one row each | `apps/web/src/runtime.rs`, `runtime/settings.rs`, `runtime/kv.rs` |
 | `gonof_common_settings`, `settings.navigation.{body,title,updated_at}` | the header navigation document | `runtime.rs` |
+| `gonof_common_settings`, `settings.layout.{body,title,updated_at}` and `settings.domain_layout.<domain id>.{body,title,updated_at}` | the site's skin choice and each domain's override ([skins.md](skins.md), "Choosing a skin") | `skins/selection.rs` |
+| `gonof_common_skin` | imported skins, one row per id, with a `version` column for optimistic locking ([skins.md](skins.md)) | `skins/store.rs` |
 | `gonof_common_settings`, `mail.transport`, `media.storage`, `login.providers` | one JSON value each (SMTP, attachment storage, SMS and sign-in providers). The SMTP, SMS and sign-in provider secrets inside are encrypted with `[common] encryption_key`; the attachment storage keys are not in the database at all: each storage configuration names a file under `[media] local_directory` (`secrets/<id>`, mode 0600, plain JSON) | `mail/settings.rs`, `media.rs`, `sms.rs` |
 | `gonof_common_settings`, `identity.bootstrap_admin`, `identity.username_namespace` | lock rows, not settings (see "Write gate and locks") | `identity.rs`, `identity/profile.rs` |
 | `gonof_common_localized_text`, key `(kind, language)` | policies (`policy.terms`, `.privacy`, `.rules`, `.contact`, `.verified`, `.links`) and mail templates (`mail.{kind}`), one row per customized language | `runtime.rs`, `mail/templates.rs` |
 | `gonof_common_credit_rule` | credit reward rules (`reply`, `signin`, `thread`), with a `version` column for optimistic locking | `activities/ledger.rs` |
 
 `gonof_common_settings` has two columns, `skey varchar(190)` (primary key, `utf8mb4_bin`) and `svalue text`. The
-baseline seeds 139 rows: the 134 scalar settings, the three navigation rows and the two lock rows; the JSON rows are
-inserted on their first save. A policy or mail template with no row for a language uses that language's built-in text
+migrations seed 142 rows: the 134 scalar settings, the three navigation rows, the three rows of the layout document and
+the two lock rows; the JSON rows are inserted on their first save, and a domain's layout document when its own skin is
+first chosen (it is deleted with the domain or when the domain follows the site again). A policy or mail template with no row for a language uses that language's built-in text
 (a mail template with a blank subject and body counts as not customized; "Restore built-in text" deletes the row).
 Per-member choices are in their own tables, where `NULL` means "follow the site default" in `settings.reading.*`.
 
 ## Keys and groups
 
 Every scalar key is `settings.{group}.{field}`. `SiteSettings` has one sub-structure per group, and each field is
-named after the last segment of its key. `mail`, `navigation` and `policy` are not scalar groups; a unit test keeps
-scalar keys out of those prefixes.
+named after the last segment of its key. `mail`, `navigation`, `layout`, `domain_layout` and `policy` are not scalar groups; a
+unit test keeps scalar keys out of those prefixes.
 
 | Group | Admin page |
 | --- | --- |
@@ -83,12 +86,15 @@ Each caller uses one of three copies:
 | Write gate | every protected write transaction, for everything it checks | `runtime::locked`, `runtime::guard_write` |
 | Direct read | admin edit pages (they show current values), a few workers without a cache handle, the CLI | `runtime::read` |
 
-On a miss the settings block loads the scalar settings and the navigation document in one statement
-(`runtime::read_with_navigation`). The page frame then adjusts its own copy per request: another domain's site name
+On a miss the settings block loads the scalar settings, the navigation document and the layout documents in one
+statement (`runtime::read_with_navigation`): the scalar keys and the two documents by primary key `IN`, and the domain
+layout documents by the half-open range of their family after it (`OR (skey>='settings.domain_layout.' AND
+skey<'settings.domain_layout/')`); this read takes no locks. The page frame then adjusts its own copy per request: another domain's site name
 and verification codes, and, for values left empty (site name, description, read-only message, brand words, points and
 index names, level names), the product name or the words of the request's language. Admin forms keep the empty
 strings. A navigation body that no longer parses does not fail pages: the header falls back to the default board
-navigation and a warning is logged.
+navigation and a warning is logged. Likewise a layout document that no longer parses, or a skin that can no longer be
+used, falls back to the built-in default skin with an error in the log ([skins.md](skins.md), "Sources").
 
 ## Write gate and locks
 
@@ -188,7 +194,7 @@ on `AppState` and is passed explicitly to every function that saves cached data.
 
 | Block | Holds | Cleared by |
 | --- | --- | --- |
-| `settings` | scalar settings, the navigation document and its parsed entries | settings saves, navigation saves |
+| `settings` | scalar settings, the navigation document and its parsed entries, the layout documents (the site's and every domain's skin choice) | settings saves, navigation saves, skin choices, domain deletion |
 | `policy.*` | one slot per policy kind, with every saved language | saving any language of that policy |
 | `branding` | brand image bindings | replacing a brand image |
 | `credit-rules` | credit reward rules, for display (reward transactions read the rules with locks) | saving a rule |
@@ -198,6 +204,7 @@ on `AppState` and is passed explicitly to every function that saves cached data.
 | `honors` | honor group directory | honor group saves |
 | `forums` | readable boards, one slot for anonymous visitors and one for members | board saves, ordering, deletion, merges |
 | `domains` | the domain table, read only while `settings.domains.enabled` is on | domain saves, the switch, the forum address, board saves and deletion |
+| `skins` | every skin of the three sources, checked and compiled ([skins.md](skins.md), "Sources"); built-in skins are checked once per process, imported ones on every load, the instance directory is read again only after the block is cleared | skin imports and deletes, "Rescan" at `/manage/skins` |
 
 Statistics live here too but are not cleared by writes. Site statistics, scoped statistics (per domain scope, at most
 128 slots), the newest members for anonymous visitors and board statistics are keyed by a time segment of their
@@ -239,6 +246,12 @@ publish. Other rules:
 - **Heartbeat.** Every 30 seconds the subscription publishes to its own heartbeat channel. A heartbeat that is not back
   by the next beat, reaches no subscriber or cannot be sent counts as a disconnect, so a half-broken connection is
   replaced within about a minute.
+
+Skin stylesheets (`/skin/<id>.css?v=<hash>`) are not cached by the server beyond the `skins` block, which holds them
+compiled; browsers keep the one with the current hash for a year (`public` when a page of the site uses the skin,
+`private` otherwise, so a previewed skin stays out of shared caches). An administrator's preview is a sealed cookie,
+not a cache entry, and the pages it changes are those of a signed-in member, which are never cached for others
+([skins.md](skins.md), "Preview").
 
 ## The Redis cache
 

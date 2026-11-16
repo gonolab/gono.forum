@@ -1,19 +1,259 @@
-# Skin hooks
+# Skins
 
-The templates are Askama, compiled into the binary, so the HTML structure of a page cannot change at run time. What
-a stylesheet or a script can rely on instead is a set of public hooks the core templates write on purpose: fixed
+The templates are Askama, compiled into the binary, so the HTML structure of a page cannot change at run time. A skin
+changes the look on top of that fixed structure, without building anything: palettes over the core color scheme, a
+manifest and an optional stylesheet that the forum checks before it uses it. What a skin's stylesheet (and a member's
+personal style, and page scripts) can rely on is a set of public hooks the core templates write on purpose: fixed
 class names, `data-*` attributes for states, raw values next to the formatted ones, optional elements that are output
-but hidden, a page data block, two script events and a declared sticky header height. This document lists them.
+but hidden, a page data block, two script events and a declared sticky header height. The first part of this document
+describes skins, the second part ("List rows" onwards) the hooks.
 
-There is no skin loader yet. Today the hooks are what a member's personal stylesheet (`custom_css.rs`, see
-[styles.md](styles.md), "Where styles live") and page scripts can build on; a skin layer is meant to build on the same
-hooks. The default look does not use the optional elements, so outputting them changes nothing a visitor sees.
+## A skin
+
+A skin is a directory named after its id:
+
+```text
+<id>/
+  skin.toml                the manifest
+  palettes/<name>.json     overrides of the core color scheme, one file per palette
+  skin.css                 the skin's stylesheet, optional
+```
+
+Other files are ignored with a warning. The built-in skins live in `apps/web/skins/` (today only `default`, which is
+the standard look: the core color scheme unchanged and no stylesheet).
+
+### The manifest
+
+```toml
+contract = 1                         # the skin contract this core reads; must be 1
+id = "ledger"                        # 2 to 32 lowercase letters, digits and hyphens, starting with a letter
+version = "1.2.0"
+name = { en = "Ledger", fr = "Registre" }    # by language tag; English is required
+description = { en = "Flat surfaces separated by rules" }   # optional; English required when present
+author = "…"                         # optional
+license = "MIT"                      # optional
+min_forum = "0.2.0"                  # optional: the oldest Gono Forum the skin works with
+
+[palettes]
+default = "main"                     # palettes/main.json
+variants = []                        # other palettes the administrator may choose
+
+[frame]
+nav = "top"                          # only "top" for now
+header_boards = true                 # only true for now
+masthead_height = "52px"             # optional: the declared header height (--masthead-h), 40 to 120 px
+avatar_shape = "member"              # circle, rounded or square fixes every avatar; member leaves it to members
+```
+
+Unknown keys are errors. `[behaviors]` and `[layout]` are part of the contract but not supported yet: they must be
+empty. A skin brings no interface text: names and descriptions are written per language, everything else on the page
+is the core's. The manifest is stored as normalized JSON (`gonof_common_skin.manifest` and the pack).
+
+### Palettes
+
+`frontend/styles/themes/default.json` is the core color scheme (see [styles.md](styles.md), "Color scheme"). A skin
+palette has the same three objects and lists only what it changes:
+
+- `shared` changes both modes, `light` only light mode, `dark` only dark mode. (In the core scheme, `dark` lists only
+  what differs from light; in a skin palette each object overrides its own mode, so a light-mode override never
+  leaks into dark mode.)
+- Every token keeps the core's position; tokens the core does not have are ignored with a warning, since no core
+  stylesheet reads them.
+- Values are single CSS values that the stylesheet checker accepts on their own (colors, `transparent`, `var()` of
+  other tokens, shadows, `color-mix()` and the like), without braces, semicolons, `!`, `<`, `>` or `url()`.
+  References to tokens that do not exist and reference cycles are errors. Names under `--gonof-` are reserved for the
+  core.
+
+The server merges each palette onto the core scheme and writes the same three rules the build used to write: light
+values on `:root[data-palette="<name>"]` (and on `:root` without `data-palette` for the skin's default palette), dark
+values under `[data-theme="dark"]`, and dark values again inside `@media (prefers-color-scheme: dark)` when
+`data-theme` is neither `light` nor `dark` (`skins/palette.rs`).
+
+### Packs
+
+To move a skin into the database it is packed into one file: `gono-forum-cli skin pack <dir>` checks a skin directory
+and writes `<id>-<version>.skin.json` (or `--output=<file>`), a JSON object with `format` (`gono-forum-skin`), the
+normalized `manifest`, the `palettes` by name and the stylesheet text as `css`. The same skin always packs to the same
+bytes; the pack's SHA-256 is its content hash. `gono-forum-cli skin check <dir|file>` runs exactly the checks of an
+import and lists every problem and warning; `--builtin` applies the rules of built-in skins. Neither needs a database.
+
+### Limits
+
+The same for every source, so any skin can be packed and imported again: the stylesheet at most 256 KiB as written,
+comments included; all palettes together at most 128 KiB as stored; the manifest at most 16 KiB; a pack file at most
+1 MiB; at most 10,000 rules in the stylesheet.
+
+## Sources
+
+| Source | Where | Read | When it fails its checks |
+| --- | --- | --- | --- |
+| Built in | `apps/web/skins/<id>/`, compiled in by `build.rs` like the translations | Once per process | A unit test fails (`skins::tests`); at run time it is unusable and logged |
+| Imported | `gonof_common_skin`, one row per id, imported at `/manage/skins` | With the process cache, checked again on every load | The import is refused with every problem listed; a row that no longer passes (edited by hand, rules changed) is unusable and logged |
+| Instance directory | `$GONOF_HOME/skins/<id>/` (in a source build, `skins/` in the source tree) | At start and after "Rescan", an import or a delete (a broadcast reaches every process) | Unusable, listed with its problems and logged |
+
+- **Priority**: built in, then imported, then the instance directory. Of skins with the same id, only the one from the
+  highest source that has the id is usable, even when that one fails its checks; `/manage/skins` says which source
+  shadows the others. To work on a skin in the instance directory, give it another id or delete the imported copy.
+- **Several machines**: imported skins are shared through the database; each machine reads its own instance directory,
+  and a skin there is only usable on the machines that have it. Back up `skins/` with the instance (see
+  [install.md](install.md), "Files to back up").
+- **Broken at run time**: when the chosen skin cannot be used (deleted, shadowed, failing its checks after an upgrade,
+  or the catalog cannot be read), pages use the built-in `default` and an error is logged, at most once a minute per
+  skin. A skin never turns a page into an error.
+
+## Two kinds of rules
+
+Every skin is checked when it is read: the manifest, every palette and the stylesheet (`css_check.rs`, the same
+checker as members' personal styles, and `skins/palette.rs`). Built-in skins ship with the core and must follow every
+rule of [styles.md](styles.md); imported and instance skins are the administrator's choice, so only the rules that
+keep the site safe and the "Built on Gono Forum" line block them, and the rest are listed as warnings.
+
+| Rule | Built in | Imported, instance |
+| --- | --- | --- |
+| Nothing that issues a request: `url()`, `image-set()`, `@import`, `@font-face`, at-rules other than `@media`; no backslash escapes or control characters; functions only from a list | Blocks | Blocks |
+| No `position: fixed`; `content` only `""`, `none` or `normal`; `z-index` only `auto` or -1 to 20 | Blocks | Blocks |
+| No `!important`; no `--gonof-*` variables | Blocks | Blocks |
+| "Built on Gono Forum": no selector naming `colophon`; none of the guarded properties on `html`, `body`, `footer`, `:root` or `*`; the footer colors legible (see below) | Blocks | Blocks |
+| Open blocks, comments or strings at the end of the stylesheet | Blocks | Blocks |
+| Header sizes that `router/nav_fit.rs` measured: font size, letter and word spacing, padding, margin, border widths, widths and gaps on `masthead*`, `forum-more*`, `theme-switch*` and `.container`; `frame.masthead_height` | Blocks | Warns |
+| Visible focus: no `outline: none` (or `0`) on `:focus` rules | Blocks | Warns |
+| The post actions stay visible: no `opacity` or `visibility` on `actions-bar` | Blocks | Warns |
+| Media queries only `max-width` at 900, 760, 700, 640, 480 or 420 px, `prefers-reduced-motion` and media types | Blocks | Warns |
+| Logical properties: no `left`, `width`, `margin-left` and the like | Blocks | Warns |
+| The fixed values of the style guide: weights 400, 500 and 600; radii 0, 4, 6, 8, 12, 9999 px and 50%; borders 0, 1 and 2 px; body text 15px with a line height of 1.75; the design variables (`--r*`, `--container`, `--sidebar-w`, `--gap`, `--post-image-max`, `--masthead-h`, `--sticky-top`, `--safe-*`) | Blocks | Warns |
+| Selectors that depend on `aria-label`, `title` or child positions (`:nth-child()`, `:first-child`, …) rather than the classes listed below | Blocks | Warns |
+| Contrast (see below) | Blocks | Warns |
+| A palette token the core does not have; a palette file the manifest does not name; a file that is not part of a skin | Warns | Warns |
+
+Problems are stored and listed as codes with their values (`gonof_common_skin.warnings` holds the warnings the
+administrator confirmed on import) and worded in the reader's language when shown.
+
+### Contrast
+
+Each merged palette is checked in light and dark mode. Colors written as hex, `rgb()`, `hsl()`, `oklab()`, `oklch()`,
+named colors or `transparent` are evaluated, translucent ones laid over the ground they sit on; other forms
+(`color-mix()`, `light-dark()`) cannot be checked, which counts like a failed pair.
+
+- Text 4.5:1: `--text-strong`, `--text`, `--text-muted` and `--text-subtle` on `--bg`, `--panel`, `--panel-alt`,
+  `--panel-hover`, `--input-bg` and `--secondary-bg`; `--primary-text` on `--primary-bg` and `--primary-hover`;
+  `--secondary-text` on `--secondary-bg`; `--input-text` and `--input-placeholder` on `--input-bg`; `--link` on `--bg`
+  and `--panel`.
+- Controls 3:1: `--input-border` on `--input-bg`, `--panel` and `--bg`; `--focus-ring` on `--bg` and `--panel`.
+
+### Built on Gono Forum
+
+The footer line "Built on Gono Forum" (`.colophon__legal` with the link `.colophon__brand`) is written in English on
+purpose and is the same in every language ([translating.md](translating.md)). No skin can hide, move, shrink or cover
+it: the checker refuses selectors that name `colophon` and the guarded properties (display, visibility, opacity,
+filters, transforms, clipping, masks, overflow, maximum height, content visibility, zoom) on `html`, `body`, `footer`,
+`:root` and `*`; the `guards` layer fixes those properties on the line and on every box around it, puts the line at
+`z-index: 21` (skins stop at 20) and removes pseudo-elements on it; and each skin's stylesheet fixes the line's text,
+link and ground colors to its palette's `--text-muted`, `--text` and `--panel`, which must be plain colors with 4.5:1.
+This is a rule of the skin layer, not a licence term: changing the source and building it yourself is another matter.
+
+## Cascade layers
+
+`forum.css` begins with `@layer guards, core, skin, member;` and every stylesheet of a page goes into one of them:
+
+| Layer | Holds |
+| --- | --- |
+| `guards` | `frontend/styles/guards.css`: `[hidden]`, `.sr-only` and the "Built on Gono Forum" guard. Under built-in skins (`<html data-skin-source="builtin">`) also copies of the header sizes and focus rings, which `scripts/build-styles.mjs` generates from the core stylesheets. The footer colors, from each skin's stylesheet. |
+| `core` | Everything `index.css` imports. |
+| `skin` | The skin's palettes, its declared header height and its stylesheet (`/skin/<id>.css`). |
+| `member` | A member's personal style (`/my/style.css`), on their own pages only. |
+
+Every declaration in `guards` is `!important`. Among important declarations the earliest layer wins, so nothing in a
+later layer changes a guard, important or not; skins may not use `!important` at all, and a personal style that does
+still cannot reach the guards. Among normal declarations later layers win regardless of selector specificity: a skin
+overrides the core, and a personal style overrides both. The header and focus guards hold under built-in skins only,
+because for imported and instance skins those rules are warnings: such a skin may change them, and pays for it if the
+header navigation no longer fits.
+
+## The stylesheet of a skin
+
+Every page on `layout/base.html` links the skin after `forum.css` and before a personal style:
+`/skin/<id>.css?v=<hash>`, where the hash is the first 12 hex digits of the stylesheet's SHA-256, so a new version of
+Gono Forum that generates other rules for the same skin also gets a new address. It holds, in this order:
+
+1. `@layer guards { … }` with the footer colors of each palette;
+2. `@layer skin { … }` with each palette's three rules, `--masthead-h` when the manifest declares a header height,
+   and the skin's stylesheet as written.
+
+The address is served without a session or cookies. With the current hash it is cached for a year: `public` for skins
+a page of the site uses (the site's or a domain's choice, and `default`), `private` for others, so a skin being
+previewed stays out of shared caches. Another hash gets the current stylesheet with `no-cache`. `errors/plain.html`
+links the built-in default skin, which needs neither settings nor the database.
+
+## Choosing a skin
+
+The site's choice is the layout document `settings.layout.{body,title,updated_at}`, three rows of the settings table
+read by the page frame in the same statement as the settings (see [settings-and-caching.md](settings-and-caching.md)).
+Its body is JSON:
+
+```json
+{"v": 1, "skin": "ledger", "palette": "main", "based_on": {"skin": "ledger", "version": "1.2.0"}, "places": null}
+```
+
+An empty body means the built-in default. `based_on` records the skin and version the choice was made from;
+`places` (the blocks of each place on a page) stays `null` until layouts can be edited. Each domain may have an
+override document, `settings.domain_layout.<domain id>.{body,title,updated_at}`, with the same structure; keys it
+leaves out come from the site's. A request uses the domain's skin, then the site's, then `default`; a palette the skin
+does not have falls back to its default palette. Deleting a domain deletes its document.
+
+Choosing is done at `/manage/skins` (the site) and on a domain's page under Multiple domains; both lock the
+document's rows, check the administrator and, for an imported skin, that its row still exists, then write the
+document, record `skin.select` and clear the settings block. An imported skin that a page uses cannot be deleted.
+
+## Frame
+
+The skin's manifest and the request's choice are written on `<html>`:
+
+| Attribute | Value |
+| --- | --- |
+| `data-skin` | The skin's id. |
+| `data-skin-source` | `builtin`, `imported` or `instance`. |
+| `data-palette` | The palette in use. |
+| `data-nav` | `frame.nav`: `top`. |
+| `data-header-boards` | `frame.header_boards`: `true`. |
+| `data-avatar-shape` | `circle` or `square` when the skin fixes that shape; when it leaves the shape to members, `circle` for a member who chose round avatars. Absent for the default rounded corners. |
+
+When the skin fixes the avatar shape, a member's reading settings say so; their own choice is kept and applies again
+under a skin that leaves the shape to them.
+
+## The admin page
+
+Appearance › Skins (`/manage/skins`, administrators only, see [roles.md](roles.md)) works without JavaScript:
+
+- **Skin of the site**: choose a skin and palette for the whole site, or preview it.
+- **All skins**: every skin of every source with its version, whether it is usable and why not, its problems and
+  warnings, a preview button for usable skins and a delete button for imported ones.
+- **Import a skin**: upload a pack. A pack that breaks a blocking rule is refused with every problem listed. A pack
+  with warnings, or one that replaces an imported skin of the same id, is shown with its warnings for confirmation;
+  the confirmation carries the pack back and is refused if the warnings or the row it replaces changed meanwhile.
+  Imports record `skin.import` (with the number of confirmed warnings), deletes `skin.delete`.
+- **Instance directory**: "Rescan" reads `$GONOF_HOME/skins/` again here and, through the cache broadcast, in every
+  other process.
+
+`/manage/skins` itself always uses the built-in default skin, so a skin that breaks pages can always be switched back
+there.
+
+## Preview
+
+"Preview" shows a skin to the administrator who started it, on every page, without changing what anyone else sees.
+The choice lives in a cookie sealed with the cookie key (`gonof_skin_preview`, eight hours) and is applied only while
+the signed-in member is that administrator. A bar at the top of every page offers **Publish** (make it the site's
+skin, recording `skin.select`) and **Exit preview**. Pages of signed-in members are never stored by shared caches
+(`private, no-store`) and the anonymous caches are not used for them; the stylesheet of a skin no page uses is served
+`private`.
+
+## The hooks
 
 The hooks are a contract: renaming or removing one needs a reason and an update of this document, and new hooks are
 added here when they are added to the templates. `apps/web/tests/skin_hooks_http.rs` renders the home page, a board
 page, a child board, a thread page, a member's space, search and the forum directory, and fails when a hook listed
 here is missing. The general rules for class names and state attributes are in [styles.md](styles.md),
-"Class names".
+"Class names". The default look does not use the optional elements, so outputting them changes nothing a visitor
+sees.
 
 ## List rows
 

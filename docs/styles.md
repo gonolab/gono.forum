@@ -3,24 +3,37 @@
 How the interface's CSS, colors, class names and icons are organized, for anyone who changes templates or styles.
 The fonts, images and vendored files the interface ships are listed in [assets.md](assets.md).
 
+The rules and values in this guide bind the core stylesheets and the built-in skins. Skins imported in the admin area
+or placed in the instance directory are the administrator's choice: only the safety rules and the "Built on Gono
+Forum" guard bind them, and the rest of this guide (breakpoints, logical properties, fixed values, contrast, header
+sizes, visible focus) is reported as warnings ([skins.md](skins.md), "Two kinds of rules").
+
 ## Where styles live
 
-- **Sources** are plain CSS in `apps/web/frontend/styles/`. `index.css` imports the other files in a fixed order, and
-  `themes/default.json` holds every color.
+- **Sources** are plain CSS in `apps/web/frontend/styles/`. `index.css` imports the other files in a fixed order,
+  `guards.css` holds the rules nothing may override, and `themes/default.json` holds every color.
 - **Build.** `npm run build` (or only `npm run build:styles` after a style change) runs `scripts/build-styles.mjs`. It
-  turns the color scheme into custom-property rules, bundles them with `index.css` through esbuild into
-  `apps/web/static/css/forum.css`, and bundles `debug.css` on its own into `apps/web/static/css/debug.css`. The output
-  is not minified. Both files are git-ignored build output: do not edit or commit them. `cargo build` does not build
-  CSS, so run `npm run build` after a style change; `scripts/package-release.sh` runs it itself and compiles the
-  built files into the release binary.
+  bundles the stylesheets through esbuild into `apps/web/static/css/forum.css` in cascade layers: first the statement
+  `@layer guards, core, skin, member;`, then `guards.css` with the guard copies for built-in skins it generates from
+  the core stylesheets (header sizes and focus rings, see [skins.md](skins.md), "Cascade layers") in `guards`, then
+  `index.css` in `core`. It bundles `debug.css` on its own into `apps/web/static/css/debug.css`. The output is not
+  minified. Both files are git-ignored build output: do not edit or commit them. `cargo build` does not build CSS, so
+  run `npm run build` after a style change; `scripts/package-release.sh` runs it itself and compiles the built files
+  into the release binary.
+- **Colors** are not in `forum.css`. The server turns `themes/default.json`, which `build.rs` compiles into the binary,
+  and the active skin's palettes into custom-property rules and serves them with the skin's stylesheet at
+  `/skin/<id>.css` (see "Color scheme"). After changing `default.json`, run `cargo build`.
 - **`apps/web/static/css/fonts.css`** is a source file, not build output: the `@font-face` rules for Space Mono.
-- **Loading.** `layout/base.html` links `fonts.css`, then `forum.css`, then `debug.css` only while the debug panel is
-  on. Every static URL carries `?v=` with the asset version, so a new build is fetched at once.
-- **Pages outside the frame.** `errors/plain.html` links only `forum.css`. The setup wizard (`setup/wizard.html`) has
-  its own inline styles and colors, because it runs before the forum's address is known and serves no assets.
-- **Personal styles.** A member may write a personal stylesheet; `custom_css.rs` validates it, and the member's own
-  pages link it after `forum.css`. Class names are therefore visible to members, so rename them only for a reason;
-  the ones listed in [skins.md](skins.md) are a public contract.
+- **Loading.** `layout/base.html` links `fonts.css`, then `forum.css`, then the skin (`/skin/<id>.css?v=<hash>`), then
+  a member's personal style, then `debug.css` only while the debug panel is on. Every static URL carries `?v=` with the
+  asset version, so a new build is fetched at once; the skin's address carries the hash of its own stylesheet.
+- **Pages outside the frame.** `errors/plain.html` links `forum.css` and the built-in default skin. The setup wizard
+  (`setup/wizard.html`) has its own inline styles and colors, because it runs before the forum's address is known and
+  serves no assets.
+- **Skins and personal styles.** A skin's stylesheet and a member's personal stylesheet are checked by the same
+  checker (`css_check.rs`) and sit in the `skin` and `member` cascade layers ([skins.md](skins.md)). Class names are
+  therefore visible to skins and members, so rename them only for a reason; the ones listed in [skins.md](skins.md)
+  are a public contract.
 
 ## Style files
 
@@ -28,6 +41,7 @@ In `index.css` order; later files win at equal specificity.
 
 | File | What it holds |
 | --- | --- |
+| `guards.css` | Not imported by `index.css`: the `guards` layer (`[hidden]`, `sr-only`, the "Built on Gono Forum" line), which no skin or personal style can override |
 | `foundation.css` | Size, font, easing and safe-area variables |
 | `elements.css` | Element defaults: box sizing, body text, links, headings, code, media, the font of form controls, focus |
 | `controls.css` | Rules no component owns: controls wrapped in their `label`, buttons without a class, `heading`, two-step verification, recovery codes, OAuth callback addresses |
@@ -40,8 +54,8 @@ In `index.css` order; later files win at equal specificity.
 | `profile.css` | Member profile, follow and block, policy pages (`reader-layout`, `policy-nav`) |
 | `settings.css` | Account security, profile settings, avatar check |
 | `editor.css` | The editor's template parts: `editor-page`, `editor`, uploads, poll, deadline and prize setup |
-| `site.css` | `[hidden]`, `sr-only`, avatar initials, reduced motion, print, and page rules for invites, directories, check-in and the page jump button |
-| `personalization.css` | Avatar shape preference and the personal style page |
+| `site.css` | Optional elements, avatar initials, reduced motion, print, and page rules for invites, directories, check-in and the page jump button |
+| `personalization.css` | Avatar shapes (`data-avatar-shape`, from the skin or the member's preference) and the personal style page |
 | `manage.css` | Admin area: module menu and admin shell |
 | `composer.css` | What `composer.js` builds: toolbar and its icons, full screen, emoji and mention menus, attachment rows |
 | `lottery-prizes.css` | Lottery prize rows in the posting form |
@@ -52,23 +66,26 @@ comment listing their blocks. Put a new block in the file whose area it belongs 
 
 ## Color scheme
 
-`themes/default.json` is the only color scheme; light, dark and "follow the system" all use it. It has three objects:
+`themes/default.json` is the core color scheme; light, dark and "follow the system" all use it, and every skin palette
+overrides it (see [skins.md](skins.md), "Palettes"). It has three objects:
 
 - `shared`: tokens common to both modes, often references to other roles (`"--selected-bg": "var(--primary-bg)"`), so
   one role follows another until it is given a value of its own.
 - `light`: the light values. A token here overrides the same token in `shared`.
 - `dark`: only what differs in dark mode; everything else comes from `shared` and `light`.
 
-The build writes light values on `:root[data-palette="default"]` (and on `:root` without `data-palette`), dark values
-under `[data-theme="dark"]`, and dark values again under `@media (prefers-color-scheme: dark)` when `data-theme` is
-neither `light` nor `dark`. `layout/base.html` sets `data-palette="default"`; `site.js` sets `data-theme` from the
-theme switch (remembered in `localStorage` as `gonof-theme`) and removes it for "system". Without JavaScript a page
-follows the system setting.
+The server (`skins/palette.rs`) writes light values on `:root[data-palette="<palette>"]` (and on `:root` without
+`data-palette`), dark values under `[data-theme="dark"]`, and dark values again under
+`@media (prefers-color-scheme: dark)` when `data-theme` is neither `light` nor `dark`, into the skin's stylesheet. The
+built-in `default` skin changes nothing, so its palette `default` is this scheme as it is. `layout/base.html` sets
+`data-palette` to the palette in use; `site.js` sets `data-theme` from the theme switch (remembered in `localStorage`
+as `gonof-theme`) and removes it for "system". Without JavaScript a page follows the system setting.
 
-The build stops on an invalid token name or value (braces, semicolons, `@import`, or a `url()` other than an inline
-`data:image/svg+xml`), a `var()` reference to an undefined token, a reference cycle, or light and dark modes with
-different token sets. The interface has no palette picker; another `themes/<name>.json` with the same tokens would be
-built as a palette selected by `data-palette="<name>"`.
+A unit test (`skins::palette`) fails on an invalid token name or value (braces, semicolons, `!`, `url()`, functions
+outside the checker's list), a `var()` reference to an undefined token, a reference cycle, or light and dark modes
+with different token sets, and checks the contrast pairs of [skins.md](skins.md), "Contrast": text 4.5:1, input
+borders and the focus ring 3:1. Values may be colors, `transparent` or `var()` of another token. Visitors cannot
+choose a palette; a skin's palettes are chosen by the administrator.
 
 Stylesheets contain no literal colors: every color is a `var(--…)` from the scheme. The black in the SVG masks in
 `composer.css` only gives the mask its shape. Reuse a role where its meaning fits. When a component needs a color of
@@ -175,7 +192,8 @@ The estimate is only right while the CSS matches the constants in `nav_fit.rs`:
 - `.masthead__search`: a fixed 150px box wherever the header navigation shows.
 
 Change one of these and you must change the constants in `nav_fit.rs` as well, and measure the budgets in `TIERS`
-again on the visitor's header.
+again on the visitor's header. The build copies these sizes into the `guards` layer for built-in skins
+([skins.md](skins.md), "Cascade layers"), so the copies follow the core rules by themselves.
 
 ## Class names
 
@@ -287,7 +305,8 @@ Draw new icons yourself, or take them from a set whose licence allows it and rec
   developers: adding interface text" in [translating.md](translating.md).
 - No `style` attributes, `<style>` blocks or inline scripts (a JSON-LD block and the page data block are data, not
   scripts). The page's Content-Security-Policy allows styles and scripts only from the site.
-- Member names, the brand and other names carry `translate="no"`.
+- Member names, the brand and other names carry `translate="no"`. So does the footer line "Built on Gono Forum", which
+  is English in every language on purpose and which no skin can hide ([skins.md](skins.md), "Built on Gono Forum").
 - Visually hidden text uses `sr-only`. `hidden` always hides: `site.css` gives `[hidden]` precedence over any
   `display` rule. `data-optional` also hides, but a later `display` rule may show the element.
 - Shown times are `<time>` elements with `datetime` in UTC (`crate::clock::iso`); see [skins.md](skins.md), "Times".
@@ -297,7 +316,7 @@ Draw new icons yourself, or take them from a set whose licence allows it and rec
   look, get a 1px `--input-focus` line around their own shape (a `drop-shadow` filter, since browsers draw outlines
   of native radios square). File inputs look like buttons and keep the ring. A field built
   by a script takes the `control` class so that it has a border to darken. `test:checks` fails on a Tab stop that
-  shows neither.
+  shows neither. The build copies the focus rules into the `guards` layer for built-in skins.
 - Toggles (favorite, like, downvote) use `aria-pressed`; a favorite placeholder that cannot be pressed uses
   `data-active` instead of ARIA.
 
@@ -344,6 +363,9 @@ Redis or a remote host. The pages are listed in `tests/e2e/support/pages.js`, an
   English page (apart from a language's own name and the sample Chinese date format).
 - `test:screens` takes full-page screenshots on the English and Chinese sites into
   `.local/visual/<label>/<language>/<viewport>/`, where the label is `GONOF_VISUAL_LABEL` (default `latest`).
+- With `GONOF_E2E_SKIN` set to a skin pack (`gono-forum-cli skin pack <dir> --output=<file>`), both sites import it
+  through `/manage/skins`, confirming its warnings, and use it before the checks and screenshots run. The Ledger test
+  fixture (`tests/fixtures/skins/ledger`) is an imported skin with warnings to try this with.
 - `node scripts/visual-compare.mjs before after` builds `.local/visual/compare-before-after.html` from two labelled
   screenshot sets: each page side by side, filterable by language, viewport and page. Take `before` on the old code
   and `after` on the new, and judge the change by eye; there are no pixel thresholds.

@@ -2144,7 +2144,13 @@ pub(crate) mod tests {
         keys.dedup();
         assert_eq!(keys.len(), 134, "the encoding repeats a key");
         assert!(keys.iter().all(|key| key.starts_with("settings.")));
-        for excluded in ["settings.mail.", "settings.navigation.", "settings.policy."] {
+        for excluded in [
+            "settings.mail.",
+            "settings.navigation.",
+            "settings.layout.",
+            "settings.domain_layout.",
+            "settings.policy.",
+        ] {
             assert!(
                 !keys.iter().any(|key| key.starts_with(excluded)),
                 "{excluded} is not a scalar setting"
