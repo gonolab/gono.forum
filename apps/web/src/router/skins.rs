@@ -236,10 +236,33 @@ async fn view(
         success,
         refused,
         confirm,
-        dir: state.skins_dir.display().to_string(),
+        // Shown resolved: in a source build the instance root is written relative to the crate.
+        dir: std::fs::canonicalize(&state.skins_dir)
+            .or_else(|_| {
+                state
+                    .skins_dir
+                    .parent()
+                    .map(std::fs::canonicalize)
+                    .unwrap_or_else(|| Ok(state.skins_dir.to_path_buf()))
+                    .map(|parent| parent.join("skins"))
+            })
+            .unwrap_or_else(|_| state.skins_dir.to_path_buf())
+            .display()
+            .to_string(),
     });
     *response.status_mut() = status;
     response
+}
+
+/// The texts in order, each once (a token overridden in light and dark mode reads the same twice).
+fn distinct(texts: impl Iterator<Item = String>) -> Vec<String> {
+    let mut seen = Vec::new();
+    for text in texts {
+        if !seen.contains(&text) {
+            seen.push(text);
+        }
+    }
+    seen
 }
 
 fn row(
@@ -276,8 +299,8 @@ fn row(
         source: entry.source.label(t),
         state,
         usable: entry.status == Status::Available,
-        errors: entry.errors().map(|finding| finding.text(t)).collect(),
-        warnings: entry.warnings().map(|finding| finding.text(t)).collect(),
+        errors: distinct(entry.errors().map(|finding| finding.text(t))),
+        warnings: distinct(entry.warnings().map(|finding| finding.text(t))),
         imported: entry.imported.as_ref().map_or(String::new(), |imported| {
             t.skin_imported_at(crate::clock::datetime(imported.at, &format))
         }),
@@ -433,8 +456,7 @@ async fn preview(AdminPage(state): AdminPage, CsrfForm(form): CsrfForm<ChoiceFor
     }
 }
 
-async fn exit_preview(AdminPage(state): AdminPage, CsrfForm(_): CsrfForm<CsrfOnly>) -> Response {
-    let _ = state;
+async fn exit_preview(AdminPage(_): AdminPage, CsrfForm(_): CsrfForm<CsrfOnly>) -> Response {
     let mut response = auth::redirect(PATH);
     preview_cookie(&mut response, "", 0);
     response

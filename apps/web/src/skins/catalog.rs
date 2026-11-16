@@ -193,7 +193,8 @@ pub fn scan(dir: &Path) -> Vec<Listed> {
                 None,
             ),
         };
-        let t = crate::i18n::current();
+        // Logs are English, whatever language the request that loaded the catalog has.
+        let t = crate::i18n::Lang::default();
         for finding in checked.errors() {
             tracing::error!(skin = %directory, finding = %finding.text(t), "instance skin is unusable");
         }

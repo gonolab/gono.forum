@@ -99,8 +99,15 @@ skin-state-domains = Used by { $domains }
 # $source is where the skin that is used instead comes from (Built in, Imported, Instance directory).
 skin-state-shadowed = Not usable: the skin with this id from "{ $source }" is used
 skin-state-invalid = Not usable: it fails its checks
-skin-findings-errors = Problems
-skin-findings-warnings = Warnings
+# $count problems or warnings a skin's checks found; the list opens below.
+skin-findings-errors-count = { $count ->
+    [one] 1 problem
+   *[other] { $count } problems
+}
+skin-findings-warnings-count = { $count ->
+    [one] 1 warning
+   *[other] { $count } warnings
+}
 # $time is when the skin was imported.
 skin-imported-at = Imported { $time }
 skin-delete-submit = Delete

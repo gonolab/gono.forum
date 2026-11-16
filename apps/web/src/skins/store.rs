@@ -14,7 +14,8 @@ const SELECT: &str = "SELECT skin_id,skin_version,manifest,palettes,css,content_
 pub async fn listed(db: &Database) -> anyhow::Result<Vec<Listed>> {
     let rows = db::query(SELECT).fetch_all(db.executor()).await?;
     let mut listed = Vec::with_capacity(rows.len());
-    let t = crate::i18n::current();
+    // Logs are English, whatever language the request that loaded the catalog has.
+    let t = crate::i18n::Lang::default();
     for row in rows {
         let id = db::text(&row, "skin_id")?;
         let manifest = serde_json::from_str::<super::Manifest>(&db::text(&row, "manifest")?);

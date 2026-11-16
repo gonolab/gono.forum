@@ -73,8 +73,12 @@ skin-state-current = 全站正在使用
 skin-state-domains = { $domains } 正在使用
 skin-state-shadowed = 不可用：使用的是来自“{ $source }”的同名皮肤
 skin-state-invalid = 不可用：未通过检查
-skin-findings-errors = 问题
-skin-findings-warnings = 警告
+skin-findings-errors-count = { $count ->
+   *[other] { $count } 处问题
+}
+skin-findings-warnings-count = { $count ->
+   *[other] { $count } 条警告
+}
 skin-imported-at = 导入于 { $time }
 skin-delete-submit = 删除
 skin-import-heading = 导入皮肤

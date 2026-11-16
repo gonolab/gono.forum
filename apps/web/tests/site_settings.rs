@@ -427,7 +427,8 @@ async fn the_page_frame_still_reads_settings_in_a_single_query() {
     if f.db.backend() == db::Backend::MySql {
         assert_eq!(
             explain(&f.db, &queries[0].sql, &[]).await,
-            ("range".into(), "PRIMARY".into(), 134 + 3 + 3)
+            // The domain layout documents' range adds one estimated row even when it is empty.
+            ("range".into(), "PRIMARY".into(), 134 + 3 + 3 + 1)
         );
     }
     let rows: i64 = db::query_scalar(&format!(

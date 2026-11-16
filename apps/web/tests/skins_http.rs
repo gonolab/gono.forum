@@ -135,8 +135,7 @@ impl Site {
         &self.services.db
     }
 
-    async fn send(&self, origin: &str, request: Request<Body>) -> Answer {
-        let _ = origin;
+    async fn send(&self, request: Request<Body>) -> Answer {
         let response = self.app.clone().oneshot(request).await.unwrap();
         let status = response.status();
         let header_text = |name| {
@@ -196,7 +195,7 @@ impl Site {
         let request = Self::base(origin, "GET", path, cookies)
             .body(Body::empty())
             .unwrap();
-        self.send(origin, request).await
+        self.send(request).await
     }
 
     async fn get(&self, path: &str, session: Option<&(String, String)>) -> Answer {
@@ -224,7 +223,7 @@ impl Site {
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
             .body(Body::from(body))
             .unwrap();
-        self.send(TEST_SITE_URL, request).await
+        self.send(request).await
     }
 
     async fn post(
@@ -255,7 +254,7 @@ impl Site {
         )
         .body(Body::from(body))
         .unwrap();
-        self.send(TEST_SITE_URL, request).await
+        self.send(request).await
     }
 
     /// Imports the Ledger fixture through the upload and the confirmation of its warnings.

@@ -596,7 +596,8 @@ pub fn check_path(path: &Path, source: Source) -> (Option<Draft>, Checked) {
 
 /// A plain-text report of a check, one finding per line, for the command line.
 pub fn report(checked: &Checked) -> String {
-    let t = crate::i18n::current();
+    // Command-line output is English (docs/architecture.md, "Errors").
+    let t = crate::i18n::Lang::default();
     let mut out = String::new();
     for finding in &checked.findings {
         let kind = match finding.severity {
@@ -628,7 +629,7 @@ pub static BUILTIN_SKINS: LazyLock<Vec<(String, Checked)>> = LazyLock::new(|| {
                 Err(findings) => Checked::failed(findings),
             };
             for finding in checked.errors() {
-                tracing::error!(skin = directory, finding = %finding.text(crate::i18n::current()), "built-in skin fails its checks");
+                tracing::error!(skin = directory, finding = %finding.text(crate::i18n::Lang::default()), "built-in skin fails its checks");
             }
             ((*directory).to_owned(), checked)
         })
