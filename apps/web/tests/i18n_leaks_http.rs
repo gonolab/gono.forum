@@ -1090,6 +1090,8 @@ async fn english_admin_pages_have_no_untranslated_text() {
         "/manage/storage",
         "/manage/languages",
         "/manage/appearance/parameters",
+        "/manage/appearance/colors",
+        "/manage/appearance/colors?saved=saved",
         "/manage/navigation",
         "/manage/branding",
         "/manage/links",
@@ -1234,6 +1236,19 @@ async fn english_admin_pages_have_no_untranslated_text() {
             "/manage/appearance/parameters".into(),
             &admin,
             vec![("display_list_thumbnails", "99".into())],
+        ),
+        (
+            "/manage/appearance/colors".into(),
+            &admin,
+            vec![("primary", "red".into()), ("secondary", "#000000".into())],
+        ),
+        (
+            "/manage/appearance/colors/show".into(),
+            &admin,
+            vec![
+                ("primary", "#0f766e".into()),
+                ("secondary", "#f97316".into()),
+            ],
         ),
         (
             "/manage/moderators".into(),

@@ -1,7 +1,7 @@
 //! Skins (docs/skins.md) through the real application: the three sources and their priority, the stylesheet
 //! endpoint, importing with confirmed warnings, choosing for the site and for a domain, deleting, falling back to the
 //! built-in default when a choice cannot be used, the administrator's preview and what it keeps out of shared caches,
-//! the member's personal style in its cascade layer, and who may do what.
+//! the member's personal style in its cascade layer, seed colors for the site and for a domain, and who may do what.
 //!
 //! The imported and instance skins are the Ledger test fixture (tests/fixtures/skins/ledger), which passes the safety
 //! rules and breaks several style rules, so it imports with warnings.
@@ -993,6 +993,500 @@ async fn built_in_skin_names_come_from_the_translation_files() {
     assert!(
         row(&page.html, "ledger", zh.skin_source_instance())
             .contains("<span translate=\"no\">Ledger</span>")
+    );
+    site.services.cleanup().await.unwrap();
+}
+
+/// The site's layout document as stored.
+async fn layout_body(db: &Database, key: &str) -> Option<String> {
+    db::query_scalar(&format!(
+        "SELECT svalue FROM gonof_common_settings WHERE skey='{key}'"
+    ))
+    .fetch_optional(db.executor())
+    .await
+    .unwrap()
+}
+
+fn seeds(primary: &str, secondary: &str) -> skins::seed::Seeds {
+    skins::seed::Seeds::parse(primary, secondary).unwrap()
+}
+
+#[tokio::test]
+async fn seed_colors_derive_over_the_skin_and_change_its_stylesheet_address() {
+    let site = Site::new(&[]).await;
+    let plain = skin_href(&site.get("/", None).await.html);
+    assert!(plain.starts_with("/skin/default.css?v="), "{plain}");
+
+    // The page starts from seeds close to the skin's own colors and shows what they derive.
+    let page = site
+        .get("/manage/appearance/colors", Some(&site.admin))
+        .await;
+    assert_eq!(page.status, StatusCode::OK, "{}", page.html);
+    assert!(
+        page.html.contains("value=\"#4f46e5\" maxlength=\"7\""),
+        "{}",
+        page.html
+    );
+    assert!(page.html.contains("value=\"#57637a\""));
+    assert!(page.html.contains("data-colors-derived"));
+    assert!(page.html.contains("data-colors-pair=\"--text --bg\""));
+    assert!(!page.html.contains("data-colors-low"));
+    assert!(!page.html.contains("data-colors-restore"));
+
+    // Showing derives without saving; a field that is not #rrggbb is refused with what was entered.
+    let shown = site
+        .post(
+            "/manage/appearance/colors/show",
+            &site.admin,
+            &[("primary", "#e11d48"), ("secondary", "#7c3aed")],
+        )
+        .await;
+    assert_eq!(shown.status, StatusCode::OK);
+    assert!(shown.html.contains("#e11d48"), "{}", shown.html);
+    for (primary, secondary) in [("red", "#7c3aed"), ("#e11d48", "#7c3aed0"), ("", "#000000")] {
+        let refused = site
+            .post(
+                "/manage/appearance/colors",
+                &site.admin,
+                &[("primary", primary), ("secondary", secondary)],
+            )
+            .await;
+        assert_eq!(
+            refused.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{primary}"
+        );
+        assert!(refused.html.contains("data-colors-error"));
+    }
+    assert_eq!(
+        layout_body(site.db(), "settings.layout.body")
+            .await
+            .as_deref(),
+        Some("")
+    );
+
+    let saved = site
+        .post(
+            "/manage/appearance/colors",
+            &site.admin,
+            &[("primary", "#0F766E"), ("secondary", "#f97316")],
+        )
+        .await;
+    assert_eq!(
+        saved.location, "/manage/appearance/colors?saved=saved",
+        "{}",
+        saved.html
+    );
+    let body = layout_body(site.db(), "settings.layout.body")
+        .await
+        .unwrap();
+    assert!(
+        body.contains(r##""colors":{"primary":"#0f766e","secondary":"#f97316"}"##),
+        "{body}"
+    );
+    assert_eq!(
+        scalar(
+            site.db(),
+            "SELECT COUNT(*) FROM gonof_common_log WHERE type='skin.colors'"
+        )
+        .await,
+        1
+    );
+
+    // Every page links the colored variant, under a new hash; visitors get it from shared caches.
+    let colored = unescape(&skin_href(&site.get("/", None).await.html));
+    assert!(
+        colored.starts_with("/skin/default.css?c=0f766ef97316&v="),
+        "{colored}"
+    );
+    assert_ne!(colored.rsplit('=').next(), plain.rsplit('=').next());
+    let css = site.get(&colored, None).await;
+    assert_eq!(css.cache, "public, max-age=31536000, immutable");
+    assert!(
+        css.html
+            .contains("with the seed colors #0f766e and #f97316")
+    );
+    assert!(css.html.contains("--primary-bg: #0f766e;"), "{}", css.html);
+    // The guard colors of the footer follow the derived palette.
+    assert!(!css.html.contains("color: #57637a !important"));
+    // Colors no page uses are compiled for that answer only and stay private; a malformed code is unknown.
+    let unused = skins::DEFAULT_SKIN.colored(seeds("#e11d48", "#7c3aed"));
+    let other = site
+        .get(
+            &format!("/skin/default.css?c=e11d487c3aed&v={}", unused.version_hash),
+            None,
+        )
+        .await;
+    assert_eq!(other.cache, "private, max-age=31536000, immutable");
+    assert!(other.html.contains("--primary-bg: #e11d48;"));
+    assert_eq!(
+        site.get("/skin/default.css?c=nothex000000&v=x", None)
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        site.get("/skin/default.css?c=0f766ef97316&v=old", None)
+            .await
+            .cache,
+        "no-cache"
+    );
+    let page = site
+        .get("/manage/appearance/colors?saved=saved", Some(&site.admin))
+        .await;
+    assert!(page.html.contains("data-colors-restore"));
+    assert!(page.html.contains("value=\"#0f766e\""));
+
+    // Changing skins keeps the seeds and derives them again for the new skin.
+    site.import_ledger().await;
+    site.post(
+        "/manage/skins/select",
+        &site.admin,
+        &[("choice", "ledger:main")],
+    )
+    .await;
+    let body = layout_body(site.db(), "settings.layout.body")
+        .await
+        .unwrap();
+    assert!(body.contains("\"skin\":\"ledger\""), "{body}");
+    assert!(body.contains("\"colors\""), "{body}");
+    let ledger = unescape(&skin_href(&site.get("/", None).await.html));
+    assert!(
+        ledger.starts_with("/skin/ledger.css?c=0f766ef97316&v="),
+        "{ledger}"
+    );
+    let css = site.get(&ledger, None).await;
+    assert_eq!(css.cache, "public, max-age=31536000, immutable");
+    assert!(
+        css.html.contains(".pane {"),
+        "the skin's own stylesheet stays"
+    );
+
+    // Back to the skin's own colors.
+    let restored = site
+        .post("/manage/appearance/colors/restore", &site.admin, &[])
+        .await;
+    assert_eq!(
+        restored.location,
+        "/manage/appearance/colors?saved=restored"
+    );
+    let body = layout_body(site.db(), "settings.layout.body")
+        .await
+        .unwrap();
+    assert!(!body.contains("colors"), "{body}");
+    assert!(skin_href(&site.get("/", None).await.html).starts_with("/skin/ledger.css?v="));
+    assert_eq!(
+        scalar(
+            site.db(),
+            "SELECT COUNT(*) FROM gonof_common_log WHERE type='skin.colors'"
+        )
+        .await,
+        2
+    );
+
+    // Only administrators.
+    assert_eq!(
+        site.get("/manage/appearance/colors", None).await.status,
+        StatusCode::SEE_OTHER
+    );
+    for session in [&site.moderator, &site.member] {
+        assert_eq!(
+            site.get("/manage/appearance/colors", Some(session))
+                .await
+                .status,
+            StatusCode::FORBIDDEN
+        );
+        for path in [
+            "/manage/appearance/colors",
+            "/manage/appearance/colors/show",
+            "/manage/appearance/colors/preview",
+            "/manage/appearance/colors/restore",
+            "/manage/domains/1/colors",
+        ] {
+            assert_eq!(
+                site.post(
+                    path,
+                    session,
+                    &[
+                        ("primary", "#000000"),
+                        ("secondary", "#000000"),
+                        ("mode", "skin")
+                    ]
+                )
+                .await
+                .status,
+                StatusCode::FORBIDDEN,
+                "{path}"
+            );
+        }
+    }
+    site.services.cleanup().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_domain_follows_the_site_colors_or_chooses_its_own() {
+    let site = Site::new(&[]).await;
+    for sql in [
+        format!(
+            "INSERT INTO gonof_common_site_domain(site_url,dateline) VALUES('{TEST_SITE_URL}',1)"
+        ),
+        format!(
+            "INSERT INTO gonof_common_site_domain(site_url,site_name,dateline) VALUES('{OTHER}','Other',1)"
+        ),
+    ] {
+        execute(site.db(), &sql).await;
+    }
+    test_support::set_setting(site.db(), "settings.domains.enabled", "true")
+        .await
+        .unwrap();
+    site.services.global.clear_local();
+    let other: i64 = scalar(
+        site.db(),
+        &format!("SELECT domain_id FROM gonof_common_site_domain WHERE site_url='{OTHER}'"),
+    )
+    .await;
+    let key = format!("settings.domain_layout.{other}.body");
+    site.post(
+        "/manage/appearance/colors",
+        &site.admin,
+        &[("primary", "#0f766e"), ("secondary", "#f97316")],
+    )
+    .await;
+    let there = || async { skin_href(&site.get_on(OTHER, "/", &[]).await.html) };
+    assert!(
+        there().await.contains("c=0f766ef97316"),
+        "the domain follows the site"
+    );
+    let form = site
+        .get(&format!("/manage/domains/{other}"), Some(&site.admin))
+        .await;
+    assert!(form.html.contains("data-domain-colors"), "{}", form.html);
+    assert!(form.html.contains("name=\"mode\" value=\"site\" checked"));
+
+    // The skin's own colors on this domain only.
+    let saved = site
+        .post(
+            &format!("/manage/domains/{other}/colors"),
+            &site.admin,
+            &[
+                ("mode", "skin"),
+                ("primary", "#000000"),
+                ("secondary", "#000000"),
+            ],
+        )
+        .await;
+    assert_eq!(
+        saved.location,
+        format!("/manage/domains/{other}?colors=saved"),
+        "{}",
+        saved.html
+    );
+    assert_eq!(
+        layout_body(site.db(), &key).await.as_deref(),
+        Some(r#"{"v":1,"skin":null,"palette":null,"based_on":null,"places":null,"colors":"skin"}"#)
+    );
+    assert!(there().await.starts_with("/skin/default.css?v="));
+    assert!(skin_href(&site.get("/", None).await.html).contains("c=0f766ef97316"));
+
+    // Its own seeds, public because a page uses them; refused fields come back with an error.
+    let refused = site
+        .post(
+            &format!("/manage/domains/{other}/colors"),
+            &site.admin,
+            &[
+                ("mode", "own"),
+                ("primary", "e11d48"),
+                ("secondary", "#7c3aed"),
+            ],
+        )
+        .await;
+    assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(refused.html.contains("data-colors-error"));
+    assert!(refused.html.contains("value=\"e11d48\""));
+    site.post(
+        &format!("/manage/domains/{other}/colors"),
+        &site.admin,
+        &[
+            ("mode", "own"),
+            ("primary", "#e11d48"),
+            ("secondary", "#7c3aed"),
+        ],
+    )
+    .await;
+    let own = there().await;
+    assert!(own.contains("c=e11d487c3aed"), "{own}");
+    assert_eq!(
+        site.get(&unescape(&own), None).await.cache,
+        "public, max-age=31536000, immutable"
+    );
+    // Its own skin keeps its own colors; following the site's colors again keeps its skin.
+    site.post(
+        &format!("/manage/domains/{other}/skin"),
+        &site.admin,
+        &[("choice", "default:default")],
+    )
+    .await;
+    assert!(there().await.contains("c=e11d487c3aed"));
+    site.post(
+        &format!("/manage/domains/{other}/colors"),
+        &site.admin,
+        &[("mode", "site")],
+    )
+    .await;
+    let body = layout_body(site.db(), &key).await.unwrap();
+    assert!(
+        body.contains("\"skin\":\"default\"") && !body.contains("colors"),
+        "{body}"
+    );
+    assert!(there().await.contains("c=0f766ef97316"));
+    // A document with nothing of its own is deleted.
+    site.post(
+        &format!("/manage/domains/{other}/skin"),
+        &site.admin,
+        &[("choice", "")],
+    )
+    .await;
+    assert_eq!(layout_body(site.db(), &key).await, None);
+    assert_eq!(
+        site.post(
+            "/manage/domains/999/colors",
+            &site.admin,
+            &[("mode", "skin")]
+        )
+        .await
+        .status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        scalar(
+            site.db(),
+            "SELECT COUNT(*) FROM gonof_common_log WHERE type='skin.colors'"
+        )
+        .await,
+        4
+    );
+    site.services.cleanup().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_color_preview_is_only_seen_by_the_administrator_who_started_it() {
+    let site = Site::new(&[]).await;
+    let started = site
+        .post(
+            "/manage/appearance/colors/preview",
+            &site.admin,
+            &[("primary", "#e11d48"), ("secondary", "#7c3aed")],
+        )
+        .await;
+    assert_eq!(started.location, "/", "{}", started.html);
+    let cookie = started
+        .cookies
+        .iter()
+        .find(|cookie| cookie.starts_with("gonof_skin_preview="))
+        .expect("the preview cookie")
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let admin_cookies = vec![format!("gonof_session={}", site.admin.0), cookie.clone()];
+    let previewed = site.get_on(TEST_SITE_URL, "/", &admin_cookies).await;
+    let href = skin_href(&previewed.html);
+    assert!(href.contains("c=e11d487c3aed"), "{href}");
+    assert!(previewed.html.contains("data-skin-preview"));
+    assert!(
+        previewed
+            .html
+            .contains(&gono_forum_web::i18n::Lang::default().skin_preview_colors_bar("Default"))
+    );
+    assert_eq!(previewed.cache, "private, no-store");
+    assert_eq!(
+        site.get(&unescape(&href), None).await.cache,
+        "private, max-age=31536000, immutable"
+    );
+    // Nobody else sees it, and nothing was saved.
+    assert!(!skin_href(&site.get("/", None).await.html).contains("c="));
+    let member = site
+        .get_on(
+            TEST_SITE_URL,
+            "/",
+            &[format!("gonof_session={}", site.member.0), cookie.clone()],
+        )
+        .await;
+    assert!(!skin_href(&member.html).contains("c="));
+    assert!(!member.html.contains("data-skin-preview"));
+    assert_eq!(
+        layout_body(site.db(), "settings.layout.body")
+            .await
+            .as_deref(),
+        Some("")
+    );
+    // A preview of a skin shows the site's colors over it.
+    site.post(
+        "/manage/appearance/colors",
+        &site.admin,
+        &[("primary", "#0f766e"), ("secondary", "#f97316")],
+    )
+    .await;
+    let skin_preview = site
+        .post(
+            "/manage/skins/preview",
+            &site.admin,
+            &[("choice", "default:")],
+        )
+        .await;
+    let skin_cookie = skin_preview
+        .cookies
+        .iter()
+        .find(|cookie| cookie.starts_with("gonof_skin_preview="))
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let page = site
+        .get_on(
+            TEST_SITE_URL,
+            "/",
+            &[format!("gonof_session={}", site.admin.0), skin_cookie],
+        )
+        .await;
+    assert!(skin_href(&page.html).contains("c=0f766ef97316"));
+    // Publishing the color preview saves its colors and ends it.
+    let published = site
+        .post_with(
+            "/manage/skins/preview/publish",
+            &site.admin,
+            std::slice::from_ref(&cookie),
+            &[],
+        )
+        .await;
+    assert_eq!(
+        published.location, "/manage/appearance/colors?saved=saved",
+        "{}",
+        published.html
+    );
+    assert!(
+        published
+            .cookies
+            .iter()
+            .any(|c| c.starts_with("gonof_skin_preview=;") && c.contains("Max-Age=0"))
+    );
+    assert!(skin_href(&site.get("/", None).await.html).contains("c=e11d487c3aed"));
+    assert_eq!(
+        scalar(
+            site.db(),
+            "SELECT COUNT(*) FROM gonof_common_log WHERE type='skin.colors'"
+        )
+        .await,
+        2
+    );
+    assert_eq!(
+        scalar(
+            site.db(),
+            "SELECT COUNT(*) FROM gonof_common_log WHERE type='skin.select'"
+        )
+        .await,
+        0
     );
     site.services.cleanup().await.unwrap();
 }
