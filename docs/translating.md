@@ -76,6 +76,12 @@ time-hours-ago = { $n } jam yang lalu
 - **Plurals**: select on a number variable with the plural categories of your language (`zero`, `one`, `two`,
   `few`, `many`, `other`), with a default variant marked `*`. Languages without plural forms can drop the selector
   and write one sentence.
+- **Counts split in two.** Some counts are two messages, so that the page can put the number and the word in
+  elements of their own ([skins.md](skins.md), "Counts"): a `…-label` message with only the word, and a message that
+  places `{ $value_html }` (the number) and `{ $label_html }` (the word). Put the two slots in your language's order,
+  with the spacing it uses (`site-forums-threads` is "3 threads" in English and word-first in Simplified Chinese).
+  A label that selects its plural form keeps `$count` even in a language without plurals, written as a selector with
+  only the default variant: `{ $count -> *[other] word }`, since a message must use the same variables as English.
 - **No markup.** A translation must not contain `<`. When a sentence contains a link or code, the English message has
   a variable whose name ends in `_html` (`{ $link_html }`); place it where it belongs in your sentence and the code
   inserts the element. Characters from the Unicode private use area are not allowed either (they are used

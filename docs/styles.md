@@ -19,7 +19,8 @@ The fonts, images and vendored files the interface ships are listed in [assets.m
 - **Pages outside the frame.** `errors/plain.html` links only `forum.css`. The setup wizard (`setup/wizard.html`) has
   its own inline styles and colors, because it runs before the forum's address is known and serves no assets.
 - **Personal styles.** A member may write a personal stylesheet; `custom_css.rs` validates it, and the member's own
-  pages link it after `forum.css`. Class names are therefore visible to members, so rename them only for a reason.
+  pages link it after `forum.css`. Class names are therefore visible to members, so rename them only for a reason;
+  the ones listed in [skins.md](skins.md) are a public contract.
 
 ## Style files
 
@@ -98,7 +99,6 @@ differs.
 | `--avatar-bg`, `--avatar-text`, `--avatar-green-*`, `--avatar-amber-*` | Initials tiles for members without an avatar |
 | `--inverse`, `--inverse-text`, `--backdrop`, `--selection` | The skip link, the drawer backdrop, text selection |
 | `--shadow-base`, `--shadow-medium` | Panels and cards; menus, the drawer and other raised surfaces |
-| `--sticky-top` | Not a color: the height the sticky header takes, which sticky asides and floor anchors leave free |
 
 ## Tag colors
 
@@ -132,6 +132,8 @@ roles, `tag--honor` the warning roles and `tag--state` (frozen or deleting accou
 | `--font-mono` | Space Mono, then system monospace | Code, digits and other monospaced text |
 | `--ease-out` | `cubic-bezier(0.23, 1, 0.32, 1)` | Transitions |
 | `--safe-top`, `--safe-right`, `--safe-bottom`, `--safe-left` | `env(safe-area-inset-*)`, 0 where there is none | Room for notches and gesture bars |
+| `--masthead-h` | 61px; 57px from 900px down, 53px from 760px down | The header's height with its bottom border, set in `frame.css` beside the header's sizes |
+| `--sticky-top` | `--masthead-h` plus `--safe-top` | The height the sticky header covers: anchor targets leave it free plus 11px, sticky asides plus 15px, and `site.js` and `navigation.js` read it instead of measuring the header (see [skins.md](skins.md), "Sticky header") |
 
 Body text is 15px with a line height of 1.75; form controls are 14px (16px from 420px down, so phones do not zoom on
 focus). Emphasis uses font weights 500 and 600 only. Borders are 1px; accent lines (the underline of current tabs
@@ -144,8 +146,8 @@ Styles are written for wide screens and narrowed with `@media (max-width: …)` 
 
 | Width | What changes |
 | --- | --- |
-| 900px | The header board navigation gives way to the drawer button; the aside narrows to 220px and gaps shrink to 16px; policy pages move their navigation above the text; the admin module menu becomes a scrolling row |
-| 760px | One column; in `layout--stack` the aside keeps only cards marked `panel--keep`; listing pages show the board strip; the header tightens and sign-up moves into the drawer; only the first pinned row stays in a list |
+| 900px | The header board navigation gives way to the drawer button and the header is 57px tall; the aside narrows to 220px and gaps shrink to 16px; policy pages move their navigation above the text; the admin module menu becomes a scrolling row |
+| 760px | One column; in `layout--stack` the aside keeps only cards marked `panel--keep`; listing pages show the board strip; the header tightens to 53px and sign-up moves into the drawer; only the first pinned row stays in a list |
 | 700px | The footer becomes one centered column |
 | 640px | Two-column admin forms become one; row forms move under the row text; floors put the avatar beside the head; policy links become a row of pills |
 | 480px | Six-figure tallies become three columns; list thumbnails shrink |
@@ -181,10 +183,19 @@ again on the visitor's header.
   (`tally__value--alert`). Lowercase words joined by hyphens, named after this project's own components.
 - **State goes in attributes** where one fits: `aria-current` for the current item (tabs, board navigation, pagination,
   menus), `aria-pressed` for toggles, `[open]` on `details`, `disabled` or `aria-disabled="true"`, `hidden`, and
-  `data-state` for a record's state. Otherwise use an `is-*` class (`is-unread`, `is-today`, `is-drop-target`); a
-  class that switches a whole layout is `has-*` (`has-write-fullscreen`).
+  `data-state` for a record's state. A record with one state at a time writes it as a word (`data-state="purging"` on
+  an attachment); one that can have several writes them space-separated in a fixed order and is selected with `~=`
+  (`data-state="pinned closed"` on a list row, `[data-state~="closed"]`). Otherwise use an `is-*` class (`is-unread`,
+  `is-today`, `is-drop-target`); a class that switches a whole layout is `has-*` (`has-write-fullscreen`).
 - **Script hooks** are `data-*` attributes (`data-theme-toggle`, `data-thread-id`, `data-media-load`), not style
   classes. Some Rust tests match markup literally, so run them after renaming a class.
+- **Skin hooks** are the class names, data attributes, optional elements and the page data block listed in
+  [skins.md](skins.md): one class per data item of a list row (`row-meta__author`, `row-meta__replies`,
+  `row-meta__last`, `row-meta__time`, `row-meta__board`), `data-board`, `data-kind` and `data-state` on list rows,
+  counts split into `stat__value` and `stat__label`, and `<time datetime>` for shown times. Keep them when you change
+  these templates; `apps/web/tests/skin_hooks_http.rs` checks them.
+- **Optional elements** carry `data-optional`: the templates output them for stylesheets that want them, and
+  `site.css` hides them in the default look (see [skins.md](skins.md), "Optional elements").
 - Helpers: `container` (page width), `sr-only` (visually hidden).
 
 The blocks of each area are listed in the opening comment of its file (see "Style files").
@@ -207,8 +218,10 @@ Six components carry most pages. Use them rather than writing page-specific mark
 - **Tabs.** `nav.tabs` with `a.tabs__item`, the current one marked `aria-current="page"`; `tabs--switch` is a
   segmented two- or three-way switch, and `section-tabs` are the scrolling sub-sections of the admin area.
 - **List rows.** `ul.rows` (`--topics`, `--posts`, `--ranks`, `--children`) of `li.rows__item` (`--pinned`):
-  `row-avatar`, then `row-body` with `row-headline` (tags, `row-title`, `row-pages`) and `row-meta`, then optional
-  `row-end` or `row-actions`. An empty list is `li.empty`.
+  `row-avatar`, then `row-body` with `row-headline` (`row-labels` around the tags, `row-title`, `row-pages`) and
+  `row-meta` (its items named `row-meta__*`), then optional `row-end` or `row-actions`. An empty list is `li.empty`.
+  Counts with a word are `stat` with `stat__value` and `stat__label`. The data attributes of topic rows are in
+  [skins.md](skins.md), "List rows".
 - **Aside cards.** `section.panel.panel--aside` with `h2.panel__title` and the card's content, for example `mini-list`
   (`__title`, `__count`, `__empty`). They sit in `layout__aside`; add `panel--keep` to a card that should stay on
   phones.
@@ -251,7 +264,9 @@ technology; the text beside it names the control, or an icon-only control gets a
 
 - An icon used in one place is written inline in its template (`partials/header.html`, `home/index.html`,
   `partials/user_card.html`, `partials/my_card.html`, `layout/base.html`). An icon used in several places is a partial:
-  `partials/favorite_icon.html`, `reaction_icon.html`, `downvote_icon.html`, `tip_icon.html`, `user_icon.html`.
+  `partials/favorite_icon.html`, `reaction_icon.html`, `downvote_icon.html`, `tip_icon.html`, `user_icon.html`, and
+  the optional icons of [skins.md](skins.md), "Optional elements": `pinned_icon.html` and `locked_icon.html` (list
+  rows, each with its `sr-only` text) and `reply_icon.html` and `quote_icon.html` (floor actions).
 - List metadata icons get the class `meta-glyph` (14px). Add `meta-glyph--mirror` to an icon that points along the
   reading direction.
 - Admin module icons are `<symbol>` elements in `partials/manage_icons.html` (stroke width 1.6), used as
@@ -267,11 +282,12 @@ Draw new icons yourself, or take them from a set whose licence allows it and rec
 - Front pages extend `layout/base.html`, the member area `layout/my.html` and the admin area `layout/manage.html`.
 - No visible text is written in templates: every string is a translation key (`{{ p.t.some_key() }}`); see "For
   developers: adding interface text" in [translating.md](translating.md).
-- No `style` attributes, `<style>` blocks or inline scripts (a JSON-LD block is data, not a script). The page's
-  Content-Security-Policy allows styles and scripts only from the site.
+- No `style` attributes, `<style>` blocks or inline scripts (a JSON-LD block and the page data block are data, not
+  scripts). The page's Content-Security-Policy allows styles and scripts only from the site.
 - Member names, the brand and other names carry `translate="no"`.
 - Visually hidden text uses `sr-only`. `hidden` always hides: `site.css` gives `[hidden]` precedence over any
-  `display` rule.
+  `display` rule. `data-optional` also hides, but a later `display` rule may show the element.
+- Shown times are `<time>` elements with `datetime` in UTC (`crate::clock::iso`); see [skins.md](skins.md), "Times".
 - Every focusable element shows keyboard focus. Links, buttons and other controls get a `:focus-visible` ring,
   normally a 2px outline in `--focus-ring`. Form fields get no ring: text fields, selects and textareas darken their
   own border to `--input-focus` (the header search darkens its box), and checkboxes and radios, which keep the native

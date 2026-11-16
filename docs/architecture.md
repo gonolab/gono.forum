@@ -13,6 +13,8 @@ in `docs/` go into more detail:
 - [api.md](api.md): the member REST API under `/api/v1/`.
 - [roles.md](roles.md): staff roles, mutes, level gates and honor groups.
 - [styles.md](styles.md): the style guide for stylesheets, class names and templates, and how to check changes.
+- [skins.md](skins.md): the markup hooks stylesheets and scripts can rely on: list row classes and states, split
+  counts, `<time>`, optional elements, the page data block, script events and the declared header height.
 - [assets.md](assets.md): where bundled fonts, icons, images and scripts come from, and their licences.
 - [releasing.md](releasing.md): building and publishing release packages, and how sites upgrade themselves.
 
@@ -244,6 +246,19 @@ Stylesheets are plain CSS in `frontend/styles/`, combined and minified by `npm r
 one set of design tokens (`frontend/styles/themes/default.json`) with light, dark and system themes. Layout uses
 logical properties (`margin-inline-start`, not `margin-left`) so that right-to-left languages mirror correctly.
 Scripts are small, framework-free and optional: htmx plus a few enhancements and the editor.
+
+The templates also write hooks for stylesheets and scripts that are not part of the default look, listed in
+[skins.md](skins.md):
+
+- **Page data block.** `layout/base.html` writes `<script type="application/json" id="gonof-page">` into every page's
+  head (`router/page_data.rs`): the kind of page, its ids and page number, on thread pages the floors with their
+  positions, pids and times, and the site's name, language, direction, path prefix, points and index names and date
+  style. It carries nothing about the viewer, and its JSON is escaped like the JSON-LD blocks.
+- **Script events.** `site.js` dispatches `gonof:ready` on `document` when the page has loaded and `gonof:swap` after
+  every HTMX swap has settled.
+- **Declared header height.** `--sticky-top` is the height the sticky header covers, declared in CSS; scroll margins,
+  sticky asides, the thread page's reading-position tracker (`site.js`) and list scroll restoration (`navigation.js`)
+  all use it rather than measuring the header.
 
 ## Tests
 
