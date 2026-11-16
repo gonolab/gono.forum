@@ -194,12 +194,15 @@ fn valid_token(name: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
 }
 
-/// A token value: one CSS value that the stylesheet checker accepts on its own, without braces, semicolons, `!` or
-/// `url()` (a palette holds colors, shadows and the like, never resources).
+/// A token value: one CSS value that the stylesheet checker accepts on its own, without braces, semicolons, `!`,
+/// quotes, comments, line breaks or `url()` (a palette holds colors, shadows and the like, never resources). The
+/// value is written into the generated rules as it is, so nothing in it may reach past its declaration.
 fn valid_value(value: &str) -> bool {
     if value.trim().is_empty()
         || value.len() > 1024
-        || value.contains(['{', '}', ';', '!', '<', '>'])
+        || value.contains(['{', '}', ';', '!', '<', '>', '"', '\'', '\n', '\r'])
+        || value.contains("/*")
+        || value.contains("*/")
     {
         return false;
     }
@@ -735,6 +738,7 @@ mod tests {
                 ("--panel", "url(https://evil.example/x.png)"),
                 ("--panel-alt", "red; } body { display: none"),
                 ("--line", "#ccc !important"),
+                ("--line-soft", "#ccc /* open"),
                 ("--bg", "var(--nowhere)"),
                 ("--text", "var(--text-strong)"),
                 ("--text-strong", "var(--text)"),
@@ -756,6 +760,7 @@ mod tests {
             [
                 "palette-token",
                 "reserved-variable",
+                "palette-value",
                 "palette-value",
                 "palette-value",
                 "palette-value",

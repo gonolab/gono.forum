@@ -137,12 +137,21 @@ pub fn valid_id(id: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
 }
 
-/// `major.minor.patch`; a pre-release suffix after `-` is allowed and ignored when comparing.
+/// `major.minor.patch`; a pre-release suffix after `-` (letters, digits, dots and hyphens) is allowed and ignored
+/// when comparing. The version is written into the comment at the top of the compiled stylesheet, so nothing else may
+/// appear in it.
 pub fn parse_version(version: &str) -> Option<[u64; 3]> {
     if version.is_empty() || version.len() > 32 {
         return None;
     }
-    let core = version.split_once('-').map_or(version, |(core, _)| core);
+    let (core, suffix) = version.split_once('-').unwrap_or((version, ""));
+    if !suffix
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+        || (version.contains('-') && suffix.is_empty())
+    {
+        return None;
+    }
     let mut parts = core.split('.');
     let mut numbers = [0_u64; 3];
     for number in &mut numbers {
@@ -440,7 +449,20 @@ avatar_shape = "circle"
         assert_eq!(parse_version("0.1.3"), Some([0, 1, 3]));
         assert_eq!(parse_version("0.1.1-dev.1"), Some([0, 1, 1]));
         assert!(parse_version("0.10.0") > parse_version("0.9.9"));
-        for bad in ["", "1", "1.2", "1.2.3.4", "a.b.c", "1..2", "-1.0.0"] {
+        assert_eq!(parse_version("1.2.3-rc.1"), Some([1, 2, 3]));
+        // The version goes into a CSS comment: nothing that could end it.
+        for bad in [
+            "",
+            "1",
+            "1.2",
+            "1.2.3.4",
+            "a.b.c",
+            "1..2",
+            "-1.0.0",
+            "1.0.0-",
+            "1.0.0-*/x{}/*",
+            "1.0.0 beta",
+        ] {
             assert_eq!(parse_version(bad), None, "{bad}");
         }
     }
