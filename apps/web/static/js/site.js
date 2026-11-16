@@ -127,6 +127,23 @@
     if (account) { account.open = false; account.querySelector('summary').focus(); }
   });
 
+// A boosted navigation swaps the body and merges the head but keeps <html>, whose attributes carry the skin, palette
+// and avatar shape the stylesheets select on (docs/skins.md, "Frame"). Take them from the new page in the same tick
+// as head-support adds its skin stylesheet, so a page with another skin (such as /manage/skins, which always uses
+// the default) never pairs one skin's stylesheet with another's palette name.
+const frameAttributes = ['data-skin', 'data-skin-source', 'data-palette', 'data-nav', 'data-header-boards', 'data-avatar-shape'];
+document.addEventListener('htmx:afterSwap', event => {
+  if (!event.detail?.boosted) return;
+  const tag = (event.detail.xhr?.responseText || '').match(/<html\b[^>]*>/i);
+  if (!tag) return;
+  const next = new DOMParser().parseFromString(`${tag[0]}</html>`, 'text/html').documentElement;
+  for (const name of frameAttributes) {
+    const value = next.getAttribute(name);
+    if (value === null) document.documentElement.removeAttribute(name);
+    else if (document.documentElement.getAttribute(name) !== value) document.documentElement.setAttribute(name, value);
+  }
+});
+
 // Posting responses replace only the reply section. Error fragments are deliberate
 // form responses, and retain the same editor fields and already uploaded files.
 document.addEventListener('htmx:beforeSwap', event => {
