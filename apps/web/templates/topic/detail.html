@@ -3,7 +3,7 @@
 <div class="layout topic">
   <div class="layout__main topic__main">
     <nav class="crumbs" aria-label="{{ p.t.common_breadcrumb() }}">
-      {%- for (name, href) in breadcrumb %}{% if !loop.first %}<span aria-hidden="true">›</span>{% endif %}<a href="{{ crate::site::href(href) }}">{{ name }}</a>{% endfor %}
+      {%- for (name, href) in breadcrumb %}{% if !loop.first %}<span class="crumbs__sep" aria-hidden="true"></span>{% endif %}<a href="{{ crate::site::href(href) }}">{{ name }}</a>{% endfor %}
     </nav>
 
     <article class="thread" aria-labelledby="thread-title">
@@ -12,7 +12,7 @@
           {%- if thread.pinned %}
           <span class="tag tag--pinned">{{ p.t.common_pinned() }}</span>
           {%- endif %}
-          <span class="tag">{{ thread.category_label() }}</span>
+          <span class="tag{% if !thread.badge_class().is_empty() %} {{ thread.badge_class() }}{% endif %}">{{ thread.category_label() }}</span>
           {%- if thread.members_only %}
           <span class="tag">{{ p.t.topic_members_only() }}</span>
           {%- endif %}
@@ -21,6 +21,8 @@
         <div class="thread-stats">
           <span class="thread-stats__count" id="topic-reply-count">{{ p.t.topic_reply_count(thread.reply_count) }}</span>
           <div class="thread-stats__tools">
+            {#- Optional shortcut to the reply box, hidden unless a skin shows it; it adds a link and stands in for nothing (docs/skins.md, "Optional elements"). #}
+            <a class="button button--small thread-head__reply" href="#reply-editor" data-optional>{{ p.t.topic_reply() }}</a>
             {%- let control = follow %}
             {% include "social/control.html" %}
             {%- if opening_controls.can_edit_manage %}
@@ -77,7 +79,7 @@
             {% include "partials/downvote.html" %}
             {% include "partials/tip.html" %}
             {%- if can_quote_opening %}
-            <a class="floor__action" href="{{ crate::site::href(opening_quote_href) }}" hx-boost="false">{{ p.t.topic_quote() }}</a>
+            <a class="floor__action floor__action--quote" href="{{ crate::site::href(opening_quote_href) }}" hx-boost="false">{% include "partials/quote_icon.html" %}<span class="floor__action-label">{{ p.t.topic_quote() }}</span></a>
             {%- endif %}
             {%- let controls = opening_controls %}
             {% include "partials/content_controls.html" %}
@@ -154,10 +156,10 @@
                 {%- let reaction = row.reaction %}
                 {% include "partials/reaction.html" %}
                 {%- if row.can_reply %}
-                <a class="floor__action" href="{{ crate::site::href(row.reply_href) }}" hx-boost="false">{{ p.t.topic_reply() }}</a>
+                <a class="floor__action floor__action--reply" href="{{ crate::site::href(row.reply_href) }}" hx-boost="false">{% include "partials/reply_icon.html" %}<span class="floor__action-label">{{ p.t.topic_reply() }}</span></a>
                 {%- endif %}
                 {%- if row.can_quote %}
-                <a class="floor__action" href="{{ crate::site::href(row.quote_href) }}" hx-boost="false">{{ p.t.topic_quote() }}</a>
+                <a class="floor__action floor__action--quote" href="{{ crate::site::href(row.quote_href) }}" hx-boost="false">{% include "partials/quote_icon.html" %}<span class="floor__action-label">{{ p.t.topic_quote() }}</span></a>
                 {%- endif %}
                 {%- if row.can_accept %}
                 <form class="floor__accept" method="post" action="{{ crate::site::base() }}/api/thread-{{ thread.id }}/accept" hx-boost="false">
@@ -218,10 +220,10 @@
                       {%- let reaction = child.reaction %}
                       {% include "partials/reaction.html" %}
                       {%- if child.can_reply %}
-                      <a class="floor__action" href="{{ crate::site::href(child.reply_href) }}" hx-boost="false">{{ p.t.topic_reply() }}</a>
+                      <a class="floor__action floor__action--reply" href="{{ crate::site::href(child.reply_href) }}" hx-boost="false">{% include "partials/reply_icon.html" %}<span class="floor__action-label">{{ p.t.topic_reply() }}</span></a>
                       {%- endif %}
                       {%- if child.can_quote %}
-                      <a class="floor__action" href="{{ crate::site::href(child.quote_href) }}" hx-boost="false">{{ p.t.topic_quote() }}</a>
+                      <a class="floor__action floor__action--quote" href="{{ crate::site::href(child.quote_href) }}" hx-boost="false">{% include "partials/quote_icon.html" %}<span class="floor__action-label">{{ p.t.topic_quote() }}</span></a>
                       {%- endif %}
                       {%- if child.can_accept %}
                       <form class="floor__accept" method="post" action="{{ crate::site::base() }}/api/thread-{{ thread.id }}/accept" hx-boost="false">

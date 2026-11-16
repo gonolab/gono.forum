@@ -18,6 +18,10 @@ profile-level-rules = 等级说明
 profile-tabs = 个人内容
 profile-total = 共 { $count } 条
 profile-reply-number = 回复 #{ $position }
+profile-reply-count-label = { $count ->
+   *[other] 条回复
+}
+profile-reply-count = { $value_html } { $label_html }
 profile-no-threads = 暂无公开主题。
 profile-no-replies = 暂无公开回复。
 profile-no-activity = 暂无近期动态。

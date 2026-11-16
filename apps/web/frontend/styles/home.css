@@ -97,12 +97,17 @@
   border-radius: var(--r-xs);
 }
 
-/* The separator points along the reading direction. */
-.crumbs > span {
+/* The separator is an empty aria-hidden span and its glyph is drawn here, so a skin can redraw or drop it
+   (docs/skins.md, "Optional elements"). It points along the reading direction. */
+.crumbs__sep {
   color: var(--text-subtle);
 }
 
-.crumbs > span:dir(rtl) {
+.crumbs__sep::before {
+  content: "›";
+}
+
+.crumbs__sep:dir(rtl) {
   scale: -1 1;
 }
 

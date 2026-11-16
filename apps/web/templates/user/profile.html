@@ -103,6 +103,7 @@
         <p class="list-toolbar__note" data-member-total="{{ total }}">{{ p.t.profile_total(total) }}</p>
         {%- endif %}
       </div>
+      {#- The row-meta__* classes and .row-labels are skin hooks (docs/skins.md, "List rows"). #}
       <ul class="rows">
         {%- for row in rows %}
         <li class="rows__item" data-member-pid="{{ row.pid }}" data-member-kind="{% if row.position == 1 %}thread{% else %}post{% endif %}">
@@ -112,7 +113,7 @@
               <span class="profile__verb" data-member-action>{{ row.action }}</span>
               {%- endif %}
               {%- if row.position == 1 && row.category != p.t.common_category_normal() %}
-              <span class="tag">{{ row.category }}</span>
+              <span class="row-labels"><span class="tag">{{ row.category }}</span></span>
               {%- endif %}
               <a class="row-title" href="{{ crate::site::href(row.href) }}">{{ row.title }}</a>
             </div>
@@ -121,10 +122,10 @@
             {%- endif %}
             <p class="row-meta">
               {#- Shown only where the board chip at the row end is hidden (narrow screens). #}
-              <a class="profile__meta-board" href="{{ crate::site::base() }}/{{ row.forum_slug }}">{{ row.forum_name }}</a>
-              <span>{{ row.time }}</span>
+              <a class="profile__meta-board row-meta__board" href="{{ crate::site::base() }}/{{ row.forum_slug }}">{{ row.forum_name }}</a>
+              <span class="row-meta__time">{{ row.time }}</span>
               {%- if row.position == 1 %}
-              <span>{{ p.t.common_reply_count(row.replies) }}</span>
+              <span class="row-meta__replies"><span class="stat">{{ p.t.profile_reply_count(p.stat_value(row.replies), p.stat_label(p.t.profile_reply_count_label(row.replies)))|safe }}</span></span>
               {%- else %}
               <a href="{{ crate::site::href(row.href) }}">{{ p.t.profile_reply_number(row.position) }}</a>
               {%- endif %}

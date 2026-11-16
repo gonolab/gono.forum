@@ -1,6 +1,9 @@
 home-cross-pins = 其他版块的置顶
 home-replies-label = 回复 { $count } 条
-home-replies-short = 回复 { $count }
+home-replies-short-label = { $count ->
+   *[other] 回复
+}
+home-replies-short = { $label_html } { $value_html }
 home-search-scope = 搜索范围
 home-search-threads = 主题
 home-search-members = 用户

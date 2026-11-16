@@ -1,5 +1,6 @@
 {% extends "layout/base.html" %}
 {% block content %}
+{#- Each count is split into .stat__value and .stat__label for skins (docs/skins.md, "Counts"). #}
 <div class="layout reader-layout"><div class="layout__main"><div class="pane">
   <article class="reader">
     <header class="reader__head"><h1>{{ p.t.frame_all_forums() }}</h1><p class="reader__lede">{{ p.t.site_forums_lede() }}{% if statistics %}{{ p.t.site_forums_statistics() }}{% endif %}</p></header>
@@ -11,8 +12,8 @@
           <div class="row-body">
             <div class="row-headline"><a class="row-title" href="{{ crate::site::base() }}/{{ group.forum.slug }}">{{ group.forum.name }}</a></div>
             {% if !group.forum.description.is_empty() %}<p class="row-excerpt">{{ group.forum.description }}</p>{% endif %}
-            {% if let Some(count) = group.forum.count %}<p class="row-meta" data-forum-count><span>{{ p.t.site_forums_threads(count.threads) }}</span><span>{{ p.t.site_forums_today(count.today) }}</span></p>{% endif %}
-            {% if !group.children.is_empty() %}<ul class="rows rows--children" aria-label="{{ p.t.site_forums_children(group.forum.name) }}">{% for child in group.children %}<li class="rows__item" data-forum="{{ child.slug }}"><div class="row-body"><div class="row-headline"><a class="row-title" href="{{ crate::site::base() }}/{{ child.slug }}">{{ child.name }}</a></div>{% if !child.description.is_empty() %}<p class="row-excerpt">{{ child.description }}</p>{% endif %}{% if let Some(count) = child.count %}<p class="row-meta" data-forum-count><span>{{ p.t.site_forums_threads(count.threads) }}</span><span>{{ p.t.site_forums_today(count.today) }}</span></p>{% endif %}</div></li>{% endfor %}</ul>{% endif %}
+            {% if let Some(count) = group.forum.count %}<p class="row-meta" data-forum-count><span class="row-meta__threads"><span class="stat">{{ p.t.site_forums_threads(p.stat_value(count.threads), p.stat_label(p.t.site_forums_threads_label(count.threads)))|safe }}</span></span><span class="row-meta__today"><span class="stat">{{ p.t.site_forums_today(p.stat_label(p.t.site_forums_today_label()), p.stat_value(count.today))|safe }}</span></span></p>{% endif %}
+            {% if !group.children.is_empty() %}<ul class="rows rows--children" aria-label="{{ p.t.site_forums_children(group.forum.name) }}">{% for child in group.children %}<li class="rows__item" data-forum="{{ child.slug }}"><div class="row-body"><div class="row-headline"><a class="row-title" href="{{ crate::site::base() }}/{{ child.slug }}">{{ child.name }}</a></div>{% if !child.description.is_empty() %}<p class="row-excerpt">{{ child.description }}</p>{% endif %}{% if let Some(count) = child.count %}<p class="row-meta" data-forum-count><span class="row-meta__threads"><span class="stat">{{ p.t.site_forums_threads(p.stat_value(count.threads), p.stat_label(p.t.site_forums_threads_label(count.threads)))|safe }}</span></span><span class="row-meta__today"><span class="stat">{{ p.t.site_forums_today(p.stat_label(p.t.site_forums_today_label()), p.stat_value(count.today))|safe }}</span></span></p>{% endif %}</div></li>{% endfor %}</ul>{% endif %}
           </div>
         </li>
       {% else %}<li class="empty">{{ p.t.site_forums_empty() }}</li>{% endfor %}

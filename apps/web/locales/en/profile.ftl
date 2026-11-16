@@ -30,6 +30,16 @@ profile-total =
        *[other] { $count } items
     }
 profile-reply-number = Reply #{ $position }
+# The word of a thread's reply count in a profile list; $count only picks the plural form.
+profile-reply-count-label =
+    { $count ->
+        [one] reply
+       *[other] replies
+    }
+# A thread's reply count in a profile list: $value_html is the number and $label_html the word
+# (profile-reply-count-label), each in its own element so that skins can style them apart. Put them in your
+# language's order.
+profile-reply-count = { $value_html } { $label_html }
 profile-no-threads = No public threads yet.
 profile-no-replies = No public replies yet.
 profile-no-activity = No recent activity.

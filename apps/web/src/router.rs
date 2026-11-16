@@ -1001,6 +1001,16 @@ impl PageMeta<'_> {
         ))
     }
 
+    /// The number slot of a count (docs/skins.md, "Counts"), written the way this language writes numbers, as
+    /// `{ $count }` in a translation would write it.
+    fn stat_value(&self, value: impl crate::i18n::Count) -> crate::i18n::Markup {
+        crate::i18n::Markup::span("stat__value", self.t.number(value.count()))
+    }
+    /// The word slot of a count: the label translation for this count.
+    fn stat_label(&self, label: impl std::fmt::Display) -> crate::i18n::Markup {
+        crate::i18n::Markup::span("stat__label", label)
+    }
+
     /// The address of the new-thread entry: forum pages and thread pages preselect this page's forum
     /// (`/new/{slug}`); forums the member has blocked, forums this visitor cannot read on this site and other
     /// pages use `/new`, and the forum is chosen on the posting page.

@@ -392,6 +392,14 @@ pub fn day_label(timestamp: i64, now: i64, format: &TimeFormat) -> String {
     }
 }
 
+/// The `datetime` of a `<time>` element and the times of the page data block (docs/skins.md, "Times"): the
+/// instant in UTC to the second, `2026-11-16T05:27:55Z`. Empty when the timestamp cannot be represented.
+pub fn iso(timestamp: i64) -> String {
+    chrono::DateTime::from_timestamp(timestamp, 0)
+        .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+        .unwrap_or_default()
+}
+
 /// The compact style without the year, as used in thread lists.
 pub fn short_datetime(timestamp: i64, format: &TimeFormat) -> String {
     if let Some(text) = relative(timestamp, crate::identity::now(), format) {

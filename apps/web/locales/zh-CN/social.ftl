@@ -4,7 +4,10 @@ social-collection-empty = 暂无记录。
 social-followers-lead = 共 { $total } 位粉丝，第 { $page } 页。名单只有你自己看得到；不想被某人关注，可以在对方主页拉黑他，拉黑会同时取消双方的关注。
 social-followers-empty = 还没有会员关注你。
 social-feed-lead = 你关注的会员最近 { $days } 天发布的新主题，按发布时间倒序。这里不发通知，也不标未读。
-social-feed-replies = { $count } 回复
+social-feed-replies-label = { $count ->
+   *[other] 回复
+}
+social-feed-replies = { $value_html } { $label_html }
 social-feed-empty = 最近 { $days } 天你关注的会员没有发布新主题。
 social-feed-no-older = 没有更早的主题了。
 social-feed-latest = 回到最新

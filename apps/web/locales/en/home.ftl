@@ -5,12 +5,16 @@ home-replies-label =
         [one] { $count } reply
        *[other] { $count } replies
     }
-# The visible reply count of a pinned thread from another forum.
-home-replies-short =
+# The word of the visible reply count of a pinned thread from another forum; $count only picks the plural form.
+home-replies-short-label =
     { $count ->
-        [one] { $count } reply
-       *[other] { $count } replies
+        [one] reply
+       *[other] replies
     }
+# The visible reply count of a pinned thread from another forum: $value_html is the number and $label_html the word
+# (home-replies-short-label), each in its own element so that skins can style them apart. Put them in your language's
+# order.
+home-replies-short = { $value_html } { $label_html }
 home-search-scope = Search in
 home-search-threads = Threads
 home-search-members = Members

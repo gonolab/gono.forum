@@ -5,8 +5,12 @@ site-verified-webmaster = 站长
 site-verified-channel = 频道主
 site-forums-lede = 按父版块分组列出你能看到的全部版块。
 site-forums-statistics = 主题数与今日发帖只计对所有人公开的内容，父版块含子版块的合计，每隔一段时间刷新。
-site-forums-threads = 主题 { $count }
-site-forums-today = 今日 { $count }
+site-forums-threads-label = { $count ->
+   *[other] 主题
+}
+site-forums-threads = { $label_html } { $value_html }
+site-forums-today-label = 今日
+site-forums-today = { $label_html } { $value_html }
 site-forums-children = { $forum }的子版块
 site-forums-empty = 暂无版块。
 site-forums-description = 论坛的全部版块与子版块。

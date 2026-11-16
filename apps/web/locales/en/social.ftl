@@ -21,11 +21,16 @@ social-feed-lead =
         [one] New threads from members you follow in the last day, newest first. There are no notifications or unread marks here.
        *[other] New threads from members you follow in the last { $days } days, newest first. There are no notifications or unread marks here.
     }
-social-feed-replies =
+# The word of a thread's reply count in the following feed; $count only picks the plural form.
+social-feed-replies-label =
     { $count ->
-        [one] { $count } reply
-       *[other] { $count } replies
+        [one] reply
+       *[other] replies
     }
+# A thread's reply count in the following feed: $value_html is the number and $label_html the word
+# (social-feed-replies-label), each in its own element so that skins can style them apart. Put them in your
+# language's order.
+social-feed-replies = { $value_html } { $label_html }
 social-feed-empty =
     { $days ->
         [one] Members you follow have not posted a new thread in the last day.

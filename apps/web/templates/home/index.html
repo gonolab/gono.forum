@@ -12,9 +12,9 @@
   </nav>
 
   {%- if !breadcrumb.is_empty() %}
-  {#- Tests match the trail byte for byte: plain links, aria-hidden separators, no whitespace. #}
+  {#- Tests match the trail byte for byte: plain links, empty aria-hidden separators that home.css draws, no whitespace. #}
   <nav class="crumbs" aria-label="{{ p.t.common_breadcrumb() }}">
-    {%- for (name, href) in breadcrumb %}{% if !loop.first %}<span aria-hidden="true">›</span>{% endif %}<a href="{{ crate::site::href(href) }}">{{ name }}</a>{% endfor -%}
+    {%- for (name, href) in breadcrumb %}{% if !loop.first %}<span class="crumbs__sep" aria-hidden="true"></span>{% endif %}<a href="{{ crate::site::href(href) }}">{{ name }}</a>{% endfor -%}
   </nav>
   {%- endif %}
 
@@ -85,16 +85,23 @@
 
         {%- include "partials/cross_pins.html" %}
 
-        {#- navigation.js restores the scroll position from the first [data-scroll-list]; every link of a row must sit inside its [data-thread-id] item. #}
+        {#- navigation.js restores the scroll position from the first [data-scroll-list]; every link of a row must sit inside its [data-thread-id] item.
+            The row's class names, data attributes and [data-optional] elements are the skin hooks of docs/skins.md, "List rows". #}
         <ul class="rows rows--topics" aria-label="{{ p.t.home_thread_list() }}" data-scroll-list>
           {%- for row in rows %}
-          <li class="rows__item{% if row.thread.pinned && !pinned_view %} rows__item--pinned{% endif %}" data-thread-id="{{ row.thread.id }}">
+          <li class="rows__item{% if row.thread.pinned && !pinned_view %} rows__item--pinned{% endif %}" data-thread-id="{{ row.thread.id }}" data-board="{{ row.thread.fid }}"{% if !row.thread.kind_code().is_empty() %} data-kind="{{ row.thread.kind_code() }}"{% endif %}{% let state = row.thread.state_tokens() %}{% if !state.is_empty() %} data-state="{{ state }}"{% endif %}>
             <span class="row-avatar">{% let avatar = row.avatar %}{% include "partials/avatar.html" %}</span>
             <div class="row-body">
               <div class="row-headline">
-                {%- if row.thread.pinned && !pinned_view %}<span class="tag tag--pinned">{{ p.t.common_pinned() }}</span>{% endif %}
-                {%- if row.thread.featured %}<span class="tag tag--featured">{{ p.t.common_featured() }}</span>{% endif %}
-                {%- if row.thread.category != 0 %}<span class="tag {{ row.thread.badge_class() }}">{{ row.thread.category_label() }}</span>{% endif %}
+                {%- if (row.thread.pinned && !pinned_view) || row.thread.closed || row.thread.featured || row.thread.category != 0 %}
+                <span class="row-labels">
+                  {%- if row.thread.pinned && !pinned_view %}{% include "partials/pinned_icon.html" %}{% endif %}
+                  {%- if row.thread.closed %}{% include "partials/locked_icon.html" %}{% endif %}
+                  {%- if row.thread.pinned && !pinned_view %}<span class="tag tag--pinned">{{ p.t.common_pinned() }}</span>{% endif %}
+                  {%- if row.thread.featured %}<span class="tag tag--featured">{{ p.t.common_featured() }}</span>{% endif %}
+                  {%- if row.thread.category != 0 %}<span class="tag {{ row.thread.badge_class() }}">{{ row.thread.category_label() }}</span>{% endif -%}
+                </span>
+                {%- endif %}
                 <a class="row-title" href="{{ crate::site::href(row.href) }}"{% if title_new_tab %} target="_blank" rel="noopener"{% endif %}>{{ row.thread.title }}</a>
                 {%- if !row.topic_pages.is_empty() %}
                 {#- Not a list: a row must not contain </li>. The ellipsis goes in front of the fourth link when it jumps past page 5. #}
@@ -103,19 +110,21 @@
               </div>
               <p class="row-meta">
                 {%- if row.child_forum %}
-                <span data-child-forum><svg class="meta-glyph meta-glyph--mirror" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 4v7a4 4 0 0 0 4 4h9"/><path d="m15 11 4 4-4 4"/></svg><a href="{{ crate::site::base() }}/{{ row.forum_slug }}">{{ row.forum_name }}</a></span>
+                <span class="row-meta__board" data-child-forum><svg class="meta-glyph meta-glyph--mirror" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 4v7a4 4 0 0 0 4 4h9"/><path d="m15 11 4 4-4 4"/></svg><a href="{{ crate::site::base() }}/{{ row.forum_slug }}">{{ row.forum_name }}</a></span>
                 {%- endif %}
-                <span><svg class="meta-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>{% if !row.avatar.profile_href.is_empty() %}<a class="row-author" href="{{ crate::site::href(row.avatar.profile_href) }}" translate="no">{{ row.thread.author }}</a>{% else %}<span class="row-author" translate="no">{{ row.thread.author }}</span>{% endif %}</span>
-                <span aria-label="{{ p.t.home_replies_label(row.thread.reply_count) }}"><svg class="meta-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.2A8 8 0 1 1 20 12Z"/></svg>{{ row.thread.reply_count }}</span>
+                <span class="row-meta__author"><svg class="meta-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>{% if !row.avatar.profile_href.is_empty() %}<a class="row-author" href="{{ crate::site::href(row.avatar.profile_href) }}" translate="no">{{ row.thread.author }}</a>{% else %}<span class="row-author" translate="no">{{ row.thread.author }}</span>{% endif %}</span>
+                <span class="row-meta__replies" aria-label="{{ p.t.home_replies_label(row.thread.reply_count) }}"><svg class="meta-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.2A8 8 0 1 1 20 12Z"/></svg><span class="stat"><span class="stat__value">{{ row.thread.reply_count }}</span></span></span>
                 {%- if !row.thread.last_reply_author.is_empty() %}
-                <span translate="no">{% include "partials/user_icon.html" %}{{ row.thread.last_reply_author }}</span>
+                <span class="row-meta__last" translate="no">{% include "partials/user_icon.html" %}{{ row.thread.last_reply_author }}</span>
                 {%- endif %}
-                <span title="{{ row.time_title }}">{{ row.time }}</span>
+                <span class="row-meta__time" title="{{ row.time_title }}">{{ row.time }}</span>
               </p>
               {%- if !row.thumbs.is_empty() %}
               <div class="row-thumbs">{% for thumb in row.thumbs %}<img class="row-thumb" src="{{ crate::site::href(thumb.url) }}" alt="" width="{{ thumb.width }}" height="{{ thumb.height }}" loading="lazy" decoding="async">{% endfor %}</div>
               {%- endif %}
             </div>
+            {#- Optional board badge, hidden unless a skin shows it; it stands in for .row-meta__board (docs/skins.md, "Optional elements"). #}
+            <span class="row-end" data-optional><a class="board-chip" href="{{ crate::site::base() }}/{{ row.forum_slug }}">{{ row.forum_name }}</a></span>
           </li>
           {%- else %}
           <li class="empty">{{ p.t.home_empty() }}</li>

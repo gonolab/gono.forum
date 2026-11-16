@@ -17,6 +17,8 @@ common-hot-empty =
     }
 common-latest-threads = Latest threads
 common-pinned = Pinned
+# Screen reader text of the lock icon on a locked thread in a list; the icon is hidden unless a skin shows it.
+common-locked = Locked
 # Between the items of an inline list of names.
 common-list-separator = {", "}
 # Between a label and what it introduces.

@@ -8,12 +8,19 @@ site-verified-webmaster = Webmaster
 site-verified-channel = Channel owner
 site-forums-lede = Every forum you can see, grouped under its parent forum.{" "}
 site-forums-statistics = Thread counts and today's posts count only content public to everyone; a parent forum includes its subforums. The figures refresh every so often.
-site-forums-threads =
+# The word of a forum's thread count in the forum directory; $count only picks the plural form.
+site-forums-threads-label =
     { $count ->
-        [one] { $count } thread
-       *[other] { $count } threads
+        [one] thread
+       *[other] threads
     }
-site-forums-today = Today { $count }
+# A forum's thread count: $value_html is the number and $label_html the word (site-forums-threads-label), each in its
+# own element so that skins can style them apart. Put them in your language's order.
+site-forums-threads = { $value_html } { $label_html }
+# The word of a forum's posts today in the forum directory.
+site-forums-today-label = Today
+# A forum's posts today: $value_html is the number and $label_html the word (site-forums-today-label), as above.
+site-forums-today = { $label_html } { $value_html }
 site-forums-children = Subforums of { $forum }
 site-forums-empty = No forums yet.
 site-forums-description = Every forum and subforum.

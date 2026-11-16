@@ -388,8 +388,41 @@ impl Markup {
         ))
     }
 
+    /// `text` escaped in a `<span>` with one class, for the number and word slots of a count (`stat__value` and
+    /// `stat__label`, docs/skins.md, "Counts"). `class` is a fixed string from code and is written as it is.
+    pub fn span(class: &str, text: impl fmt::Display) -> Self {
+        Self(format!(
+            "<span class=\"{class}\">{}</span>",
+            Self::text(&text.to_string())
+        ))
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+/// A count a template passes to a count slot (`PageMeta::stat_value`), by value or by reference: askama passes
+/// either, depending on the expression.
+pub trait Count {
+    fn count(&self) -> i64;
+}
+
+impl Count for i64 {
+    fn count(&self) -> i64 {
+        *self
+    }
+}
+
+impl Count for usize {
+    fn count(&self) -> i64 {
+        i64::try_from(*self).unwrap_or(i64::MAX)
+    }
+}
+
+impl<T: Count + ?Sized> Count for &T {
+    fn count(&self) -> i64 {
+        (**self).count()
     }
 }
 

@@ -2342,6 +2342,31 @@ impl Thread {
     pub fn category_label(&self) -> &'static str {
         category_label(self.category)
     }
+    /// The category code of a list row's `data-kind` (docs/skins.md, "List rows"): `bounty`, `redpacket`,
+    /// `lottery`, `poll` or `news`; empty for an ordinary thread, which has no `data-kind`.
+    pub fn kind_code(&self) -> &'static str {
+        match self.category {
+            1 => "bounty",
+            2 => "redpacket",
+            3 => "lottery",
+            4 => "poll",
+            5 => "news",
+            _ => "",
+        }
+    }
+    /// The states of a list row's `data-state` (docs/skins.md, "List rows"): `pinned`, `featured` and `closed`,
+    /// space-separated in that order; empty when none applies, and the row then has no `data-state`.
+    pub fn state_tokens(&self) -> String {
+        [
+            (self.pinned, "pinned"),
+            (self.featured, "featured"),
+            (self.closed, "closed"),
+        ]
+        .into_iter()
+        .filter_map(|(on, token)| on.then_some(token))
+        .collect::<Vec<_>>()
+        .join(" ")
+    }
 }
 
 /// The site-wide content version: floor and render cache keys carry it (plus the thread version); it is only

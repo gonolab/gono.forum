@@ -5,6 +5,7 @@ common-reply-count = { $count } 条回复
 common-hot-empty = 近 { $days } 天暂无新回复
 common-latest-threads = 最新主题
 common-pinned = 置顶
+common-locked = 已锁定
 common-list-separator = 、
 common-colon = ：
 common-back-home = 返回首页

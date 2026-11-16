@@ -1,4 +1,4 @@
-/* Shared components: fields, field, checkline, option-group, form-note, form-feedback, form-actions, control, button, panel, narrow-page, intro, callout, provider-list, auth-fallback, tabs, list-toolbar, section-tabs, rows and row-*, tag, board-chip, meta-glyph, unread-dot, empty, layout, mini-list, site-stats, newcomers, friend-links, person, person-card, tally. */
+/* Shared components: fields, field, checkline, option-group, form-note, form-feedback, form-actions, control, button, panel, narrow-page, intro, callout, provider-list, auth-fallback, tabs, list-toolbar, section-tabs, rows and row-* (row-labels, row-icon), tag, board-chip, meta-glyph, unread-dot, empty, layout, mini-list, site-stats, newcomers, friend-links, person, person-card, tally. */
 
 /* ------------------------------------------------------------------ */
 /* Form layout                                                         */
@@ -887,6 +887,19 @@ select.control:dir(rtl) {
 
 .row-headline strong {
   font-weight: 600;
+}
+
+/* The row's tags and optional state icons as one group for skins (docs/skins.md, "List rows"); it takes no box of its
+   own, so the tags stay items of the headline's flex row. */
+.row-labels {
+  display: contents;
+}
+
+/* Optional pin and lock icons (partials/pinned_icon.html, locked_icon.html), hidden unless a skin shows them. */
+.row-icon {
+  display: inline-flex;
+  align-self: center;
+  color: var(--text-muted);
 }
 
 .row-title {

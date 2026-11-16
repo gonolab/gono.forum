@@ -1,6 +1,11 @@
 [hidden] {
   display: none !important;
 }
+/* Optional elements the core templates output for skins (docs/skins.md, "Optional elements"): hidden in the default
+   look. Unlike [hidden], a later rule may show them. */
+[data-optional] {
+  display: none;
+}
 .sr-only {
   position: absolute;
   width: 1px;
