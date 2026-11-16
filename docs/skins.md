@@ -245,7 +245,7 @@ there.
 
 "Preview" shows a skin to the administrator who started it, on every page, without changing what anyone else sees.
 The choice lives in a cookie sealed with the cookie key (`gonof_skin_preview`, eight hours) and is applied only while
-the signed-in member is that administrator. A bar at the top of every page offers **Publish** (make it the site's
+the signed-in member is that administrator; publishing, exiting and signing out clear it. A bar at the top of every page offers **Publish** (make it the site's
 skin, recording `skin.select`) and **Exit preview**. Pages of signed-in members are never stored by shared caches
 (`private, no-store`) and the anonymous caches are not used for them; the stylesheet of a skin no page uses is served
 `private`.

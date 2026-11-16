@@ -1238,6 +1238,10 @@ async fn logout(
     set_cookie(&mut response, state.viewer.secure, true, "", 0);
     set_cookie(&mut response, state.viewer.secure, false, "", 0);
     super::appeals::clear_cookie(&mut response, &state);
+    // A skin preview belongs to the session that started it (docs/skins.md, "Preview").
+    if !state.viewer.skin_preview.is_empty() {
+        auxiliary_set_cookie(&mut response, super::skins::PREVIEW_COOKIE, "", 0);
+    }
     response
 }
 

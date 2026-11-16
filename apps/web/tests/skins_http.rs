@@ -874,7 +874,7 @@ async fn a_preview_is_only_seen_by_the_administrator_who_started_it() {
         .post_with(
             "/manage/skins/preview/exit",
             &site.admin,
-            &[cookie.clone()],
+            std::slice::from_ref(&cookie),
             &[],
         )
         .await;
@@ -884,8 +884,23 @@ async fn a_preview_is_only_seen_by_the_administrator_who_started_it() {
             .any(|c| c.starts_with("gonof_skin_preview=;") && c.contains("Max-Age=0"))
     );
     let published = site
-        .post_with("/manage/skins/preview/publish", &site.admin, &[cookie], &[])
+        .post_with(
+            "/manage/skins/preview/publish",
+            &site.admin,
+            std::slice::from_ref(&cookie),
+            &[],
+        )
         .await;
+    // Logging out ends a preview too.
+    let logout = site.post_with("/logout", &site.admin, &[cookie], &[]).await;
+    assert!(
+        logout
+            .cookies
+            .iter()
+            .any(|c| c.starts_with("gonof_skin_preview=;") && c.contains("Max-Age=0")),
+        "{:?}",
+        logout.cookies
+    );
     assert_eq!(
         published.location, "/manage/skins?saved=selected",
         "{}",
