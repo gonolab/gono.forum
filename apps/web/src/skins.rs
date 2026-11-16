@@ -22,6 +22,7 @@ pub mod catalog;
 pub mod color;
 pub mod manifest;
 pub mod palette;
+pub mod seed;
 pub mod selection;
 pub mod store;
 
@@ -103,6 +104,12 @@ pub struct Skin {
     pub content_hash: String,
     /// Warnings of the current checks (errors make a skin unusable).
     pub warnings: Vec<Finding>,
+    /// The palettes merged onto the base scheme, the default first, and the skin's own stylesheet: what a colored
+    /// variant is compiled from.
+    merged: Vec<palette::Merged>,
+    css: String,
+    /// The seed colors of a colored variant ([`Skin::colored`]); `None` for the skin as written.
+    pub seeds: Option<seed::Seeds>,
 }
 
 impl Skin {
@@ -123,9 +130,70 @@ impl Skin {
         }
     }
 
-    /// The stylesheet address without the deployment prefix.
+    /// The stylesheet address without the deployment prefix; a colored variant names its seeds in `c=`.
     pub fn href(&self) -> String {
-        format!("/skin/{}.css?v={}", self.manifest.id, self.version_hash)
+        match self.seeds {
+            None => format!("/skin/{}.css?v={}", self.manifest.id, self.version_hash),
+            Some(seeds) => format!(
+                "/skin/{}.css?c={}&v={}",
+                self.manifest.id,
+                seeds.code(),
+                self.version_hash
+            ),
+        }
+    }
+
+    /// The merged palette `name` (the default when the skin has no such palette), as the page paints it.
+    pub fn merged(&self, name: &str) -> &palette::Merged {
+        self.merged
+            .iter()
+            .find(|merged| merged.name == name)
+            .unwrap_or(&self.merged[0])
+    }
+
+    /// This skin with seed colors (docs/styles.md, "Seed colors"): every palette derived from the seeds and the
+    /// stylesheet compiled again, with its own hash. The skin's checks have passed already, and the derivation keeps
+    /// every contrast pair, so only the footer colors are taken again.
+    pub fn colored(&self, seeds: seed::Seeds) -> Self {
+        let derived: Vec<palette::Merged> = self
+            .merged
+            .iter()
+            .map(|merged| seed::derive(merged, seeds))
+            .collect();
+        let palettes: Vec<(palette::Merged, [palette::FooterColors; 2])> = derived
+            .iter()
+            .zip(&self.merged)
+            .map(|(derived, merged)| {
+                // The derivation raises the footer pairs like every other; should one still fail, the skin's own
+                // palette stands in for that palette rather than an illegible footer.
+                match palette::footer(derived, "") {
+                    Ok(colors) => (derived.clone(), colors),
+                    Err(_) => (
+                        merged.clone(),
+                        palette::footer(merged, "").expect("a usable skin passes the footer check"),
+                    ),
+                }
+            })
+            .collect();
+        let stylesheet = compile(
+            &self.manifest,
+            self.source,
+            &palettes,
+            &self.css,
+            Some(seeds),
+        );
+        Self {
+            manifest: self.manifest.clone(),
+            source: self.source,
+            palettes: self.palettes.clone(),
+            version_hash: hex(&Sha256::digest(stylesheet.as_bytes()))[..12].to_owned(),
+            stylesheet: stylesheet.into(),
+            content_hash: self.content_hash.clone(),
+            warnings: self.warnings.clone(),
+            merged: palettes.into_iter().map(|(merged, _)| merged).collect(),
+            css: self.css.clone(),
+            seeds: Some(seeds),
+        }
     }
 }
 
@@ -530,7 +598,7 @@ pub fn check(draft: &Draft, source: Source, directory: Option<&str>) -> Checked 
     {
         return Checked::failed(findings);
     }
-    let stylesheet = compile(draft, source, &merged);
+    let stylesheet = compile(&draft.manifest, source, &merged, &draft.css, None);
     let version_hash = hex(&Sha256::digest(stylesheet.as_bytes()))[..12].to_owned();
     let warnings = findings
         .iter()
@@ -546,21 +614,33 @@ pub fn check(draft: &Draft, source: Source, directory: Option<&str>) -> Checked 
             version_hash,
             content_hash: content_hash(draft),
             warnings,
+            merged: merged.into_iter().map(|(merged, _)| merged).collect(),
+            css: draft.css.clone(),
+            seeds: None,
         })),
         findings,
     }
 }
 
-/// The stylesheet of a checked skin. The guard rules come first, so nothing in the skin's own text can reach them;
-/// the order of the layers themselves is declared once at the top of `forum.css`.
+/// The stylesheet of a checked skin, or of its variant with seed colors. The guard rules come first, so nothing in
+/// the skin's own text can reach them; the order of the layers themselves is declared once at the top of
+/// `forum.css`.
 fn compile(
-    draft: &Draft,
+    manifest: &Manifest,
     source: Source,
     merged: &[(palette::Merged, [palette::FooterColors; 2])],
+    css: &str,
+    seeds: Option<seed::Seeds>,
 ) -> String {
-    let manifest = &draft.manifest;
+    let colors = seeds.map_or(String::new(), |seeds| {
+        format!(
+            " with the seed colors {} and {}",
+            seed::hex(seeds.primary),
+            seed::hex(seeds.secondary)
+        )
+    });
     let mut out = format!(
-        "/* Skin \"{}\" {} ({}), generated by Gono Forum; see docs/skins.md. */\n",
+        "/* Skin \"{}\" {} ({}){colors}, generated by Gono Forum; see docs/skins.md. */\n",
         manifest.id,
         manifest.version,
         source.as_str()
@@ -576,9 +656,9 @@ fn compile(
     if let Some(height) = &manifest.frame.masthead_height {
         out.push_str(&format!(":root {{\n  --masthead-h: {height};\n}}\n"));
     }
-    if !draft.css.trim().is_empty() {
-        out.push_str(&draft.css);
-        if !draft.css.ends_with('\n') {
+    if !css.trim().is_empty() {
+        out.push_str(css);
+        if !css.ends_with('\n') {
             out.push('\n');
         }
     }
@@ -689,7 +769,13 @@ pub static DEFAULT_SKIN: LazyLock<Arc<Skin>> = LazyLock::new(|| {
     );
     let colors = palette::footer(&merged, "palettes/default.json").ok();
     let stylesheet = match colors {
-        Some(colors) => compile(&draft, Source::Builtin, &[(merged, colors)]),
+        Some(colors) => compile(
+            &draft.manifest,
+            Source::Builtin,
+            &[(merged.clone(), colors)],
+            "",
+            None,
+        ),
         None => {
             let mut out = String::from("@layer skin {\n");
             palette::css(&merged, true, &mut out);
@@ -705,6 +791,9 @@ pub static DEFAULT_SKIN: LazyLock<Arc<Skin>> = LazyLock::new(|| {
         palettes: vec!["default".into()],
         stylesheet: stylesheet.into(),
         warnings: Vec::new(),
+        merged: vec![merged],
+        css: String::new(),
+        seeds: None,
     })
 });
 

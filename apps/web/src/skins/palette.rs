@@ -33,7 +33,7 @@ impl Tokens {
     }
 
     /// Sets a token, keeping the position of an existing one.
-    fn set(&mut self, name: &str, value: &str) {
+    pub fn set(&mut self, name: &str, value: &str) {
         match self.0.iter_mut().find(|(key, _)| key == name) {
             Some(slot) => slot.1 = value.to_owned(),
             None => self.0.push((name.to_owned(), value.to_owned())),
@@ -368,7 +368,7 @@ fn references(tokens: &Tokens, mode: &str, file: &str) -> Vec<Finding> {
 
 /// A token's value with `var()` references followed, as a color; `None` when it is not a color this checker
 /// understands (a fallback in `var()` is not followed).
-fn resolve(tokens: &Tokens, name: &str) -> Option<Rgba> {
+pub(crate) fn resolve(tokens: &Tokens, name: &str) -> Option<Rgba> {
     let mut value = tokens.get(name)?;
     for _ in 0..32 {
         let trimmed = value.trim();
@@ -385,7 +385,7 @@ fn resolve(tokens: &Tokens, name: &str) -> Option<Rgba> {
 
 /// An opaque ground: the token laid over the page ground when it is translucent, and the page ground over white or
 /// black.
-fn ground(tokens: &Tokens, name: &str, dark: bool) -> Option<Rgba> {
+pub(crate) fn ground(tokens: &Tokens, name: &str, dark: bool) -> Option<Rgba> {
     let canvas = if dark {
         Rgba {
             r: 0.0,
@@ -422,7 +422,7 @@ const GROUNDS: [&str; 6] = [
     "--secondary-bg",
 ];
 
-fn pairs() -> Vec<(&'static str, &'static str, f64)> {
+pub(crate) fn pairs() -> Vec<(&'static str, &'static str, f64)> {
     let mut pairs = Vec::new();
     for foreground in TEXT {
         for background in GROUNDS {

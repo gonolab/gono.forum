@@ -56,6 +56,126 @@ impl Rgba {
     }
 }
 
+/// A color in OKLCH: lightness 0 to 1, chroma from 0 (about 0.37 at most inside sRGB), hue in degrees.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Oklch {
+    pub l: f64,
+    pub c: f64,
+    pub h: f64,
+}
+
+fn to_linear(c: f64) -> f64 {
+    let c = c.clamp(0.0, 1.0);
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+fn from_linear(c: f64) -> f64 {
+    let c = c.clamp(0.0, 1.0);
+    if c <= 0.003_130_8 {
+        12.92 * c
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    }
+}
+
+/// Linear sRGB of an OKLab color, unclamped (components outside 0..1 are out of gamut).
+fn oklab_linear(l: f64, a: f64, b: f64) -> [f64; 3] {
+    let l_ = (l + 0.396_337_777_4 * a + 0.215_803_757_3 * b).powi(3);
+    let m_ = (l - 0.105_561_345_8 * a - 0.063_854_172_8 * b).powi(3);
+    let s_ = (l - 0.089_484_177_5 * a - 1.291_485_548 * b).powi(3);
+    [
+        4.076_741_662_1 * l_ - 3.307_711_591_3 * m_ + 0.230_969_929_2 * s_,
+        -1.268_438_004_6 * l_ + 2.609_757_401_1 * m_ - 0.341_319_396_5 * s_,
+        -0.004_196_086_3 * l_ - 0.703_418_614_7 * m_ + 1.707_614_701 * s_,
+    ]
+}
+
+impl Rgba {
+    /// This color (alpha ignored) in OKLCH.
+    pub fn oklch(self) -> Oklch {
+        let (r, g, b) = (to_linear(self.r), to_linear(self.g), to_linear(self.b));
+        let l = (0.412_221_470_8 * r + 0.536_332_536_3 * g + 0.051_445_992_9 * b).cbrt();
+        let m = (0.211_903_498_2 * r + 0.680_699_545_1 * g + 0.107_396_956_6 * b).cbrt();
+        let s = (0.088_302_461_9 * r + 0.281_718_837_6 * g + 0.629_978_700_5 * b).cbrt();
+        let lightness = 0.210_454_255_3 * l + 0.793_617_785 * m - 0.004_072_046_8 * s;
+        let a = 1.977_998_495_1 * l - 2.428_592_205 * m + 0.450_593_709_9 * s;
+        let b = 0.025_904_037_1 * l + 0.782_771_766_2 * m - 0.808_675_766 * s;
+        Oklch {
+            l: lightness,
+            c: (a * a + b * b).sqrt(),
+            h: b.atan2(a).to_degrees().rem_euclid(360.0),
+        }
+    }
+
+    /// The color rounded to whole 8-bit channels, as `#rrggbb` writes it.
+    pub fn rounded(self) -> Self {
+        let byte = |c: f64| (c.clamp(0.0, 1.0) * 255.0).round() / 255.0;
+        Self {
+            r: byte(self.r),
+            g: byte(self.g),
+            b: byte(self.b),
+            a: self.a,
+        }
+    }
+
+    /// The same color with another alpha.
+    pub fn with_alpha(self, a: f64) -> Self {
+        Self { a, ..self }
+    }
+
+    /// `#rrggbb`, or `rgb(r g b / n%)` when the color is translucent, rounded the same way.
+    pub fn css(self) -> String {
+        if self.opaque() {
+            return self.hex();
+        }
+        let byte = |c: f64| (c.clamp(0.0, 1.0) * 255.0).round() as u8;
+        format!(
+            "rgb({} {} {} / {}%)",
+            byte(self.r),
+            byte(self.g),
+            byte(self.b),
+            (self.a.clamp(0.0, 1.0) * 100.0).round()
+        )
+    }
+}
+
+impl Oklch {
+    /// The sRGB color with this lightness and hue and the largest chroma up to `self.c` that sRGB can show, opaque.
+    pub fn rgb(self) -> Rgba {
+        let l = self.l.clamp(0.0, 1.0);
+        let (sin, cos) = self.h.to_radians().sin_cos();
+        let inside = |c: f64| {
+            oklab_linear(l, c * cos, c * sin)
+                .iter()
+                .all(|channel| (-1e-6..=1.0 + 1e-6).contains(channel))
+        };
+        let mut c = self.c.max(0.0);
+        if !inside(c) {
+            let (mut low, mut high) = (0.0, c);
+            for _ in 0..24 {
+                let mid = (low + high) / 2.0;
+                if inside(mid) {
+                    low = mid;
+                } else {
+                    high = mid;
+                }
+            }
+            c = low;
+        }
+        let [r, g, b] = oklab_linear(l, c * cos, c * sin);
+        Rgba {
+            r: from_linear(r),
+            g: from_linear(g),
+            b: from_linear(b),
+            a: 1.0,
+        }
+    }
+}
+
 /// The WCAG 2 contrast ratio of two opaque colors, from 1 to 21.
 pub fn contrast(a: Rgba, b: Rgba) -> f64 {
     let (x, y) = (a.luminance(), b.luminance());

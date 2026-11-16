@@ -4,7 +4,7 @@
 //! an id decides it: when that skin fails its checks the id has no usable skin at all, rather than silently falling
 //! to a lower source the administrator may not expect.
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use super::{Checked, Skin, Source};
 use crate::css_check::{Finding, Severity};
@@ -99,7 +99,14 @@ impl Listed {
 #[derive(Debug, Default)]
 pub struct Catalog {
     pub listed: Vec<Listed>,
+    /// Colored variants of usable skins (docs/styles.md, "Seed colors"), compiled on first use and dropped with the
+    /// catalog: the ones pages of the site and previews ask for, at most [`VARIANTS`], the oldest going first.
+    variants: Mutex<Vec<Arc<Skin>>>,
 }
+
+/// How many colored variants a catalog keeps: enough for the site, every domain with its own colors or skin, and a
+/// few previews.
+const VARIANTS: usize = 32;
 
 impl Catalog {
     /// Joins the three sources and marks every skin that a higher source shadows.
@@ -113,7 +120,10 @@ impl Catalog {
                 claimed.push((entry.id.clone(), entry.source));
             }
         }
-        Self { listed }
+        Self {
+            listed,
+            variants: Mutex::default(),
+        }
     }
 
     /// The usable skin with this id.
@@ -122,6 +132,47 @@ impl Catalog {
             .iter()
             .find(|entry| entry.id == id && entry.status == Status::Available)
             .and_then(|entry| entry.skin.as_ref())
+    }
+
+    /// `skin` with the seed colors, or `skin` itself without them. `remember` keeps a newly compiled variant for the
+    /// next request; the stylesheet route passes `false` for colors no page uses, so arbitrary addresses cannot push
+    /// out the variants pages need.
+    pub fn colored(
+        &self,
+        skin: &Arc<Skin>,
+        seeds: Option<super::seed::Seeds>,
+        remember: bool,
+    ) -> Arc<Skin> {
+        let Some(seeds) = seeds else {
+            return skin.clone();
+        };
+        let found = |variants: &[Arc<Skin>]| {
+            variants
+                .iter()
+                .find(|variant| {
+                    variant.id() == skin.id()
+                        && variant.source == skin.source
+                        && variant.seeds == Some(seeds)
+                })
+                .cloned()
+        };
+        if let Some(variant) = found(&self.variants.lock().unwrap_or_else(PoisonError::into_inner))
+        {
+            return variant;
+        }
+        // Compiled outside the lock; two requests racing for the same variant compile it twice and keep one.
+        let variant = Arc::new(skin.colored(seeds));
+        if remember {
+            let mut variants = self.variants.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(existing) = found(&variants) {
+                return existing;
+            }
+            if variants.len() >= VARIANTS {
+                variants.remove(0);
+            }
+            variants.push(variant.clone());
+        }
+        variant
     }
 
     pub fn usable(&self) -> impl Iterator<Item = &Arc<Skin>> {
