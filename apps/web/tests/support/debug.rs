@@ -721,7 +721,7 @@ async fn assert_footer_metrics(db: &Database, cookie: &str) {
 
 /// The text of the footer's legal line.
 fn footer(body: &str) -> &str {
-    body.split_once(r#"<p class="colophon__legal">"#)
+    body.split_once(r#"<p class="colophon__legal" translate="no">"#)
         .and_then(|(_, rest)| rest.split_once("</p>"))
         .map(|(footer, _)| footer)
         .unwrap_or_else(|| panic!("the page has no footer: {body}"))

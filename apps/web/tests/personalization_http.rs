@@ -384,7 +384,8 @@ async fn custom_css_is_validated_saved_served_only_to_its_owner_and_reset() {
         sheet.headers[header::CACHE_CONTROL],
         "private, max-age=31536000, immutable"
     );
-    assert_eq!(sheet.body, css);
+    // Served inside the member cascade layer (docs/skins.md, "Cascade layers").
+    assert_eq!(sheet.body, format!("@layer member {{\n{css}\n}}\n"));
     let old = get(&f.app, "/my/style.css?u=9801&v=0", &mut owner).await;
     assert_eq!(old.headers[header::CACHE_CONTROL], "private, no-store");
     for jar in [&mut other, &mut anonymous] {

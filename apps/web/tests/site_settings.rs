@@ -174,7 +174,7 @@ async fn migrations_seed_every_setting_once_under_settings() {
         robots.ends_with("Disallow: /verify-email"),
         "no trailing newline"
     );
-    // The table holds the scalar settings, the navigation document and the two lock rows, nothing else.
+    // The table holds the scalar settings, the navigation and layout documents and the two lock rows, nothing else.
     let total: i64 = db::query_scalar("SELECT COUNT(*) FROM gonof_common_settings")
         .fetch_one(f.db.executor())
         .await
@@ -182,8 +182,8 @@ async fn migrations_seed_every_setting_once_under_settings() {
     // Policies and mail templates live in gonof_common_localized_text.
     assert_eq!(
         total,
-        134 + 3 + 2,
-        "134 scalars, 3 navigation rows, 2 lock rows"
+        134 + 3 + 3 + 2,
+        "134 scalars, 3 navigation rows, 3 layout rows, 2 lock rows"
     );
     let legacy: i64 = db::query_scalar(
         "SELECT COUNT(*) FROM gonof_common_settings WHERE skey LIKE 'site.%' OR skey LIKE 'credit.%'",
@@ -437,7 +437,7 @@ async fn the_page_frame_still_reads_settings_in_a_single_query() {
     .fetch_one(f.db.executor())
     .await
     .unwrap();
-    assert_eq!(rows, 134 + 3);
+    assert_eq!(rows, 134 + 3 + 3);
     f.cleanup().await.unwrap();
 }
 
