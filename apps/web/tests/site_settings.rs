@@ -60,7 +60,11 @@ async fn rows(db: &Database, low: &str, high: &str) -> Vec<(String, String)> {
 async fn settings_rows(db: &Database) -> Vec<(String, String)> {
     let mut all = Vec::new();
     for (low, high) in [
-        ("settings.", "settings.mail."),
+        // Documents are left out: the domain layout documents, the layout document (docs/skins.md), mail settings, the
+        // navigation document and policies.
+        ("settings.", "settings.domain_layout."),
+        ("settings.domain_layout/", "settings.layout."),
+        ("settings.layout/", "settings.mail."),
         ("settings.mail/", "settings.navigation."),
         ("settings.navigation/", "settings.policy."),
         ("settings.policy/", "settings/"),
@@ -382,13 +386,16 @@ async fn saving_one_page_leaves_every_other_row_byte_identical() {
 async fn the_page_frame_still_reads_settings_in_a_single_query() {
     let f = fixture().await;
     let profile = Arc::new(RequestProfile::new());
-    let (settings, document) = trace::scope(profile.clone(), runtime::read_with_navigation(&f.db))
+    let rows = trace::scope(profile.clone(), runtime::read_with_navigation(&f.db))
         .await
         .unwrap();
-    assert_eq!(settings.site.name, "Sample Community");
-    assert!(document.body.is_empty() && document.updated_at == 0);
-    // The source read runs at least once per cache period: 130 scalar keys plus the three navigation rows, written as
-    // one statement with a primary key IN, so the round trip count does not grow.
+    assert_eq!(rows.settings.site.name, "Sample Community");
+    assert!(rows.navigation.body.is_empty() && rows.navigation.updated_at == 0);
+    // No skin was chosen: the layout document is empty and no domain overrides it.
+    assert!(rows.layout.is_none() && rows.domain_layouts.is_empty());
+    // The source read runs at least once per cache period: the scalar keys plus the navigation and layout documents
+    // (docs/skins.md, "Choosing a skin"), written as one statement with a primary key IN and the range of the domain
+    // layout documents, so the round trip count does not grow.
     let queries: Vec<_> = profile
         .snapshot()
         .into_iter()
@@ -407,6 +414,11 @@ async fn the_page_frame_still_reads_settings_in_a_single_query() {
     assert!(queries[0].sql.contains(
         "'settings.navigation.body','settings.navigation.title','settings.navigation.updated_at'"
     ));
+    assert!(
+        queries[0].sql.contains(
+            "'settings.layout.body','settings.layout.title','settings.layout.updated_at'"
+        )
+    );
     // Document and template bodies are not read with the page frame: the IN list has no settings.mail. or
     // settings.policy..
     assert!(!queries[0].sql.contains("'settings.mail."));
@@ -415,7 +427,7 @@ async fn the_page_frame_still_reads_settings_in_a_single_query() {
     if f.db.backend() == db::Backend::MySql {
         assert_eq!(
             explain(&f.db, &queries[0].sql, &[]).await,
-            ("range".into(), "PRIMARY".into(), 134 + 3)
+            ("range".into(), "PRIMARY".into(), 134 + 3 + 3)
         );
     }
     let rows: i64 = db::query_scalar(&format!(
