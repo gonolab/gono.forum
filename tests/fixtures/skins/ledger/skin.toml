@@ -1,0 +1,17 @@
+# A test fixture for imported and instance skins (docs/skins.md); see skin.css.
+contract = 1
+id = "ledger"
+version = "1.0.0"
+name = { en = "Ledger" }
+description = { en = "Flat surfaces separated by rules (test fixture)" }
+author = "Gono Forum tests"
+license = "MIT OR Apache-2.0"
+
+[palettes]
+default = "main"
+
+[frame]
+nav = "top"
+header_boards = true
+masthead_height = "52px"
+avatar_shape = "circle"
