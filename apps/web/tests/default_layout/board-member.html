@@ -1,0 +1,88 @@
+<body hx-boost="true" hx-ext="head-support" hx-history="false">
+<a class="skip-link" href="#main">Skip to content</a>
+
+
+----
+<aside class="layout__aside" aria-label="Community overview">
+<div class="panel panel--aside person-card">
+  <div class="person">
+    <a class="person__avatar" href="/my" aria-label="My center"><span class="avatar avatar--initials avatar-5" aria-hidden="true" translate="no">so</span></a>
+    <div class="person__ident">
+      <a class="person__name" href="/my" translate="no">southwind</a>
+      <p class="person__role"><span>Member</span><a href="/verify-email">Email not verified</a></p>
+    </div>
+    <nav class="person__shortcuts" aria-label="Shortcuts">
+      <a class="person__shortcut" href="/my/reports" title="My cases" aria-label="My cases" hx-boost="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 21V4"/><path d="M5 4h12l-2.5 4.5L17 13H5"/></svg></a>
+      <a class="person__shortcut" href="/my/profile" title="Settings" aria-label="Settings" hx-boost="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></a>
+    </nav>
+  </div>
+  <dl class="tally">
+    <div class="tally__item"><dt class="tally__label">Threads</dt><dd class="tally__value"><a href="/my/threads">4</a></dd></div>
+    <div class="tally__item"><dt class="tally__label">Replies</dt><dd class="tally__value"><a href="/my/posts">33</a></dd></div>
+    <div class="tally__item"><dt class="tally__label">Bookmarks</dt><dd class="tally__value"><a href="/my/favorites">0</a></dd></div>
+    <div class="tally__item"><dt class="tally__label">Coins</dt><dd class="tally__value"><a href="/my/credits" hx-boost="false">0</a></dd></div>
+    <div class="tally__item"><dt class="tally__label">Messages</dt><dd class="tally__value"><a href="/my/messages">0</a></dd></div>
+    <div class="tally__item"><dt class="tally__label">Notifications</dt><dd class="tally__value"><a href="/my/notifications">0</a></dd></div>
+  </dl>
+  <div class="person-card__actions">
+    <a class="button" data-compose-entry href="/new/showcase" hx-boost="false">New thread</a>
+    <a class="button button--secondary" href="/my/credits" hx-boost="false">My Coins</a>
+  </div>
+</div>
+<section class="panel panel--aside">
+  <h2 class="panel__title">Popular threads</h2>
+  <ol class="mini-list">
+    <li><a href="/thread-103"><span class="mini-list__title">I built a lightweight RSS reader: notes on how development went</span></a><span class="mini-list__count" aria-label="78 replies">78</span></li>
+  </ol>
+</section>
+<section class="panel panel--aside">
+  <h2 class="panel__title">Latest threads</h2>
+  <ol class="mini-list">
+    <li><a href="/thread-122"><span class="mini-list__title">A few notes on validating model output</span></a></li>
+    <li><a href="/thread-121"><span class="mini-list__title">Turned my old photos into a family album</span></a></li>
+    <li><a href="/thread-118"><span class="mini-list__title">Building a workflow around a real need</span></a></li>
+    <li><a href="/thread-116"><span class="mini-list__title">I wrote a command-line expense tracker in Rust</span></a></li>
+    <li><a href="/thread-113"><span class="mini-list__title">Small models can do well too: a prompt experiment</span></a></li>
+    <li><a href="/thread-112"><span class="mini-list__title">My first time sending a PR to an open-source project</span></a></li>
+    <li><a href="/thread-108"><span class="mini-list__title">Open-sourcing my little tool that turns Markdown into nice web pages</span></a></li>
+    <li><a href="/thread-107"><span class="mini-list__title">Organizing notes with a local model: the whole pipeline finally works</span></a></li>
+    <li><a href="/thread-104"><span class="mini-list__title">How do you organize context for an agent project?</span></a></li>
+    <li><a href="/thread-103"><span class="mini-list__title">I built a lightweight RSS reader: notes on how development went</span></a></li>
+  </ol>
+</section>
+    </aside>
+----
+<footer class="colophon">
+  <div class="colophon__inner container">
+    <nav class="colophon__nav" aria-label="About this site">
+      <ul class="colophon__links">
+        <li><a href="/rules">Community rules</a></li>
+        <li><a href="/terms">Terms of use</a></li>
+        <li><a href="/privacy">Privacy</a></li>
+        <li><a href="/contact">Contact</a></li>
+        <li><a href="/feeds">Feeds</a></li>
+        <li><a href="/ranks">Leaderboard</a></li>
+        <li><a href="/credits/rules">Points</a></li>
+        <li><a href="/verified">Verified members</a></li>
+        <li><a href="/links">Links</a></li>
+      </ul>
+    </nav>
+    <p class="colophon__legal" translate="no">Built on <a class="colophon__brand" href="https://www.gono.forum" target="_blank" rel="noopener noreferrer">Gono Forum</a></p>
+  </div>
+</footer>
+----
+<div class="layout__main listing__main">
+      <header class="panel board-head">
+        <div class="board-head__top">
+          <h1 class="board-head__title">Showcase</h1>
+        </div>
+        <div class="board-head__actions"><form class="inline-form" method="post" action="/api/forums/2/filter" hx-post="/api/forums/2/filter" hx-boost="false" hx-disabled-elt="find button"><input type="hidden" name="_csrf" value="TOKEN"><input type="hidden" name="request_key" value="TOKEN"><input type="hidden" name="mode" value="hide"><input type="hidden" name="location" value="/showcase"><button type="submit" class="icon-button" data-forum-filter="hide">Hide</button></form><form class="inline-form" method="post" action="/api/forums/2/filter" hx-post="/api/forums/2/filter" hx-boost="false" hx-disabled-elt="find button"><input type="hidden" name="_csrf" value="TOKEN"><input type="hidden" name="request_key" value="TOKEN"><input type="hidden" name="mode" value="block"><input type="hidden" name="location" value="/showcase"><button type="submit" class="icon-button" data-forum-filter="block">Block</button></form>
+        </div>
+        <p class="board-head__desc">Projects, open source, gadgets and write-ups</p>
+        <details class="board-head__guide" data-forum-guidance>
+          <summary>Posting guidelines</summary>
+          <p class="board-head__guide-body">Share what you built: open-source releases, launches and tinkering notes.</p>
+        </details>
+      </header>
+
+      
