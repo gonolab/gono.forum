@@ -70,6 +70,35 @@ impl PageHead {
     }
 }
 
+/// What page 1 of the home page opens with (docs/skins.md, "Board directory home"): the thread list alone, or the
+/// board directory above it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HomeView {
+    #[default]
+    Threads,
+    Boards,
+}
+
+impl HomeView {
+    pub const ALL: [Self; 2] = [Self::Threads, Self::Boards];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Threads => "threads",
+            Self::Boards => "boards",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|view| view.name() == name)
+    }
+
+    fn is_threads(&self) -> bool {
+        *self == Self::Threads
+    }
+}
+
 /// Who decides the avatar shape (docs/skins.md, "Frame"): a fixed shape, or the site default and each member's
 /// choice.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,6 +136,10 @@ pub struct Frame {
     /// Left out of the stored form while it is the default, so manifests written before it keep their bytes.
     #[serde(default, skip_serializing_if = "PageHead::is_column")]
     pub page_head: PageHead,
+    /// The skin's default for the home page; a layout document may choose otherwise. Left out while it is the
+    /// default.
+    #[serde(default, skip_serializing_if = "HomeView::is_threads")]
+    pub home: HomeView,
 }
 
 impl Frame {
@@ -137,6 +170,7 @@ impl Default for Frame {
             masthead_height: None,
             avatar_shape: AvatarShape::Member,
             page_head: PageHead::Column,
+            home: HomeView::Threads,
         }
     }
 }
@@ -502,6 +536,27 @@ avatar_shape = "circle"
         assert!(matches!(
             &problems(&format!("{base}[frame]\nheader_boards = false\n"))[..],
             [Problem::ManifestValue { field }] if field == "frame.header_boards"
+        ));
+        // The page head and the home page keep the stored form of manifests that leave them at their defaults.
+        let framed = Manifest::from_toml(&format!(
+            "{base}[frame]\npage_head = \"banner\"\nhome = \"boards\"\n"
+        ))
+        .unwrap();
+        assert_eq!(framed.check(Trust::External), []);
+        assert!(
+            framed
+                .to_json()
+                .contains(r#""page_head":"banner","home":"boards""#)
+        );
+        assert!(
+            !Manifest::from_toml(base)
+                .unwrap()
+                .to_json()
+                .contains("home")
+        );
+        assert!(matches!(
+            problems(&format!("{base}[frame]\nhome = \"gallery\"\n"))[..],
+            [Problem::ManifestSyntax { .. }]
         ));
         assert!(matches!(
             problems(&format!("{base}[behaviors]\nenabled = [\"timeline\"]\n"))[..],

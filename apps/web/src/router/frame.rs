@@ -76,6 +76,9 @@ pub(super) struct SiteFrame {
     pub site_places: Option<crate::layout::Places>,
     /// The places this domain's override document sets, or its draft while previewing.
     pub domain_places: Option<crate::layout::Places>,
+    /// What page 1 of the home page opens with (docs/skins.md, "Board directory home"): the previewed draft's choice,
+    /// the domain's, the site's, then the skin's.
+    pub home: crate::skins::manifest::HomeView,
 }
 
 /// Scope of multi-domain sites: forums readable by this visitor within the scope.
@@ -114,6 +117,7 @@ impl Default for SiteFrame {
             board_style: Arc::default(),
             site_places: None,
             domain_places: None,
+            home: crate::skins::manifest::HomeView::Threads,
         }
     }
 }
@@ -303,21 +307,36 @@ impl SiteFrame {
         // A previewed draft replaces the places it is the draft of: the site's on every domain, a domain's on that
         // domain only (elsewhere the preview bar still says a draft is previewed). A draft that cannot be read shows
         // the published places and is logged.
+        let domain_layout = domain_id.and_then(|id| {
+            block
+                .domain_layouts
+                .iter()
+                .find(|(domain, _)| *domain == id)
+                .map(|(_, layout)| layout)
+        });
+        let mut site_home = block.layout.as_ref().and_then(|layout| layout.home);
+        let mut domain_home = domain_layout.and_then(|layout| layout.home);
         let preview_layout = draft.is_some();
         if let Some(draft) = draft
             && (draft.domain.is_none() || draft.domain == domain_id)
         {
             match crate::skins::selection::read_draft(&state.db, draft.domain).await {
-                Ok(places) => {
-                    let places = places.filter(|places| !places.is_empty());
+                Ok(read) => {
+                    let home = read.as_ref().and_then(|read| read.home);
+                    let places = read
+                        .map(|read| read.places)
+                        .filter(|places| !places.is_empty());
                     match draft.domain {
-                        None => site_places = places,
-                        Some(_) => domain_places = places,
+                        None => (site_places, site_home) = (places, home),
+                        Some(_) => (domain_places, domain_home) = (places, home),
                     }
                 }
                 Err(error) => tracing::error!(%error, "a previewed layout draft could not be read"),
             }
         }
+        let home = domain_home
+            .or(site_home)
+            .unwrap_or(skin.manifest.frame.home);
         Ok(Self {
             loaded: true,
             settings,
@@ -340,6 +359,7 @@ impl SiteFrame {
             board_style,
             site_places,
             domain_places,
+            home,
         })
     }
 

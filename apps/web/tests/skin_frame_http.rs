@@ -236,3 +236,33 @@ async fn a_banner_page_head_opens_the_main_region() {
     assert!(!board.body.contains("<div class=\"container\">"));
     site.services.cleanup().await.unwrap();
 }
+
+#[tokio::test]
+async fn a_skin_may_open_the_home_page_with_the_board_directory() {
+    let site = Site::new(true).await;
+    use_skin(&site, "directory", "[frame]\nhome = \"boards\"\n").await;
+    let home = site.get("/", None).await;
+    assert!(home.body.contains("data-board-directory"));
+    // Its rows carry data-board, so the board variables reach them.
+    assert!(
+        home.body
+            .contains("<li class=\"board-dir__item\" data-board=\"")
+    );
+    // A site's own choice wins over the skin's.
+    test_support::set_setting(
+        site.db(),
+        "settings.layout.body",
+        &json!({"v": 1, "skin": "directory", "home": "threads"}).to_string(),
+    )
+    .await
+    .unwrap();
+    site.changed();
+    assert!(
+        !site
+            .get("/", None)
+            .await
+            .body
+            .contains("data-board-directory")
+    );
+    site.services.cleanup().await.unwrap();
+}

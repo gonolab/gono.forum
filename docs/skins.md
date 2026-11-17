@@ -44,6 +44,7 @@ header_boards = true                 # false leaves the header's boards out; onl
 masthead_height = "52px"             # optional: the declared header height (--masthead-h), 40 to 120 px
 avatar_shape = "member"              # circle, rounded or square fixes every avatar; member leaves it to members
 page_head = "column"                 # "column", or "banner" for the page head as a band (see "Page head banner")
+home = "threads"                     # "threads", or "boards" to open the home page with the board directory
 ```
 
 Unknown keys are errors. `[behaviors]` is part of the contract but not supported yet: it must be empty. `[layout]` is
@@ -219,12 +220,13 @@ Its body is JSON:
 
 ```json
 {"v": 1, "skin": "ledger", "palette": "main", "based_on": {"skin": "ledger", "version": "1.2.0"}, "places": null,
- "colors": {"primary": "#0f766e", "secondary": "#f97316"}}
+ "colors": {"primary": "#0f766e", "secondary": "#f97316"}, "home": "boards"}
 ```
 
 An empty body means the built-in default with its own colors. `based_on` records the skin and version the choice was
 made from; `places` holds the blocks of the places the document changes ("Places and blocks"), `null` while it
-changes none. `colors` holds the
+changes none. `home` is what the home page opens with ("Board directory home"), left out to follow the next
+layout. `colors` holds the
 seed colors ([styles.md](styles.md), "Seed colors") and is left out while the skin's own colors are used; only the two
 seeds are stored, and the colors are derived from them for whichever skin is in use. Each domain may have an override
 document, `settings.domain_layout.<domain id>.{body,title,updated_at}`, with the same structure; keys it leaves out
@@ -406,6 +408,38 @@ the blocks lose their card look. A page without head blocks (by default every pa
 its markup is the same as under `column`. The band stays inside `<main>`, so the skip link and the page's heading
 work as before.
 
+### Board directory home
+
+Page 1 of the home page's bare address (`/`, without another sort or a category) can open with the board directory
+above the thread list: each top-level board the visitor sees, with its uploaded icon or its glyph, its name and
+description, its child boards, its thread count and posts today, and its newest thread by last activity with the last
+poster's avatar and the time. The thread list and its paging follow as before, so `/page-N` is still the thread list.
+The records are the `boards` data source's with `counts` and `last_post` ([data.md](data.md)), read as the visitor
+like every list; a board the anonymous statistics do not count shows no counts, and a latest thread whose poster the
+visitor blocked is left out.
+
+What the home page opens with comes from the first that chooses it: the administrator's previewed draft, the domain's
+layout document, the site's (`"home": "threads"` or `"boards"`), then the skin's `frame.home`; `threads` when none
+does. The administrator chooses it on the layout page ("Editing a layout").
+
+```html
+<section class="panel board-dir" aria-labelledby="board-dir-title" data-board-directory>
+  <h2 class="board-dir__title" id="board-dir-title">Forums</h2>
+  <ul class="board-dir__list">
+    <li class="board-dir__item" data-board="3">
+      <div class="board-dir__board"><span class="board-dir__icon">…</span><div class="board-dir__text">
+        <h3 class="board-dir__name"><a href="/daily">Daily</a></h3><p class="board-dir__desc">…</p>
+        <ul class="board-dir__children">…</ul></div></div>
+      <p class="board-dir__counts"><span class="row-meta__threads">…</span><span class="row-meta__today">…</span></p>
+      <div class="board-dir__last">…<a class="board-dir__last-title" href="/posts/77">…</a>…<time …>…</time></div>
+    </li>
+  </ul>
+</section>
+```
+
+The rows carry `data-board`, so the board variables ("Board colors and glyphs") reach them: the glyph and the rule
+before the latest thread take `--board-color`. The counts are split into number and word ("Counts").
+
 When the skin fixes the avatar shape, a member's reading settings say so; their own choice is kept and applies again
 under a skin that leaves the shape to them.
 
@@ -444,17 +478,21 @@ form button.
   the place takes, then a form generated from that source's parameter lists ([data.md](data.md)): the view, the
   parameters, a title from the list of title keys or written in English and Simplified Chinese, who sees it, and
   whether it stays on phones. New blocks get ids from their source (`threads-1`).
+- **Home page.** What the home page opens with ("Board directory home"): what the next layout chooses (the site's
+  for a domain, the skin's for the site), the thread list, or the board directory above it; saved to the draft like
+  the places.
 - **Draft.** Every change is saved to a draft, `settings.layout_draft.site.{body,title,updated_at}` or
   `settings.layout_draft.<domain id>.…`, after the strict checks of a saved layout; visitors never see it. **Preview the
   draft** shows it to this administrator on every page (on the domain's own address for a domain's draft), with the
-  preview bar; **Publish the draft** writes the places into the document under the same locks and checks as a skin
-  choice, records `layout.save` with the places before and after, deletes the draft and ends the preview; **Discard the
+  preview bar; **Publish the draft** writes the places and the home page into the document under the same locks and checks as a
+  skin choice, records `layout.save` with the places and the home page before and after, deletes the draft and ends the preview; **Discard the
   draft** deletes it. Deleting a domain deletes its draft too.
 
 **Changing skins.** When the document whose skin changes (the site's at `/manage/skins`, a domain's on its page) sets
 places of its own, choosing a skin first asks: **Keep my layout**, or **Use the new skin's layout**, which clears the
-document's places so the new skin's `[layout]` (or the default) shows (recording `layout.save` after `skin.select`).
-The question lists the places the document sets and the blocks the new skin would not show (side navigation blocks
+document's places and home page so the new skin's `[layout]` and `frame.home` (or the defaults) show (recording `layout.save` after `skin.select`).
+The question lists the places the document sets (and `home` when it chooses the home page) and the blocks the new
+skin would not show (side navigation blocks
 under a skin without side navigation). A document that sets no places follows the new skin directly. `based_on`
 records the skin and version the choice was made from.
 

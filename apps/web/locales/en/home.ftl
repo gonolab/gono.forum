@@ -68,3 +68,7 @@ home-card-guest-hint = Log in to post
 home-card-checked-in = Checked in today
 # The daily check-in button with its reward.
 home-card-check-in = Check in +{ $amount }
+home-directory-title = Forums
+# Read by screen readers before the title of a board's latest thread in the home page's board directory.
+home-directory-latest = Latest thread:
+home-directory-none = No threads yet

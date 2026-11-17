@@ -98,7 +98,9 @@ Pinned threads of every level come first in `latest`, `created`, `featured` and 
 | `counts` | `true` adds thread counts. Default `false`. |
 | `last_post` | `true` adds each board's latest thread. Default `false`. |
 
-Boards come from the forum cache in their display order; boards the member blocked are left out.
+Boards come from the forum cache in their display order; boards the member blocked are left out. A home page that
+opens with the board directory reads this source with `counts` and `last_post` ([skins.md](skins.md), "Board
+directory home").
 
 | Field | Value |
 | --- | --- |

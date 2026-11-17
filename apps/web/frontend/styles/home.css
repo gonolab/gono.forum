@@ -1,4 +1,4 @@
-/* Topic listing pages (home, forum, topic search): listing, board-strip, crumbs, board-head, pane. */
+/* Topic listing pages (home, forum, topic search): listing, board-strip, crumbs, board-head, pane, board-dir. */
 
 /* ------------------------------------------------------------------ */
 /* Page skeleton                                                       */
@@ -252,6 +252,164 @@
 /* Breakpoints (docs/styles.md, "Breakpoints")                         */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* Board directory (home pages that open with it)                      */
+/* ------------------------------------------------------------------ */
+
+/* docs/skins.md, "Board directory home": one row per top-level board, the board (with its icon or glyph when it has
+   one) on the start side, its counts and its latest thread on the end side. The glyph and the latest thread's rule
+   take the board's color when it has one. */
+.board-dir {
+  margin-block-end: 16px;
+  padding: 0;
+}
+
+.board-dir__title {
+  margin: 0;
+  padding-block: 12px;
+  padding-inline: 16px;
+  border-block-end: 1px solid var(--line);
+  color: var(--text-strong);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.board-dir__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.board-dir__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 15rem);
+  gap: 16px;
+  align-items: center;
+  padding-block: 14px;
+  padding-inline: 16px;
+  border-block-end: 1px solid var(--line-soft);
+}
+
+.board-dir__item:last-child {
+  border-block-end: 0;
+}
+
+.board-dir__board {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  min-inline-size: 0;
+}
+
+.board-dir__icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  inline-size: 36px;
+  block-size: 36px;
+  color: var(--board-color, var(--accent));
+}
+
+.board-dir__icon img {
+  inline-size: 36px;
+  block-size: 36px;
+  border-radius: var(--r-sm);
+  object-fit: cover;
+}
+
+.board-dir__glyph {
+  inline-size: 24px;
+  block-size: 24px;
+}
+
+.board-dir__text {
+  min-inline-size: 0;
+}
+
+.board-dir__name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.board-dir__name a {
+  color: var(--text-strong);
+}
+
+.board-dir__desc {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.board-dir__children {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin: 4px 0 0;
+  padding: 0;
+  font-size: 13px;
+  list-style: none;
+}
+
+.board-dir__counts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  text-align: end;
+  white-space: nowrap;
+}
+
+.board-dir__counts .stat__value {
+  color: var(--text-strong);
+  font-weight: 500;
+}
+
+.board-dir__last {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-inline-size: 0;
+  margin: 0;
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid var(--board-color, var(--line));
+  font-size: 13px;
+}
+
+.board-dir__last--none {
+  color: var(--text-muted);
+}
+
+.board-dir__avatar .avatar {
+  inline-size: 28px;
+  block-size: 28px;
+}
+
+.board-dir__last-text {
+  display: grid;
+  min-inline-size: 0;
+  margin: 0;
+}
+
+.board-dir__last-title {
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-dir__last-meta {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 @media (max-width: 760px) {
   .board-strip {
     display: flex;
@@ -286,4 +444,28 @@
 /* A link that follows the description text in the same line (the friend-link page's "apply" entry). */
 .board-head__desc > a:not(:first-child) {
   margin-inline-start: 0.5em;
+}
+
+@media (max-width: 760px) {
+  /* The board, then its counts on one line, then its latest thread. */
+  .board-dir__item {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    padding-inline: 14px;
+  }
+
+  .board-dir__counts {
+    flex-direction: row;
+    gap: 12px;
+    text-align: start;
+  }
+
+  /* Under the name when the board has an icon or a glyph. */
+  .board-dir__item:has(.board-dir__icon) > .board-dir__counts {
+    padding-inline-start: 48px;
+  }
+
+  .board-dir__item:has(.board-dir__icon) > .board-dir__last {
+    margin-inline-start: 48px;
+  }
 }

@@ -48,6 +48,21 @@ pub(super) struct Page<'a> {
     /// Members the viewer blocked, as the page already read them; `None` reads them only when a data-source block
     /// needs them.
     pub blocked: Option<Vec<i64>>,
+    /// The page opens with the board directory (docs/skins.md, "Board directory home"): page 1 of the home page's
+    /// bare address when the layout chooses it.
+    pub directory: bool,
+}
+
+/// The board directory a home page opens with: the top-level boards the visitor sees, with their counts and latest
+/// threads, read through the `boards` data source.
+pub(super) struct Directory {
+    pub items: Vec<DirectoryItem>,
+}
+
+pub(super) struct DirectoryItem {
+    pub board: records::BoardRecord,
+    /// The avatar of the latest thread's last poster, when the board shows one.
+    pub avatar: Option<AvatarView>,
 }
 
 /// One block as its view template sees it.
@@ -298,6 +313,8 @@ pub(super) struct Placed {
     pub board_head: bool,
     /// The envelopes of the page's data-source blocks, for the page data block.
     pub data: Map<String, Value>,
+    /// The board directory of a home page that opens with it.
+    pub directory: Option<Directory>,
 }
 
 impl Placed {
@@ -321,6 +338,50 @@ pub(super) fn blocks_of(state: &AppState, place: Place) -> &[Block] {
         frame.skin.places.as_ref(),
     )
     .0
+}
+
+/// The board directory of the home page: the `boards` source with counts and latest threads; `None` when it fails,
+/// which is logged (the thread list below it still shows). `Err` only when Redis is unavailable.
+async fn directory(
+    state: &AppState,
+    filters: &Filters,
+) -> Result<Option<Directory>, anyhow::Error> {
+    let params = Params::Boards(crate::data::params::Boards {
+        parent: crate::data::params::Parent::Top,
+        counts: true,
+        last_post: true,
+    });
+    match data_sources::fetch(state, filters, PageContext::default(), &params).await {
+        Ok(records::Output {
+            records: Records::Boards(items),
+            ..
+        }) => Ok(Some(Directory {
+            items: items
+                .into_iter()
+                .map(|board| DirectoryItem {
+                    avatar: board
+                        .last_post
+                        .as_ref()
+                        .map(|post| list_avatar(post.member.uid, &post.member.name)),
+                    board,
+                })
+                .collect(),
+        })),
+        Ok(_) => Ok(None),
+        Err(FetchError::Internal(error))
+            if error.downcast_ref::<crate::cache::Unavailable>().is_some() =>
+        {
+            Err(error)
+        }
+        Err(error) => {
+            let error = match error {
+                FetchError::Internal(error) => format!("{error:#}"),
+                _ => "not found".into(),
+            };
+            tracing::error!(%error, "the home page's board directory failed to read; left out");
+            Ok(None)
+        }
+    }
 }
 
 /// Whether this page shows the side navigation (docs/skins.md, "Side navigation"): the page's skin chooses
@@ -437,7 +498,8 @@ pub(super) async fn place(
         .into_iter()
         .filter(|place| *place != Place::SideNav)
         .flat_map(|place| blocks_of(state, place))
-        .any(|block| matches!(block.kind, Kind::Source(_) | Kind::Core(Core::NavBoards)));
+        .any(|block| matches!(block.kind, Kind::Source(_) | Kind::Core(Core::NavBoards)))
+        || page.directory;
     let blocked = match (page.blocked.take(), &state.viewer.session) {
         (Some(blocked), _) => blocked,
         (None, Some(session)) if sources => {
@@ -448,6 +510,9 @@ pub(super) async fn place(
     let filters = Filters::with_blocked(state, blocked);
     let profile = crate::debug::trace::current();
     let mut placed = Placed::default();
+    if page.directory {
+        placed.directory = directory(state, &filters).await?;
+    }
     let mut shown = 0;
     for place in page.kind.places() {
         // The side navigation belongs to the frame ([`side_nav`]).

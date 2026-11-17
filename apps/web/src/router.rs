@@ -1887,6 +1887,14 @@ async fn browse(
                 && crate::site::other(|_| ()).is_none(),
             list_revision: threads.site_revision,
             blocked: Some(blocked.clone()),
+            // The bare address of the home page, page 1, opens with the board directory when the layout chooses it
+            // (docs/skins.md, "Board directory home"); other sorts, categories, later pages and search do not.
+            directory: slug.is_empty()
+                && !search
+                && route.page() == 1
+                && query.sort.is_none()
+                && query.category.is_none()
+                && state.frame.home == crate::skins::manifest::HomeView::Boards,
         },
     )
     .await;
@@ -2987,6 +2995,7 @@ async fn topic_response(
             friend_links: false,
             list_revision: None,
             blocked: None,
+            directory: false,
         },
     )
     .await;

@@ -50,3 +50,6 @@ home-card-guest = 访客
 home-card-guest-hint = 请登录后发帖
 home-card-checked-in = 今日已签到
 home-card-check-in = 签到 +{ $amount }
+home-directory-title = 版块
+home-directory-latest = 最新主题：
+home-directory-none = 还没有主题

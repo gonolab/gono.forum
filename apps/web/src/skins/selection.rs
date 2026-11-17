@@ -41,6 +41,10 @@ pub struct Layout {
     /// Seed colors over the skin's palettes; left out when the document inherits them.
     #[serde(default, skip_serializing_if = "Colors::inherits")]
     pub colors: Colors,
+    /// What the home page opens with (docs/skins.md, "Board directory home"); left out when the document inherits
+    /// it (the site's for a domain, the skin's for the site).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home: Option<super::manifest::HomeView>,
 }
 
 /// The colors a document chooses: inherit (the key is absent: the site's for a domain, the skin's own for the site),
@@ -366,7 +370,10 @@ async fn edit(
         }
     }
     let (layout, data) = change(before);
-    let empty = layout.skin.is_none() && layout.colors.inherits() && layout.places.is_null();
+    let empty = layout.skin.is_none()
+        && layout.colors.inherits()
+        && layout.places.is_null()
+        && layout.home.is_none();
     match (empty, domain_id) {
         (true, Some(_)) => {
             db::query("DELETE FROM gonof_common_settings WHERE skey IN (?,?,?)")
@@ -408,16 +415,27 @@ async fn edit(
     Ok(())
 }
 
-/// Saves the places of the site's document or a domain's ([`edit`]): `None` (or no place) changes none, so every place
-/// comes from the next layout again. The skin, palette and colors stay as they are. Records `layout.save` with the
-/// places before and after.
+/// A layout draft (docs/skins.md, "Editing a layout"): the places it sets and its choice of home page; what it
+/// leaves out comes from the next layout down, as in a document.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Draft {
+    pub places: crate::layout::Places,
+    pub home: Option<super::manifest::HomeView>,
+}
+
+/// Saves the places and the home page of the site's document or a domain's ([`edit`]), from a published draft: no
+/// place (or `None`) changes none, so every place comes from the next layout again, and `home: None` inherits it.
+/// The skin, palette and colors stay as they are. Records `layout.save` with the places and home page before and
+/// after.
 pub async fn save_places(
     db: &Database,
     global: &GlobalCache,
     actor: Actor,
     domain_id: Option<i64>,
-    places: Option<&crate::layout::Places>,
+    draft: Option<&Draft>,
 ) -> Result<(), IdentityError> {
+    let places = draft.map(|draft| &draft.places);
+    let home = draft.and_then(|draft| draft.home);
     let value = places
         .filter(|places| !places.is_empty())
         .map_or(serde_json::Value::Null, crate::layout::Places::json);
@@ -446,8 +464,11 @@ pub async fn save_places(
                 "blocks": value
                     .as_object()
                     .map_or(0, |places| places.values().filter_map(|blocks| blocks.as_array()).map(Vec::len).sum::<usize>()),
+                "home": home.map(super::manifest::HomeView::name),
+                "previous_home": layout.home.map(super::manifest::HomeView::name),
             });
             layout.places = value;
+            layout.home = home;
             (layout, data)
         },
     )
@@ -466,11 +487,8 @@ pub fn draft_prefix(domain_id: Option<i64>) -> String {
     }
 }
 
-/// The draft of the site's or a domain's places, read leniently; `None` without one.
-pub async fn read_draft(
-    db: &Database,
-    domain_id: Option<i64>,
-) -> anyhow::Result<Option<crate::layout::Places>> {
+/// The draft of the site's or a domain's places and home page, read leniently; `None` without one.
+pub async fn read_draft(db: &Database, domain_id: Option<i64>) -> anyhow::Result<Option<Draft>> {
     let body: Option<String> =
         db::query_scalar("SELECT svalue FROM gonof_common_settings WHERE skey=?")
             .bind(format!("{}body", draft_prefix(domain_id)))
@@ -478,17 +496,20 @@ pub async fn read_draft(
             .await?;
     Ok(body
         .and_then(|body| Layout::parse(&body).ok().flatten())
-        .map(|layout| crate::layout::Places::read(&layout.places, "a layout draft")))
+        .map(|layout| Draft {
+            places: crate::layout::Places::read(&layout.places, "a layout draft"),
+            home: layout.home,
+        }))
 }
 
-/// Writes the draft of the site's or a domain's places, which the caller checked strictly
+/// Writes the draft of the site's or a domain's places and home page, whose places the caller checked strictly
 /// (`layout::Places::parse`); `None` deletes it. Drafts are not seen by visitors, so writing one records nothing in
 /// the action log; publishing does (`layout.save`).
 pub async fn write_draft(
     db: &Database,
     actor: Actor,
     domain_id: Option<i64>,
-    places: Option<&crate::layout::Places>,
+    draft: Option<&Draft>,
 ) -> Result<(), IdentityError> {
     let prefix = draft_prefix(domain_id);
     let keys = ["body", "title", "updated_at"].map(|field| format!("{prefix}{field}"));
@@ -511,9 +532,13 @@ pub async fn write_draft(
             return Err(IdentityError::NotFound);
         }
     }
-    match places {
-        Some(places) => {
-            let body = serde_json::json!({"v": 1, "places": places.json()}).to_string();
+    match draft {
+        Some(draft) => {
+            let mut body = serde_json::json!({"v": 1, "places": draft.places.json()});
+            if let Some(home) = draft.home {
+                body["home"] = serde_json::json!(home.name());
+            }
+            let body = body.to_string();
             crate::runtime::write_document(db, &mut tx, &prefix, &body, "", crate::identity::now())
                 .await?;
         }

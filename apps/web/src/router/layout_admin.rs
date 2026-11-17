@@ -1,12 +1,13 @@
-//! Appearance › Layout (`/manage/layout`, docs/skins.md, "Editing a layout"): the places of the site, or with
-//! `?domain=<id>` of one domain, edited as a draft with plain forms (move up, move down, remove, add, follow the next
-//! layout again), previewed by the administrator alone and published with `layout.save`. Administrators only.
+//! Appearance › Layout (`/manage/layout`, docs/skins.md, "Editing a layout"): the places and the home page of the
+//! site, or with `?domain=<id>` of one domain, edited as a draft with plain forms (move up, move down, remove, add,
+//! follow the next layout again, choose what the home page opens with), previewed by the administrator alone and
+//! published with `layout.save`. Administrators only.
 use std::collections::HashMap;
 
 use super::extract::{AdminPage, CsrfForm, csrf_forms};
 use super::*;
 use crate::layout::{self, Block, Core, Kind, Place, Places};
-use crate::skins::selection;
+use crate::skins::{manifest::HomeView, selection};
 use axum::routing::post;
 use serde_json::{Map, Value, json};
 
@@ -20,6 +21,7 @@ pub(super) fn routes() -> Router<Arc<AppState>> {
         .route("/manage/layout/remove", post(remove))
         .route("/manage/layout/own", post(own))
         .route("/manage/layout/inherit", post(inherit))
+        .route("/manage/layout/home", post(home))
         .route("/manage/layout/preview", post(preview))
         .route("/manage/layout/publish", post(publish))
         .route("/manage/layout/discard", post(discard))
@@ -58,11 +60,12 @@ fn address(domain: Option<i64>) -> String {
     }
 }
 
-/// The published places of the site's document or a domain's, read from the database like every edit page.
+/// The published places and home page of the site's document or a domain's, read from the database like every edit
+/// page; `None` when the document sets neither.
 pub(super) async fn published(
     state: &AppState,
     domain: Option<i64>,
-) -> anyhow::Result<Option<Places>> {
+) -> anyhow::Result<Option<selection::Draft>> {
     let key = match domain {
         None => format!("{}body", selection::LAYOUT_PREFIX),
         Some(id) => format!("{}body", selection::domain_prefix(id)),
@@ -74,23 +77,33 @@ pub(super) async fn published(
             .await?;
     Ok(body
         .and_then(|body| selection::Layout::parse(&body).ok().flatten())
-        .and_then(|layout| layout.places("the layout editor")))
+        .and_then(|layout| {
+            let places = layout.places("the layout editor");
+            (places.is_some() || layout.home.is_some()).then(|| selection::Draft {
+                places: places.unwrap_or_default(),
+                home: layout.home,
+            })
+        }))
 }
 
-/// What the editor works on: the draft when there is one, else the published places.
+/// What the editor works on: the draft when there is one, else the published places and home page.
 struct Working {
     places: Places,
+    /// The home page this layout chooses; `None` follows the next layout down.
+    home: Option<HomeView>,
     draft: bool,
     /// The places of the next layout down, which a place this one leaves out shows.
     below: Places,
     /// Where `below` comes from, per place.
     below_origin: Vec<(Place, &'static str)>,
+    /// The home page of the next layout down and where it comes from.
+    below_home: (HomeView, &'static str),
 }
 
 async fn working(state: &AppState, domain: Option<i64>) -> anyhow::Result<Working> {
     let draft = selection::read_draft(&state.db, domain).await?;
     let own = match &draft {
-        Some(places) => places.clone(),
+        Some(draft) => draft.clone(),
         None => published(state, domain).await?.unwrap_or_default(),
     };
     let block = state.global.settings(&state.db).await?;
@@ -110,12 +123,24 @@ async fn working(state: &AppState, domain: Option<i64>) -> anyhow::Result<Workin
         .global
         .skins(&state.db, &state.skins_dir, state.cache_ttl())
         .await?;
-    let skin_places = catalog.get(&skin_id).and_then(|skin| skin.places.clone());
-    let site_places = match domain {
+    let skin = catalog.get(&skin_id);
+    let skin_places = skin.and_then(|skin| skin.places.clone());
+    let site = match domain {
         None => None,
         Some(_) => published(state, None).await?,
     };
+    let site_places = site
+        .as_ref()
+        .map(|site| site.places.clone())
+        .filter(|places| !places.is_empty());
     let t = crate::i18n::current();
+    let below_home = match site.as_ref().and_then(|site| site.home) {
+        Some(home) => (home, t.layout_from_site()),
+        None => (
+            skin.map_or(HomeView::Threads, |skin| skin.manifest.frame.home),
+            t.layout_from_skin(),
+        ),
+    };
     let mut below = Places::default();
     let mut below_origin = Vec::new();
     for place in Place::ALL {
@@ -132,10 +157,12 @@ async fn working(state: &AppState, domain: Option<i64>) -> anyhow::Result<Workin
         ));
     }
     Ok(Working {
-        places: own,
+        places: own.places,
+        home: own.home,
         draft: draft.is_some(),
         below,
         below_origin,
+        below_home,
     })
 }
 
@@ -171,6 +198,19 @@ struct LayoutTemplate<'a> {
     notice: &'static str,
     error: String,
     places: Vec<PlaceView>,
+    /// The home page this layout chooses, `None` when it follows the next layout down.
+    home: Option<&'static str>,
+    /// The home page of the next layout down, worded, and where it comes from.
+    below_home: (&'static str, &'static str),
+}
+
+/// The words for a home page choice.
+fn home_label(home: HomeView) -> &'static str {
+    let t = crate::i18n::current();
+    match home {
+        HomeView::Threads => t.layout_home_threads(),
+        HomeView::Boards => t.layout_home_boards(),
+    }
 }
 
 fn kind_label(kind: Kind) -> String {
@@ -364,6 +404,8 @@ async fn render_page(
         notice,
         error,
         places,
+        home: working.home.map(HomeView::name),
+        below_home: (home_label(working.below_home.0), working.below_home.1),
     })
 }
 
@@ -389,17 +431,23 @@ async fn change(
         return auth::redirect(&address(domain));
     }
     places.set(place, Some(blocks));
-    save(state, domain, places).await
+    save(state, domain, places, working.home).await
 }
 
-async fn save(state: &AppState, domain: Option<i64>, places: Places) -> Response {
+async fn save(
+    state: &AppState,
+    domain: Option<i64>,
+    places: Places,
+    home: Option<HomeView>,
+) -> Response {
     let t = crate::i18n::current();
     if let Err(problem) = Places::parse(&places.json()) {
         let mut response = render_page(state, domain, "", problem.message(t)).await;
         *response.status_mut() = StatusCode::UNPROCESSABLE_ENTITY;
         return response;
     }
-    match selection::write_draft(&state.db, super::skins::actor(state), domain, Some(&places)).await
+    let draft = selection::Draft { places, home };
+    match selection::write_draft(&state.db, super::skins::actor(state), domain, Some(&draft)).await
     {
         Ok(()) => auth::redirect(&format!(
             "{}{}saved=draft",
@@ -482,7 +530,40 @@ async fn inherit(AdminPage(state): AdminPage, CsrfForm(form): CsrfForm<PlaceForm
     };
     let mut places = working.places;
     places.set(place, None);
-    save(&state, domain, places).await
+    save(&state, domain, places, working.home).await
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct HomeForm {
+    _csrf: String,
+    domain: i64,
+    /// `threads`, `boards`, or `inherit` to follow the next layout down.
+    home: String,
+}
+csrf_forms!(HomeForm);
+
+/// Chooses what the home page opens with (docs/skins.md, "Board directory home"), in the draft.
+async fn home(AdminPage(state): AdminPage, CsrfForm(form): CsrfForm<HomeForm>) -> Response {
+    let home = match form.home.as_str() {
+        "inherit" => None,
+        name => match HomeView::parse(name) {
+            Some(home) => Some(home),
+            None => {
+                return error_page(
+                    &state,
+                    StatusCode::BAD_REQUEST,
+                    crate::i18n::current().common_error_form(),
+                );
+            }
+        },
+    };
+    let domain = target(form.domain);
+    let working = match working(&state, domain).await {
+        Ok(working) => working,
+        Err(error) => return database_error(&state, error),
+    };
+    save(&state, domain, working.places, home).await
 }
 
 #[derive(Default, Deserialize)]
@@ -522,7 +603,7 @@ pub(super) async fn publish_draft(state: &AppState, domain: Option<i64>) -> Resp
         Ok(None) => return auth::redirect(&address(domain)),
         Err(error) => return database_error(state, error),
     };
-    if let Err(problem) = Places::parse(&draft.json()) {
+    if let Err(problem) = Places::parse(&draft.places.json()) {
         let mut response =
             render_page(state, domain, "", problem.message(crate::i18n::current())).await;
         *response.status_mut() = StatusCode::UNPROCESSABLE_ENTITY;
@@ -1126,5 +1207,5 @@ async fn add(
         )
         .await;
     }
-    save(&state, domain, places).await
+    save(&state, domain, places, working.home).await
 }

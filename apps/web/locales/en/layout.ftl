@@ -74,6 +74,17 @@ layout-state-inherited = This place follows { $origin }.
 layout-from-site = the site's layout
 layout-from-skin = the skin's layout
 layout-from-core = the default layout
+layout-home-heading = Home page
+layout-home-lead = Page 1 of the home page opens with the thread list, or with the board directory above it: each top-level board with its description, child boards, thread count, posts today and latest thread.
+# $view is layout-home-threads or layout-home-boards; $origin names where it comes from (layout-from-*).
+layout-home-inherited = The home page follows { $origin }: { $view }.
+layout-home-own-site = The site chooses the home page.
+layout-home-own-domain = This domain chooses the home page.
+layout-home-field = The home page opens with
+layout-home-inherit = What the next layout chooses
+layout-home-threads = the thread list
+layout-home-boards = the board directory, then the thread list
+layout-home-save = Save to the draft
 layout-place-empty = No blocks.
 layout-move-up = Move up
 layout-move-down = Move down

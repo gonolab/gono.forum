@@ -514,12 +514,13 @@ async fn confirm_switch(
     if !form.layout.is_empty() {
         return Ok(None);
     }
-    let Some(places) = super::layout_admin::published(state, domain_id)
+    let Some(published) = super::layout_admin::published(state, domain_id)
         .await
         .map_err(crate::identity::IdentityError::Internal)?
     else {
         return Ok(None);
     };
+    let places = published.places;
     let side = skin.is_some_and(|skin| skin.manifest.frame.nav == skins::manifest::Nav::Side);
     let hidden = places
         .0
@@ -543,7 +544,13 @@ async fn confirm_switch(
             || t.layout_switch_site_skin().to_owned(),
             |skin| skin.name(t),
         ),
-        places: places.0.iter().map(|(place, _)| place.name()).collect(),
+        // The home page choice is part of the layout too (docs/skins.md, "Board directory home").
+        places: places
+            .0
+            .iter()
+            .map(|(place, _)| place.name())
+            .chain(published.home.map(|_| "home"))
+            .collect(),
         hidden,
     })))
 }

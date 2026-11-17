@@ -1,0 +1,38 @@
+{#- The board directory a home page opens with (docs/skins.md, "Board directory home"): each top-level board the visitor sees, with its icon or glyph, description, child boards, counts and latest thread, read through the boards data source. Rows carry data-board, so the board variables reach them. #}
+<section class="panel board-dir" aria-labelledby="board-dir-title" data-board-directory>
+  <h2 class="board-dir__title" id="board-dir-title">{{ p.t.home_directory_title() }}</h2>
+  {%- include "partials/board_glyphs.html" %}
+  <ul class="board-dir__list">
+    {%- for item in directory.items %}
+    <li class="board-dir__item" data-board="{{ item.board.fid }}">
+      <div class="board-dir__board">
+        {%- if let Some(icon) = item.board.icon %}
+        <span class="board-dir__icon" aria-hidden="true"><img src="{{ crate::site::prefixed(icon.src) }}" alt="" width="36" height="36" loading="lazy" decoding="async"></span>
+        {%- else if let Some(glyph) = item.board.glyph %}
+        <span class="board-dir__icon" aria-hidden="true"><svg class="board-dir__glyph" focusable="false"><use href="#board-glyph-{{ glyph }}"></use></svg></span>
+        {%- endif %}
+        <div class="board-dir__text">
+          <h3 class="board-dir__name"><a href="{{ crate::site::prefixed(item.board.href) }}">{{ item.board.name }}</a></h3>
+          {%- if !item.board.description.is_empty() %}
+          <p class="board-dir__desc">{{ item.board.description }}</p>
+          {%- endif %}
+          {%- if !item.board.children.is_empty() %}
+          <ul class="board-dir__children" aria-label="{{ p.t.site_forums_children(item.board.name.as_str()) }}">{% for child in item.board.children %}<li data-board="{{ child.fid }}"><a href="{{ crate::site::prefixed(child.href) }}">{{ child.name }}</a></li>{% endfor %}</ul>
+          {%- endif %}
+        </div>
+      </div>
+      {%- if let Some(count) = item.board.counts %}
+      <p class="board-dir__counts"><span class="row-meta__threads"><span class="stat">{{ p.t.site_forums_threads(p.stat_value(count.threads), p.stat_label(p.t.site_forums_threads_label(count.threads)))|safe }}</span></span><span class="row-meta__today"><span class="stat">{{ p.t.site_forums_today(p.stat_label(p.t.site_forums_today_label()), p.stat_value(count.today))|safe }}</span></span></p>
+      {%- endif %}
+      {%- if let Some(post) = item.board.last_post %}
+      <div class="board-dir__last">
+        {%- if let Some(avatar) = item.avatar %}<span class="board-dir__avatar">{% include "partials/avatar.html" %}</span>{% endif %}
+        <p class="board-dir__last-text"><span class="sr-only">{{ p.t.home_directory_latest() }}</span><a class="board-dir__last-title" href="{{ crate::site::prefixed(post.href) }}">{{ post.title }}</a><span class="board-dir__last-meta"><span translate="no">{{ post.member.name }}</span> · <time datetime="{{ post.at.at }}" title="{{ post.at.title }}">{{ post.at.text }}</time></span></p>
+      </div>
+      {%- else %}
+      <p class="board-dir__last board-dir__last--none">{{ p.t.home_directory_none() }}</p>
+      {%- endif %}
+    </li>
+    {%- endfor %}
+  </ul>
+</section>

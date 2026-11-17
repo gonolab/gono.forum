@@ -29,6 +29,9 @@
       {%- else %}
       <h1 class="sr-only">{{ heading }}</h1>
       {%- endif %}
+      {%- if let Some(directory) = p.places.directory %}
+      {% include "home/directory.html" %}
+      {%- endif %}
 
       <div class="pane">
         {%- if let Some(scope) = search_scope %}

@@ -384,3 +384,137 @@ async fn only_administrators_edit_layouts() {
     assert!(draft_body(&site, "site").await.is_none());
     site.services.cleanup().await.unwrap();
 }
+
+/// The board directory of the home page (docs/skins.md, "Board directory home"), or `None`.
+fn directory(html: &str) -> Option<&str> {
+    let start = html.find("<section class=\"panel board-dir\"")?;
+    Some(&html[start..start + html[start..].find("</section>").unwrap()])
+}
+
+#[tokio::test]
+async fn the_home_page_choice_is_drafted_previewed_and_published() {
+    let site = Site::new(true).await;
+    // One child board, to see child boards listed under their parent.
+    let showcase = site.fid("showcase").await;
+    site.execute(&format!(
+        "UPDATE gonof_forum_forum SET parent_fid={showcase} WHERE slug='ai'"
+    ))
+    .await;
+    site.changed();
+    let editor = site.get("/manage/layout", Some(&site.admin)).await;
+    assert!(editor.body.contains("data-layout-home=\"inherit\""));
+    assert!(directory(&site.get("/", None).await.body).is_none());
+
+    // Choosing the board directory goes into the draft.
+    let chosen = site
+        .post(
+            "/manage/layout/home",
+            &site.admin,
+            &[("domain", "0"), ("home", "boards")],
+        )
+        .await;
+    assert_eq!(chosen.status, StatusCode::SEE_OTHER, "{}", chosen.body);
+    let draft: serde_json::Value =
+        serde_json::from_str(&draft_body(&site, "site").await.unwrap()).unwrap();
+    assert_eq!(draft["home"], "boards");
+    let editor = site.get("/manage/layout", Some(&site.admin)).await;
+    assert!(editor.body.contains("data-layout-home=\"boards\""));
+    assert!(
+        directory(&site.get("/", None).await.body).is_none(),
+        "not live yet"
+    );
+    // A later change to a place keeps the choice in the draft.
+    let own = site
+        .post(
+            "/manage/layout/own",
+            &site.admin,
+            &[("domain", "0"), ("place", PLACE)],
+        )
+        .await;
+    assert_eq!(own.status, StatusCode::SEE_OTHER);
+    let draft: serde_json::Value =
+        serde_json::from_str(&draft_body(&site, "site").await.unwrap()).unwrap();
+    assert_eq!(draft["home"], "boards");
+    let refused = site
+        .post(
+            "/manage/layout/home",
+            &site.admin,
+            &[("domain", "0"), ("home", "gallery")],
+        )
+        .await;
+    assert_eq!(refused.status, StatusCode::BAD_REQUEST);
+
+    // The administrator previews it alone.
+    let preview = site
+        .post("/manage/layout/preview", &site.admin, &[("domain", "0")])
+        .await;
+    let sealed = cookie(&preview);
+    let previewed = site
+        .get_with(
+            "/",
+            None,
+            &[(
+                "cookie",
+                &format!("gonof_session={}; {sealed}", site.admin.0),
+            )],
+        )
+        .await;
+    assert!(directory(&previewed.body).is_some());
+
+    // Published, every visitor's home page opens with the directory: the top-level boards with their counts and
+    // latest threads, above the thread list; later pages, other sorts and board pages do not.
+    let published = site
+        .post("/manage/layout/publish", &site.admin, &[("domain", "0")])
+        .await;
+    assert_eq!(
+        published.status,
+        StatusCode::SEE_OTHER,
+        "{}",
+        published.body
+    );
+    let home = site.get("/", None).await;
+    let shown = directory(&home.body).expect("the directory");
+    let boards = site
+        .scalar("SELECT COUNT(*) FROM gonof_forum_forum WHERE parent_fid IS NULL AND status=1 AND visibility='public'")
+        .await;
+    assert_eq!(
+        shown.matches("class=\"board-dir__item\"").count() as i64,
+        boards
+    );
+    assert!(shown.contains("class=\"row-meta__threads\""));
+    assert!(shown.contains("class=\"board-dir__last-title\""));
+    assert!(shown.contains("<time datetime=\""));
+    assert!(shown.contains("class=\"board-dir__children\""), "{shown}");
+    assert!(
+        home.body.find("data-board-directory").unwrap()
+            < home.body.find("data-scroll-list").unwrap(),
+        "the thread list follows"
+    );
+    for path in ["/page-2", "/?sort=created", "/showcase", "/search?q=a"] {
+        let page = site.get(path, None).await;
+        assert!(directory(&page.body).is_none(), "{path}");
+    }
+    let logged = site
+        .text("SELECT data FROM gonof_common_log WHERE type='layout.save'")
+        .await;
+    let logged: serde_json::Value = serde_json::from_str(&logged).unwrap();
+    assert_eq!(logged["home"], "boards");
+    assert_eq!(logged["previous_home"], serde_json::Value::Null);
+
+    // A skin's default gives way to the site's choice.
+    let body = site
+        .text("SELECT svalue FROM gonof_common_settings WHERE skey='settings.layout.body'")
+        .await;
+    let mut layout: serde_json::Value = serde_json::from_str(&body).unwrap();
+    layout["home"] = serde_json::json!("threads");
+    gono_forum_web::test_support::set_setting(
+        site.db(),
+        "settings.layout.body",
+        &layout.to_string(),
+    )
+    .await
+    .unwrap();
+    site.changed();
+    assert!(directory(&site.get("/", None).await.body).is_none());
+    site.services.cleanup().await.unwrap();
+}

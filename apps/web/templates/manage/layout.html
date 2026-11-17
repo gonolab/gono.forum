@@ -24,6 +24,21 @@
 {%- endif %}
 </div>
 </section>
+{#- What page 1 of the home page opens with (docs/skins.md, "Board directory home"), in the draft like the places. #}
+<section class="panel" id="section-layout-home" data-layout-home="{% if let Some(home) = home %}{{ home }}{% else %}inherit{% endif %}" aria-labelledby="section-layout-home-title"><h2 class="panel__title" id="section-layout-home-title">{{ p.t.layout_home_heading() }}</h2>
+<p class="form-note">{{ p.t.layout_home_lead() }}</p>
+<p>{% if home.is_some() %}{% if domain_name.is_empty() %}{{ p.t.layout_home_own_site() }}{% else %}{{ p.t.layout_home_own_domain() }}{% endif %}{% else %}{{ p.t.layout_home_inherited(below_home.1, below_home.0) }}{% endif %}</p>
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/layout/home"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain" value="{{ domain }}">
+<fieldset class="option-group"><legend class="option-group__legend">{{ p.t.layout_home_field() }}</legend>
+<div class="option-group__options">
+<div class="checkline"><label class="checkline__label"><input type="radio" name="home" value="inherit"{% if home.is_none() %} checked{% endif %}><span>{{ p.t.layout_home_inherit() }} ({{ below_home.0 }})</span></label></div>
+<div class="checkline"><label class="checkline__label"><input type="radio" name="home" value="threads"{% if home == Some("threads") %} checked{% endif %}><span>{{ p.t.layout_home_threads() }}</span></label></div>
+<div class="checkline"><label class="checkline__label"><input type="radio" name="home" value="boards"{% if home == Some("boards") %} checked{% endif %}><span>{{ p.t.layout_home_boards() }}</span></label></div>
+</div>
+</fieldset>
+<div class="form-actions"><button class="button button--secondary" type="submit">{{ p.t.layout_home_save() }}</button></div>
+</form>
+</section>
 {%- for place in places %}
 <section class="panel" id="place-{{ place.name }}" data-layout-place="{{ place.name }}" data-layout-own="{{ place.own }}" aria-labelledby="place-{{ place.name }}-title"><h2 class="panel__title" id="place-{{ place.name }}-title">{{ place.label }} <code>{{ place.name }}</code></h2>
 <p class="form-note">{{ place.note }} {{ p.t.layout_capacity(place.capacity) }}</p>
