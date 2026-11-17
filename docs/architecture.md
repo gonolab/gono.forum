@@ -278,6 +278,9 @@ The templates also write hooks for stylesheets and scripts that are not part of 
   blocks: data sources with a view, or core cards (`layout.rs`, `router/blocks.rs`, `templates/blocks/`). The domain's
   layout document, the site's, the skin's manifest and the core default layout decide them place by place; the core
   default renders the pages as they were before layouts.
+- **Frame.** A skin's manifest also chooses the page frame ([skins.md](skins.md), "Frame"): side navigation from the
+  `side.nav` place on every front page, the page head as a banner, the board directory home page (which layout
+  documents may choose too) and built-in behavior modules; `<html>` carries the choices as `data-*` attributes.
 - **Script events.** `site.js` dispatches `gonof:ready` on `document` when the page has loaded and `gonof:swap` after
   every HTMX swap has settled.
 - **Declared header height.** `--sticky-top` is the height the sticky header covers, declared in CSS; scroll margins,
