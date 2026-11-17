@@ -31,12 +31,12 @@ Website: <https://www.gono.forum>
 
 ## Status
 
-Gono Forum 0.1.x is an early alpha: try it out, but expect configuration and behavior to change between releases.
+Gono Forum 0.2.x is an early alpha: try it out, but expect configuration and behavior to change between releases.
 
 Upgrades are not guaranteed during the alpha. At the first release candidate the database migrations will be folded
-into a new baseline, and a site installed from a 0.1.x release may not upgrade past that point and would have to be
-set up again. Upgrades run database migrations automatically and do not take a backup first: back up the database
-and the instance directory before every upgrade.
+into a new baseline, and a site installed from a 0.1.x or 0.2.x release may not upgrade past that point and would
+have to be set up again. Upgrades run database migrations automatically and do not take a backup first: back up the
+database and the instance directory before every upgrade.
 
 What changed in each release is in [CHANGELOG.md](CHANGELOG.md). Please report problems in
 [GitHub Issues](https://github.com/gonolab/gono.forum/issues).

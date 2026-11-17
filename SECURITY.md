@@ -17,7 +17,7 @@ unless you prefer otherwise. Please give us reasonable time to release a fix bef
 
 ## Supported versions
 
-Gono Forum is at 0.1.x. Fixes are made on the latest release; please upgrade before reporting, and check whether the
+Gono Forum is at 0.2.x. Fixes are made on the latest release; please upgrade before reporting, and check whether the
 problem still exists there.
 
 ## Deployment notes
