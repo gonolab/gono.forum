@@ -30,7 +30,7 @@ mod reveal;
 pub mod rules;
 mod security;
 mod skin_preview;
-pub use skin_preview::{PREVIEW_TTL as SKIN_PREVIEW_TTL, SkinPreview};
+pub use skin_preview::{LayoutDraft, PREVIEW_TTL as SKIN_PREVIEW_TTL, SkinPreview};
 pub(crate) mod two_factor;
 pub use api_key::{API_KEY_PREFIX, ApiKey, ApiKeyGrant, valid_api_secret};
 pub use cookie::CookieConfig;

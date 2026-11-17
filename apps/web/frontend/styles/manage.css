@@ -181,6 +181,42 @@
   color: var(--input-text);
   cursor: pointer;
 }
+/* Appearance › Layout (docs/skins.md, "Editing a layout"): each place's blocks with their buttons. */
+.layout-blocks {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+.layout-blocks__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-inline-size: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  background: var(--panel);
+}
+.layout-blocks__name {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.layout-blocks__detail {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.layout-blocks__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-inline-start: auto;
+}
+.layout-draft .form-actions {
+  flex-wrap: wrap;
+}
 /* The forum form's built-in icon (docs/skins.md, "Board colors and glyphs"): one radio button per glyph, with the
    glyph and its name. */
 .glyph-choices {

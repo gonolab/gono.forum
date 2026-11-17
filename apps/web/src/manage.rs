@@ -657,6 +657,11 @@ const EVENTS: &[(&str, LogScope, EventLabel)] = &[
         Lang::maintenance_event_skin_colors,
     ),
     (
+        "layout.save",
+        LogScope::Admin,
+        Lang::maintenance_event_layout_save,
+    ),
+    (
         "mail.settings.save",
         LogScope::Admin,
         Lang::maintenance_event_mail_settings_save,

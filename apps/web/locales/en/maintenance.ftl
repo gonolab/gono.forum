@@ -90,6 +90,7 @@ maintenance-event-skin-import = Skin imported
 maintenance-event-skin-select = Skin chosen
 maintenance-event-skin-delete = Skin deleted
 maintenance-event-skin-colors = Colors changed
+maintenance-event-layout-save = Layout published
 maintenance-event-site-branding-save = Brand images updated
 maintenance-event-mail-settings-save = Mail settings saved
 maintenance-event-mail-template-save = Mail template saved

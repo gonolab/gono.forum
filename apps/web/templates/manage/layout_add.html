@@ -1,0 +1,32 @@
+{% extends "layout/manage.html" %}{% block panel %}
+{#- Adding a block (docs/skins.md, "Editing a layout"): the fields come from the source's parameter lists, and the block joins the place's list in the draft. #}
+<section class="panel" id="section-layout-add" aria-labelledby="section-layout-add-title"><h1 class="panel__title" id="section-layout-add-title">{{ p.t.layout_add_heading(source_label.as_str(), place_label) }}</h1>
+{%- if !error.is_empty() %}<p class="form-feedback" role="alert" data-layout-error>{{ error }}</p>{% endif %}
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/layout/add"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain" value="{{ domain }}"><input type="hidden" name="place" value="{{ place }}"><input type="hidden" name="source" value="{{ source }}">
+{%- for field in fields %}
+{%- match field.kind %}
+{%- when FieldKind::Select with (options) %}
+<div class="field">
+  <label class="field__label" for="block-{{ field.name }}">{{ field.label }}</label>
+  <select id="block-{{ field.name }}" name="{{ field.name }}"{% if !field.hint.is_empty() %} aria-describedby="block-{{ field.name }}-hint"{% endif %}>{% for (value, label) in options %}<option value="{{ value }}"{% if self.value(field.name) == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+  {%- if !field.hint.is_empty() %}<p class="field__hint" id="block-{{ field.name }}-hint">{{ field.hint }}</p>{% endif %}
+</div>
+{%- when FieldKind::Checkbox %}
+<div class="checkline"><label class="checkline__label"><input type="checkbox" name="{{ field.name }}" value="1"{% if self.value(field.name) == "1" %} checked{% endif %}><span>{{ field.label }}</span></label></div>
+{%- when FieldKind::Text with { max } %}
+<div class="field">
+  <label class="field__label" for="block-{{ field.name }}">{{ field.label }}</label>
+  <input id="block-{{ field.name }}" name="{{ field.name }}" value="{{ self.value(field.name) }}" maxlength="{{ max }}"{% if !field.hint.is_empty() %} aria-describedby="block-{{ field.name }}-hint"{% endif %}>
+  {%- if !field.hint.is_empty() %}<p class="field__hint" id="block-{{ field.name }}-hint">{{ field.hint }}</p>{% endif %}
+</div>
+{%- when FieldKind::Area %}
+<div class="field">
+  <label class="field__label" for="block-{{ field.name }}">{{ field.label }}</label>
+  <textarea id="block-{{ field.name }}" name="{{ field.name }}" rows="5"{% if !field.hint.is_empty() %} aria-describedby="block-{{ field.name }}-hint"{% endif %}>{{ self.value(field.name) }}</textarea>
+  {%- if !field.hint.is_empty() %}<p class="field__hint" id="block-{{ field.name }}-hint">{{ field.hint }}</p>{% endif %}
+</div>
+{%- endmatch %}
+{%- endfor %}
+<div class="form-actions"><button class="button" type="submit">{{ p.t.layout_add_submit() }}</button><a href="{{ crate::site::base() }}/manage/layout{% if domain > 0 %}?domain={{ domain }}{% endif %}">{{ p.t.layout_add_cancel() }}</a></div>
+</form></section>
+{% endblock %}

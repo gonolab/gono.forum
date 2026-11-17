@@ -63,6 +63,8 @@ pub(super) struct SiteFrame {
     pub preview: bool,
     /// The preview is one of unsaved colors (docs/styles.md, "Seed colors") rather than of a skin.
     pub preview_colors: bool,
+    /// The preview is one of a layout draft (docs/skins.md, "Editing a layout"): its places replace the published ones.
+    pub preview_layout: bool,
     /// The board stylesheet (docs/skins.md, "Board colors and glyphs"); empty when no board has a color or glyph.
     pub board_style: Arc<crate::organization::style::BoardStyle>,
     /// The places the site's layout document sets, or the administrator's draft of them while previewing it
@@ -103,6 +105,7 @@ impl Default for SiteFrame {
             palette: crate::skins::DEFAULT_SKIN.palettes[0].clone(),
             preview: false,
             preview_colors: false,
+            preview_layout: false,
             board_style: Arc::default(),
             site_places: None,
             domain_places: None,
@@ -258,7 +261,8 @@ impl SiteFrame {
         super::nav_fit::fit(&mut navigation, &header);
         let mut directory = directory_link();
         super::nav_fit::fit_tail(&navigation, &mut directory, &header);
-        let (skin, palette, preview, preview_colors) = skin(state, &block, viewer_uid, ttl).await;
+        let (skin, palette, preview, preview_colors, draft) =
+            skin(state, &block, viewer_uid, ttl).await;
         let board_style = state
             .global
             .board_style(&state.db, ttl)
@@ -268,6 +272,33 @@ impl SiteFrame {
         // task-local storage along the way, sparing every call site that displays a time from passing it all the way
         // down. The whole site uses only the site time zone; members have no time zone of their own.
         crate::clock::set(crate::clock::TimeFormat::from(&*settings));
+        let domain_id = crate::site::other(|row| row.domain_id);
+        let mut site_places = block.places.clone();
+        let mut domain_places = domain_id.and_then(|id| {
+            block
+                .domain_places
+                .iter()
+                .find(|(domain, _)| *domain == id)
+                .map(|(_, places)| places.clone())
+        });
+        // A previewed draft replaces the places it is the draft of: the site's on every domain, a domain's on that
+        // domain only. A draft that cannot be read shows the published places and is logged.
+        let mut preview_layout = false;
+        if let Some(draft) = draft
+            && (draft.domain.is_none() || draft.domain == domain_id)
+        {
+            match crate::skins::selection::read_draft(&state.db, draft.domain).await {
+                Ok(places) => {
+                    preview_layout = true;
+                    let places = places.filter(|places| !places.is_empty());
+                    match draft.domain {
+                        None => site_places = places,
+                        Some(_) => domain_places = places,
+                    }
+                }
+                Err(error) => tracing::error!(%error, "a previewed layout draft could not be read"),
+            }
+        }
         Ok(Self {
             loaded: true,
             settings,
@@ -285,15 +316,10 @@ impl SiteFrame {
             palette,
             preview,
             preview_colors,
+            preview_layout,
             board_style,
-            site_places: block.places.clone(),
-            domain_places: crate::site::other(|row| row.domain_id).and_then(|id| {
-                block
-                    .domain_places
-                    .iter()
-                    .find(|(domain, _)| *domain == id)
-                    .map(|(_, places)| places.clone())
-            }),
+            site_places,
+            domain_places,
         })
     }
 
@@ -380,7 +406,13 @@ async fn skin(
     block: &crate::cache::SettingsBlock,
     viewer_uid: Option<i64>,
     ttl: u64,
-) -> (Arc<crate::skins::Skin>, String, bool, bool) {
+) -> (
+    Arc<crate::skins::Skin>,
+    String,
+    bool,
+    bool,
+    Option<crate::identity::LayoutDraft>,
+) {
     let domain = crate::site::other(|row| row.domain_id).and_then(|id| {
         block
             .domain_layouts
@@ -436,7 +468,8 @@ async fn skin(
     let preview_colors = preview
         .as_ref()
         .is_some_and(|preview| !preview.colors.inherits());
-    (skin, palette, preview.is_some(), preview_colors)
+    let draft = preview.as_ref().and_then(|preview| preview.layout);
+    (skin, palette, preview.is_some(), preview_colors, draft)
 }
 
 /// Logs that a chosen skin cannot be used, at most once a minute per skin id.

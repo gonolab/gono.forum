@@ -16,7 +16,8 @@ migration seeds.
 | --- | --- | --- |
 | `gonof_common_settings`, `settings.{group}.{field}` | 134 scalar settings, one row each | `apps/web/src/runtime.rs`, `runtime/settings.rs`, `runtime/kv.rs` |
 | `gonof_common_settings`, `settings.navigation.{body,title,updated_at}` | the header navigation document | `runtime.rs` |
-| `gonof_common_settings`, `settings.layout.{body,title,updated_at}` and `settings.domain_layout.<domain id>.{body,title,updated_at}` | the site's skin choice and seed colors, and each domain's override ([skins.md](skins.md), "Choosing a skin"; [styles.md](styles.md), "Seed colors") | `skins/selection.rs` |
+| `gonof_common_settings`, `settings.layout.{body,title,updated_at}` and `settings.domain_layout.<domain id>.{body,title,updated_at}` | the site's skin choice, seed colors and places, and each domain's override ([skins.md](skins.md), "Choosing a skin" and "Places and blocks"; [styles.md](styles.md), "Seed colors") | `skins/selection.rs` |
+| `gonof_common_settings`, `settings.layout_draft.site.{body,title,updated_at}` and `settings.layout_draft.<domain id>.…` | the layout editor's unpublished drafts ([skins.md](skins.md), "Editing a layout"); read only by a previewing administrator's page frame | `skins/selection.rs` |
 | `gonof_common_skin` | imported skins, one row per id, with a `version` column for optimistic locking ([skins.md](skins.md)) | `skins/store.rs` |
 | `gonof_common_settings`, `mail.transport`, `media.storage`, `login.providers` | one JSON value each (SMTP, attachment storage, SMS and sign-in providers). The SMTP, SMS and sign-in provider secrets inside are encrypted with `[common] encryption_key`; the attachment storage keys are not in the database at all: each storage configuration names a file under `[media] local_directory` (`secrets/<id>`, mode 0600, plain JSON) | `mail/settings.rs`, `media.rs`, `sms.rs` |
 | `gonof_common_settings`, `identity.bootstrap_admin`, `identity.username_namespace` | lock rows, not settings (see "Write gate and locks") | `identity.rs`, `identity/profile.rs` |
@@ -25,17 +26,18 @@ migration seeds.
 
 `gonof_common_settings` has two columns, `skey varchar(190)` (primary key, `utf8mb4_bin`) and `svalue text`. The
 migrations seed 142 rows: the 134 scalar settings, the three navigation rows, the three rows of the layout document and
-the two lock rows; the JSON rows are inserted on their first save, and a domain's layout document when its own skin is
-first chosen or its colors first set (it is deleted with the domain, or when the domain follows the site again in
-both). A policy or mail template with no row for a language uses that language's built-in text
+the two lock rows; the JSON rows are inserted on their first save, a domain's layout document when its own skin is
+first chosen, its colors first set or its places first published (it is deleted with the domain, or when the domain
+follows the site again in all three), and a layout draft by the first change in the layout editor (deleted when it is
+published or discarded, and with its domain). A policy or mail template with no row for a language uses that language's built-in text
 (a mail template with a blank subject and body counts as not customized; "Restore built-in text" deletes the row).
 Per-member choices are in their own tables, where `NULL` means "follow the site default" in `settings.reading.*`.
 
 ## Keys and groups
 
 Every scalar key is `settings.{group}.{field}`. `SiteSettings` has one sub-structure per group, and each field is
-named after the last segment of its key. `mail`, `navigation`, `layout`, `domain_layout` and `policy` are not scalar groups; a
-unit test keeps scalar keys out of those prefixes.
+named after the last segment of its key. `mail`, `navigation`, `layout`, `domain_layout`, `layout_draft` and `policy` are
+not scalar groups; a unit test keeps scalar keys out of those prefixes.
 
 | Group | Admin page |
 | --- | --- |

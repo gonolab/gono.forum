@@ -408,15 +408,139 @@ async fn edit(
     Ok(())
 }
 
+/// Saves the places of the site's document or a domain's ([`edit`]): `None` (or no place) changes none, so every place
+/// comes from the next layout again. The skin, palette and colors stay as they are. Records `layout.save` with the
+/// places before and after.
+pub async fn save_places(
+    db: &Database,
+    global: &GlobalCache,
+    actor: Actor,
+    domain_id: Option<i64>,
+    places: Option<&crate::layout::Places>,
+) -> Result<(), IdentityError> {
+    let value = places
+        .filter(|places| !places.is_empty())
+        .map_or(serde_json::Value::Null, crate::layout::Places::json);
+    let names = |value: &serde_json::Value| -> Vec<String> {
+        value
+            .as_object()
+            .map(|places| places.keys().cloned().collect())
+            .unwrap_or_default()
+    };
+    edit(
+        db,
+        global,
+        actor,
+        domain_id,
+        None,
+        "layout.save",
+        |before| {
+            let mut layout = before.unwrap_or(Layout {
+                v: 1,
+                ..Layout::default()
+            });
+            let data = serde_json::json!({
+                "domain_id": domain_id,
+                "places": names(&value),
+                "previous": names(&layout.places),
+                "blocks": value
+                    .as_object()
+                    .map_or(0, |places| places.values().filter_map(|blocks| blocks.as_array()).map(Vec::len).sum::<usize>()),
+            });
+            layout.places = value;
+            (layout, data)
+        },
+    )
+    .await
+}
+
+pub const DRAFT_PREFIX: &str = "settings.layout_draft.";
+
+/// The key prefix of the layout draft of the site (`settings.layout_draft.site.`) or of a domain
+/// (`settings.layout_draft.<domain id>.`): rows created by the first change in the layout editor and deleted when the
+/// draft is published or discarded (docs/skins.md, "Editing a layout").
+pub fn draft_prefix(domain_id: Option<i64>) -> String {
+    match domain_id {
+        None => format!("{DRAFT_PREFIX}site."),
+        Some(id) => format!("{DRAFT_PREFIX}{id}."),
+    }
+}
+
+/// The draft of the site's or a domain's places, read leniently; `None` without one.
+pub async fn read_draft(
+    db: &Database,
+    domain_id: Option<i64>,
+) -> anyhow::Result<Option<crate::layout::Places>> {
+    let body: Option<String> =
+        db::query_scalar("SELECT svalue FROM gonof_common_settings WHERE skey=?")
+            .bind(format!("{}body", draft_prefix(domain_id)))
+            .fetch_optional(db.executor())
+            .await?;
+    Ok(body
+        .and_then(|body| Layout::parse(&body).ok().flatten())
+        .map(|layout| crate::layout::Places::read(&layout.places, "a layout draft")))
+}
+
+/// Writes the draft of the site's or a domain's places, which the caller checked strictly
+/// (`layout::Places::parse`); `None` deletes it. Drafts are not seen by visitors, so writing one records nothing in
+/// the action log; publishing does (`layout.save`).
+pub async fn write_draft(
+    db: &Database,
+    actor: Actor,
+    domain_id: Option<i64>,
+    places: Option<&crate::layout::Places>,
+) -> Result<(), IdentityError> {
+    let prefix = draft_prefix(domain_id);
+    let keys = ["body", "title", "updated_at"].map(|field| format!("{prefix}{field}"));
+    let mut tx = db.begin_write().await?;
+    db::query(crate::runtime::DOCUMENT_LOCK_SQL)
+        .bind(&keys[0])
+        .bind(&keys[1])
+        .bind(&keys[2])
+        .fetch_all(db.observe(&mut *tx))
+        .await?;
+    crate::runtime::admin_locked(db, &mut tx, actor).await?;
+    if let Some(id) = domain_id {
+        let found = db::query(
+            "SELECT domain_id FROM gonof_common_site_domain WHERE domain_id=? LOCK IN SHARE MODE",
+        )
+        .bind(id)
+        .fetch_optional(db.observe(&mut *tx))
+        .await?;
+        if found.is_none() {
+            return Err(IdentityError::NotFound);
+        }
+    }
+    match places {
+        Some(places) => {
+            let body = serde_json::json!({"v": 1, "places": places.json()}).to_string();
+            crate::runtime::write_document(db, &mut tx, &prefix, &body, "", crate::identity::now())
+                .await?;
+        }
+        None => {
+            db::query("DELETE FROM gonof_common_settings WHERE skey IN (?,?,?)")
+                .bind(&keys[0])
+                .bind(&keys[1])
+                .bind(&keys[2])
+                .execute(db.observe(&mut *tx))
+                .await?;
+        }
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 /// Deletes a domain's override document, in the transaction that deletes the domain.
 pub async fn delete_domain(db: &Database, tx: &mut Tx<'_>, domain_id: i64) -> anyhow::Result<()> {
-    let prefix = domain_prefix(domain_id);
-    db::query("DELETE FROM gonof_common_settings WHERE skey IN (?,?,?)")
-        .bind(format!("{prefix}body"))
-        .bind(format!("{prefix}title"))
-        .bind(format!("{prefix}updated_at"))
-        .execute(db.observe(&mut **tx))
-        .await?;
+    // The domain's layout draft goes with its document.
+    for prefix in [domain_prefix(domain_id), draft_prefix(Some(domain_id))] {
+        db::query("DELETE FROM gonof_common_settings WHERE skey IN (?,?,?)")
+            .bind(format!("{prefix}body"))
+            .bind(format!("{prefix}title"))
+            .bind(format!("{prefix}updated_at"))
+            .execute(db.observe(&mut **tx))
+            .await?;
+    }
     Ok(())
 }
 

@@ -23,6 +23,7 @@ manage-tab-languages = 语言
 manage-tab-appearance-parameters = 界面参数
 manage-tab-skins = 皮肤
 manage-tab-colors = 配色
+manage-tab-layout = 布局
 manage-tab-navigation = 导航
 manage-tab-branding = 品牌图片
 manage-tab-links = 友情链接

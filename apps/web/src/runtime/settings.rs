@@ -2149,6 +2149,7 @@ pub(crate) mod tests {
             "settings.navigation.",
             "settings.layout.",
             "settings.domain_layout.",
+            "settings.layout_draft.",
             "settings.policy.",
         ] {
             assert!(

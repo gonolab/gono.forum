@@ -383,6 +383,33 @@ Appearance › Skins (`/manage/skins`, administrators only, see [roles.md](roles
 always be switched back there. The seed colors have their own page, Appearance › Colors ([styles.md](styles.md),
 "Seed colors"); a domain's page under Multiple domains chooses its skin and its colors.
 
+## Editing a layout
+
+Appearance › Layout (`/manage/layout`, administrators only) edits the places of the site's layout document, or with
+`?domain=<id>` (linked from the domain's page) the places of one domain. It works without JavaScript: every action is a
+form button.
+
+- **Places.** Each place lists the blocks it shows and where they come from. A place the document does not set shows
+  the next layout's blocks; **Change this place** takes them into the document to change them here, and **Follow the
+  site** (a domain) or **Use the skin's or the default blocks** (the site) leaves the place to the next layout again.
+- **Blocks.** **Move up**, **Move down** and **Remove** change a place's list. **Add a block** chooses the kind of block
+  the place takes, then a form generated from that source's parameter lists ([data.md](data.md)): the view, the
+  parameters, a title from the list of title keys or written in English and Simplified Chinese, who sees it, and
+  whether it stays on phones. New blocks get ids from their source (`threads-1`).
+- **Draft.** Every change is saved to a draft, `settings.layout_draft.site.{body,title,updated_at}` or
+  `settings.layout_draft.<domain id>.…`, after the strict checks of a saved layout; visitors never see it. **Preview the
+  draft** shows it to this administrator on every page (on the domain's own address for a domain's draft), with the
+  preview bar; **Publish the draft** writes the places into the document under the same locks and checks as a skin
+  choice, records `layout.save` with the places before and after, deletes the draft and ends the preview; **Discard the
+  draft** deletes it. Deleting a domain deletes its draft too.
+
+**Changing skins.** When the document whose skin changes (the site's at `/manage/skins`, a domain's on its page) sets
+places of its own, choosing a skin first asks: **Keep my layout**, or **Use the new skin's layout**, which clears the
+document's places so the new skin's `[layout]` (or the default) shows (recording `layout.save` after `skin.select`).
+The question lists the places the document sets and the blocks the new skin would not show (side navigation blocks
+under a skin without side navigation). A document that sets no places follows the new skin directly. `based_on`
+records the skin and version the choice was made from.
+
 ## Preview
 
 "Preview" shows a skin, or unsaved seed colors, to the administrator who started it, on every page, without changing
@@ -390,8 +417,10 @@ what anyone else sees. The choice lives in a cookie sealed with the cookie key (
 is applied only while the signed-in member is that administrator; publishing, exiting and signing out clear it. A
 preview of a skin shows it with the colors the page has anyway (the site's or the domain's seeds, derived again for
 that skin); a preview from Appearance › Colors shows the entered seeds over the site's skin and replaces any preview of
-a skin. A bar at the top of every page offers **Publish** (make the skin the site's, recording `skin.select`, or save
-the colors as the site's, recording `skin.colors`) and **Exit preview**. Pages of signed-in members are never stored
+a skin; a preview of a layout draft ("Editing a layout") shows the draft's places over the skin and colors the page has
+anyway. A bar at the top of every page offers **Publish** (make the skin the site's, recording `skin.select`, save the
+colors as the site's, recording `skin.colors`, or publish the layout draft, recording `layout.save`) and **Exit
+preview**. Pages of signed-in members are never stored
 by shared caches (`private, no-store`) and the anonymous caches are not used for them; the stylesheet of a skin no
 page uses is served `private`, and that of previewed colors only to the administrator previewing them, `private` too
 (see "The stylesheet of a skin").

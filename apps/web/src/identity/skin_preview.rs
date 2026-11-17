@@ -19,7 +19,18 @@ pub struct SkinPreview {
     /// skin, which shows the colors the page would have anyway.
     #[serde(default, skip_serializing_if = "Colors::inherits")]
     pub colors: Colors,
+    /// A preview of the layout draft of the site or of a domain (docs/skins.md, "Editing a layout"), shown over the
+    /// skin and colors the page has anyway; left out for a preview of a skin or colors.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<LayoutDraft>,
     pub expires_at: i64,
+}
+
+/// Whose layout draft a preview shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LayoutDraft {
+    /// `None` for the site's draft.
+    pub domain: Option<i64>,
 }
 
 impl Identity {
@@ -39,6 +50,31 @@ impl Identity {
                     skin: skin.to_owned(),
                     palette: palette.to_owned(),
                     colors,
+                    layout: None,
+                    expires_at: now() + PREVIEW_TTL,
+                },
+            )
+            .map_err(IdentityError::Internal)
+    }
+
+    /// A preview of a layout draft: the page keeps `skin` and `palette`, the ones it has anyway, and shows the draft's
+    /// places instead of the published ones.
+    pub fn seal_layout_preview(
+        &self,
+        uid: i64,
+        (skin, palette): (&str, &str),
+        domain: Option<i64>,
+    ) -> Result<String> {
+        self.config
+            .cookie
+            .seal_value(
+                AAD,
+                &SkinPreview {
+                    uid,
+                    skin: skin.to_owned(),
+                    palette: palette.to_owned(),
+                    colors: Colors::Inherit,
+                    layout: Some(LayoutDraft { domain }),
                     expires_at: now() + PREVIEW_TTL,
                 },
             )

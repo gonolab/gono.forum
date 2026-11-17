@@ -152,5 +152,8 @@
   <p class="field__hint" id="domain-colors-secondary-hint">{{ p.t.skin_colors_field_secondary_hint() }}</p>
 </div>
 <div class="form-actions"><button class="button" type="submit">{{ p.t.skin_domain_colors_submit() }}</button></div>
-</form></section>
+</form>
+{#- The domain's own places (docs/skins.md, "Editing a layout"). #}
+<p data-domain-layout><a href="{{ crate::site::base() }}/manage/layout?domain={{ domain_id }}">{{ p.t.layout_domain_link() }}</a> {{ p.t.layout_domain_lead() }}</p>
+</section>
 {%- endif %}{% endblock %}

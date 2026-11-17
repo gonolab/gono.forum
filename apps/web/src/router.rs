@@ -19,6 +19,7 @@ mod highlights;
 mod honors;
 mod interaction;
 mod languages;
+mod layout_admin;
 mod leaderboard;
 mod login_methods;
 mod mail;
@@ -341,6 +342,7 @@ pub fn build_with_updater(
         .merge(reading::routes())
         .merge(custom_style::routes())
         .merge(skins::routes())
+        .merge(layout_admin::routes())
         .merge(colors::routes())
         .merge(forum_filters::routes())
         .merge(feed_settings::routes())
@@ -985,7 +987,9 @@ fn meta<'a>(
         skin_preview: state.frame.preview.then(|| {
             let t = crate::i18n::current();
             let name = state.frame.skin.name(t);
-            if state.frame.preview_colors {
+            if state.frame.preview_layout {
+                t.layout_preview_bar().to_owned()
+            } else if state.frame.preview_colors {
                 t.skin_preview_colors_bar(name)
             } else {
                 t.skin_preview_bar(name)

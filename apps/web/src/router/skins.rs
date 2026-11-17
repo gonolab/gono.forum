@@ -484,8 +484,69 @@ struct ChoiceForm {
     _csrf: String,
     #[serde(default)]
     choice: String,
+    /// After the confirmation of a changed layout: `keep` it, or take the new skin's (`skin`).
+    #[serde(default)]
+    layout: String,
 }
 csrf_forms!(ChoiceForm);
+
+/// The confirmation when the document whose skin changes sets places of its own (docs/skins.md, "Editing a layout").
+#[derive(Template)]
+#[template(path = "manage/layout_switch.html")]
+struct SwitchTemplate<'a> {
+    p: PageMeta<'a>,
+    action: String,
+    choice: String,
+    skin_name: String,
+    places: Vec<&'static str>,
+    /// Blocks the new skin would not show, as `(place, block)`.
+    hidden: Vec<(&'static str, String)>,
+}
+
+/// `Some(page)` when the document sets places and the administrator has not said what to do with them yet.
+async fn confirm_switch(
+    state: &AppState,
+    domain_id: Option<i64>,
+    form: &ChoiceForm,
+    skin: Option<&skins::Skin>,
+    action: String,
+) -> Result<Option<Response>, crate::identity::IdentityError> {
+    if !form.layout.is_empty() {
+        return Ok(None);
+    }
+    let Some(places) = super::layout_admin::published(state, domain_id)
+        .await
+        .map_err(crate::identity::IdentityError::Internal)?
+    else {
+        return Ok(None);
+    };
+    let side = skin.is_some_and(|skin| skin.manifest.frame.nav == skins::manifest::Nav::Side);
+    let hidden = places
+        .0
+        .iter()
+        .filter(|(place, _)| *place == crate::layout::Place::SideNav && !side)
+        .flat_map(|(place, blocks)| blocks.iter().map(|block| (place.name(), block.id.clone())))
+        .collect();
+    let t = crate::i18n::current();
+    Ok(Some(render(&SwitchTemplate {
+        p: meta(
+            state,
+            t.layout_switch_title().into(),
+            t.layout_switch_title().into(),
+            PATH,
+            "",
+            "",
+        ),
+        action,
+        choice: form.choice.clone(),
+        skin_name: skin.map_or_else(
+            || t.layout_switch_site_skin().to_owned(),
+            |skin| skin.name(t),
+        ),
+        places: places.0.iter().map(|(place, _)| place.name()).collect(),
+        hidden,
+    })))
+}
 
 /// The usable skin and palette of an `id:palette` choice.
 async fn chosen(
@@ -507,6 +568,17 @@ async fn chosen(
 async fn select(AdminPage(state): AdminPage, CsrfForm(form): CsrfForm<ChoiceForm>) -> Response {
     let saved = async {
         let (skin, palette) = chosen(&state, &form.choice).await?;
+        if let Some(page) = confirm_switch(
+            &state,
+            None,
+            &form,
+            Some(&skin),
+            "/manage/skins/select".into(),
+        )
+        .await?
+        {
+            return Ok(Some(page));
+        }
         skins::selection::save(
             &state.db,
             &state.global,
@@ -517,11 +589,17 @@ async fn select(AdminPage(state): AdminPage, CsrfForm(form): CsrfForm<ChoiceForm
                 palette: Some(&palette),
             },
         )
-        .await
+        .await?;
+        if form.layout == "skin" {
+            skins::selection::save_places(&state.db, &state.global, actor(&state), None, None)
+                .await?;
+        }
+        Ok(None)
     }
     .await;
     match saved {
-        Ok(()) => auth::redirect("/manage/skins?saved=selected"),
+        Ok(Some(page)) => page,
+        Ok(None) => auth::redirect("/manage/skins?saved=selected"),
         Err(error) => failed(&state, error).await,
     }
 }
@@ -586,6 +664,9 @@ async fn publish(AdminPage(state): AdminPage, CsrfForm(_): CsrfForm<CsrfOnly>) -
         preview_cookie(&mut response, "", 0);
         return response;
     };
+    if let Some(draft) = preview.layout {
+        return super::layout_admin::publish_draft(&state, draft.domain).await;
+    }
     if !preview.colors.inherits() {
         return match skins::selection::save_colors(
             &state.db,
@@ -880,6 +961,17 @@ async fn domain_select(
         } else {
             Some(chosen(&state, &form.choice).await?)
         };
+        if let Some(page) = confirm_switch(
+            &state,
+            Some(domain_id),
+            &form,
+            chosen.as_ref().map(|(skin, _)| skin.as_ref()),
+            format!("/manage/domains/{domain_id}/skin"),
+        )
+        .await?
+        {
+            return Ok(Some(page));
+        }
         skins::selection::save(
             &state.db,
             &state.global,
@@ -890,11 +982,23 @@ async fn domain_select(
                 palette: chosen.as_ref().map(|(_, palette)| palette.as_str()),
             },
         )
-        .await
+        .await?;
+        if form.layout == "skin" {
+            skins::selection::save_places(
+                &state.db,
+                &state.global,
+                actor(&state),
+                Some(domain_id),
+                None,
+            )
+            .await?;
+        }
+        Ok(None)
     }
     .await;
     match saved {
-        Ok(()) => auth::redirect(&format!("/manage/domains/{domain_id}?skin=saved")),
+        Ok(Some(page)) => page,
+        Ok(None) => auth::redirect(&format!("/manage/domains/{domain_id}?skin=saved")),
         Err(crate::identity::IdentityError::NotFound) => error_page(
             &state,
             StatusCode::NOT_FOUND,
