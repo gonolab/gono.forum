@@ -235,3 +235,44 @@ async fn a_skin_layout_fills_the_places_the_site_leaves_alone() {
     assert!(!aside(&home.body).contains("data-block=\"pinned\""));
     site.services.cleanup().await.unwrap();
 }
+
+#[tokio::test]
+async fn the_debug_panel_lists_every_block_with_its_time() {
+    let site = Site::new(true).await;
+    layout(
+        &site,
+        json!({"home.aside": [
+            {"id": "me", "source": "member-card"},
+            {"id": "guests-only", "source": "markdown", "show": "guests", "title": {"key": "block-title-notice"},
+             "body": {"en": "Sign up!"}},
+            {"id": "latest", "source": "threads", "view": "mini-list", "title": {"key": "block-title-latest"},
+             "params": {"sort": "created", "limit": 3}},
+        ]}),
+    )
+    .await;
+    test_support::set_setting(site.db(), "settings.debug.panel", "true")
+        .await
+        .unwrap();
+    site.changed();
+    let home = site.get("/", Some(&site.admin)).await;
+    assert!(
+        home.body.contains("data-debug-layout"),
+        "the panel has the section"
+    );
+    for id in ["me", "guests-only", "latest"] {
+        assert!(
+            home.body
+                .contains(&format!("data-debug-layout-block=\"{id}\"")),
+            "{id} is listed"
+        );
+    }
+    let skipped = home
+        .body
+        .find("data-debug-layout-block=\"guests-only\"")
+        .unwrap();
+    assert!(
+        home.body[skipped..skipped + 80].contains("data-debug-layout-skipped"),
+        "a block not for this visitor is listed as skipped"
+    );
+    site.services.cleanup().await.unwrap();
+}
