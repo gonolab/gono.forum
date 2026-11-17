@@ -207,6 +207,9 @@ on `AppState` and is passed explicitly to every function that saves cached data.
 | `domains` | the domain table, read only while `settings.domains.enabled` is on | domain saves, the switch, the forum address, board saves and deletion |
 | `skins` | every skin of the three sources, checked and compiled ([skins.md](skins.md), "Sources"); built-in skins are checked once per process, imported ones on every load, the instance directory is read again only after the block is cleared; also the colored variants pages use (a skin with seed colors, compiled on first use, at most 32) | skin imports and deletes, "Rescan" at `/manage/skins` |
 
+`board-last-posts` holds the latest thread of each board for the `boards` data source, one slot for the anonymous view
+and one for members, each kept while the list version and the boards are the same.
+
 Statistics live here too but are not cleared by writes. Site statistics, scoped statistics (per domain scope, at most
 128 slots), the newest members for anonymous visitors and board statistics are keyed by a time segment of their
 configured length, plus the site time zone offset (the three kinds of statistics), the site day (board statistics) and
@@ -273,6 +276,9 @@ callers read the database.
 | `floors` | anonymous reply pages | content revision and thread revision | page |
 | `rendered-bodies` | rendered post HTML for anonymous visitors | content revision and post versions | page |
 | `member-frame` | a member's own board filters and reading choices | deleted on write | member |
+| `data-threads` | anonymous thread lists of the data sources ([data.md](data.md)) | list version (and a list-lifetime segment for hot threads) | list |
+| `data-members` | the member lists of the data sources (`members.rank`, `members.honors`, `members.verified`), one copy per visitor class without anyone's blocks | list-lifetime segment | list |
+| `thread-outline` | the floors behind `thread.outline` | thread revision | page |
 
 - **Keys.** `CacheKey::new(entry, revision, variants)` builds `{namespace}:cache:v2:{tag}:{digest}`: the registry tag
   (with its structure version, such as `home-v9`) and a SHA-256 digest of the tag, revision and variants, so no uid

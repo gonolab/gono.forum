@@ -316,6 +316,52 @@ pub async fn holders(db: &Database, honor_id: i64, page: i64) -> Result<(Vec<Hol
     Ok((holders, more))
 }
 
+/// One member shown with an honor group outside the admin area.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Listed {
+    pub uid: i64,
+    pub username: String,
+}
+
+/// The newest holders of an honor group for the public (the `members.honors` data source, docs/data.md): grants
+/// that have not expired, of active members who are not frozen and whose space the visitor's class may see
+/// (`signed_in` adds "Logged-in members"), newest grant first, at most `limit`. The viewer's own blocks are removed
+/// by the caller, so one result serves every visitor of a class. Reads `gonof_member_honor_group` (`honor_id`,
+/// `granted_at`, `uid`) backwards from the group's newest grant and the member row by primary key.
+pub async fn listed_holders(
+    db: &Database,
+    honor_id: i64,
+    signed_in: bool,
+    now: i64,
+    limit: i64,
+) -> anyhow::Result<Vec<Listed>> {
+    let space = if signed_in {
+        "m.space_visibility IN ('public','members')"
+    } else {
+        "m.space_visibility='public'"
+    };
+    let rows = db::query(&format!(
+        "SELECT g.uid,m.username FROM gonof_common_member_honor g FORCE INDEX (gonof_member_honor_group) \
+         JOIN gonof_common_member m ON m.uid=g.uid \
+         WHERE g.honor_id=? AND (g.expires_at IS NULL OR g.expires_at>?) \
+         AND m.freeze=0 AND m.account_state='active' AND {space} \
+         ORDER BY g.granted_at DESC,g.uid DESC LIMIT ?"
+    ))
+    .bind(honor_id)
+    .bind(now)
+    .bind(limit)
+    .fetch_all(db.executor())
+    .await?;
+    rows.iter()
+        .map(|row| {
+            Ok(Listed {
+                uid: row.try_get("uid")?,
+                username: db::text(row, "username")?,
+            })
+        })
+        .collect()
+}
+
 async fn log(
     db: &Database,
     tx: &mut Tx<'_>,

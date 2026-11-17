@@ -16,6 +16,7 @@ pub mod pins;
 pub mod profiles;
 pub mod sample;
 mod seed;
+pub mod sources;
 pub mod thread_images;
 pub mod writes;
 
@@ -50,6 +51,19 @@ pub struct Thread {
     /// The last live reply; the list title "Jump to the latest reply" (reading preference) links to its permalink.
     #[serde(default)]
     pub last_reply_pid: Option<i64>,
+    /// The last replier's uid (`last_reply_uid`): `None` without a reply or for a deleted account.
+    #[serde(default)]
+    pub last_reply_uid: Option<i64>,
+    /// The first 255 characters of the last reply's Markdown source (`last_reply_summary`); data sources show it as
+    /// plain text.
+    #[serde(default)]
+    pub last_reply_summary: String,
+    /// The pin level, 0 to 3 (`displayorder` of a listed thread).
+    #[serde(default)]
+    pub pin: i64,
+    /// The highest floor number (`maxposition`).
+    #[serde(default)]
+    pub max_position: i64,
     pub created: u64,
     pub updated: u64,
     pub time: String,
@@ -75,6 +89,11 @@ pub struct Thread {
     pub authorid: Option<i64>,
     #[serde(default)]
     pub author_deleted: bool,
+    /// The author's account is deleted, also known from a list row's author copy (the "Deleted user" marker that
+    /// account deletion writes): records show no uid for such an author. Unlike `author_deleted`, list avatars do not
+    /// read it.
+    #[serde(default)]
+    pub author_gone: bool,
     #[serde(default)]
     pub version: i64,
     #[serde(default)]
@@ -89,12 +108,12 @@ pub struct Thread {
     pub closed: bool,
     #[serde(default)]
     pub edited_at: i64,
-    /// The thread or its forum (after inheritance) is members-only; only set in the detail model, always false in
-    /// list rows.
+    /// The thread or its forum (after inheritance) is members-only. List rows only know the thread's own visibility;
+    /// the detail model adds the forum's, which the router fills from the forum cache.
     #[serde(default)]
     pub members_only: bool,
-    /// Counters on the thread page (docs/queries.md, "Counter columns"): favorites, tip count and total,
-    /// downvotes on the first post. Only set in the detail model, always 0 in list rows.
+    /// Counters (docs/queries.md, "Counter columns"): favorites and the tip count are read by lists too; the tip
+    /// total and the first post's downvotes only by the detail model, always 0 in list rows.
     #[serde(default)]
     pub favorites: i64,
     #[serde(default)]
@@ -381,7 +400,8 @@ fn thread_select() -> String {
             t.deleted_at, firstpost.deleted_at AS first_deleted_at,
             t.subject,
             author.username AS author, author.account_state AS author_state, author.avatar, author.avatar_aid, author.freeze AS author_freeze,
-            t.dateline, t.lastpost, t.last_reply_author, t.last_reply_pid, t.views, t.displayorder, t.digest, firstpost.message,
+            t.dateline, t.lastpost, t.last_reply_author, t.last_reply_pid, t.last_reply_uid, t.last_reply_summary,
+            t.views, t.displayorder, t.digest, firstpost.message, t.maxposition,
             firstpost.pid AS first_pid, firstpost.downvotes AS first_downvotes, t.favorites, t.tips, t.tip_total,
             t.replies AS reply_count,t.visibility
         {THREAD_JOINS}"
@@ -627,7 +647,8 @@ async fn hot_topics(
 const LIST_COLUMNS: &str =
     "t.tid,t.fid,t.authorid,t.version,t.closed,t.category,t.root_replies,t.cache_revision,
         t.deleted_at,t.subject,t.author,
-        t.dateline,t.lastpost,t.last_reply_author,t.last_reply_pid,t.views,t.displayorder,t.digest,
+        t.dateline,t.lastpost,t.last_reply_author,t.last_reply_pid,t.last_reply_uid,t.last_reply_summary,
+        t.views,t.displayorder,t.digest,t.maxposition,t.favorites,t.tips,t.visibility,
         t.replies AS reply_count";
 
 /// Take whole rows straight from the index (the pinned block takes them by primary key).
@@ -1535,7 +1556,7 @@ fn decode_thread_row(row: DbRow, with_opening: bool) -> Result<Thread> {
     };
     // The thread itself is members-only; whether the forum (including inheritance) is members-only is filled in by
     // the router from the forum cache.
-    let members_only = with_opening && decode_text(&row, "visibility")? == "members";
+    let members_only = decode_text(&row, "visibility")? == "members";
     // Lists only read the author copy on the thread row, already written as "Deleted user" at deletion; the thread
     // detail joins the member table and judges by account status.
     let author_deleted = with_opening
@@ -1555,6 +1576,8 @@ fn decode_thread_row(row: DbRow, with_opening: bool) -> Result<Thread> {
     } else {
         String::new()
     };
+    let author_copy: Option<String> = row.try_get("author")?;
+    let author_gone = author_deleted || author_copy.as_deref() == Some(copies::DELETED_AUTHOR);
     Ok(Thread {
         id: u64::try_from(row.try_get::<i64, _>("tid")?)?,
         fixture_forum: String::new(),
@@ -1562,7 +1585,7 @@ fn decode_thread_row(row: DbRow, with_opening: bool) -> Result<Thread> {
         author: if author_deleted {
             crate::i18n::current().common_deleted_user().into()
         } else {
-            row.try_get::<Option<String>, _>("author")?
+            author_copy
                 .map(copies::shown_name)
                 .unwrap_or_else(|| crate::i18n::current().common_deleted_user().into())
         },
@@ -1580,6 +1603,15 @@ fn decode_thread_row(row: DbRow, with_opening: bool) -> Result<Thread> {
         },
         last_reply_author: copies::shown_name(row.try_get("last_reply_author")?),
         last_reply_pid: row.try_get("last_reply_pid")?,
+        last_reply_uid: row.try_get("last_reply_uid")?,
+        // Withdrawn and erased threads keep no excerpt in public models, like their title and body.
+        last_reply_summary: if withdrawn || erased {
+            String::new()
+        } else {
+            decode_text(&row, "last_reply_summary")?
+        },
+        pin: row.try_get::<i64, _>("displayorder")?.clamp(0, 3),
+        max_position: row.try_get("maxposition")?,
         created,
         updated,
         time: display_time(updated)?,
@@ -1597,6 +1629,7 @@ fn decode_thread_row(row: DbRow, with_opening: bool) -> Result<Thread> {
         fid: row.try_get("fid")?,
         authorid: row.try_get("authorid")?,
         author_deleted,
+        author_gone,
         version: row.try_get("version")?,
         first_version,
         erased,
@@ -1605,16 +1638,8 @@ fn decode_thread_row(row: DbRow, with_opening: bool) -> Result<Thread> {
         closed: row.try_get::<i64, _>("closed")? != 0,
         edited_at,
         members_only,
-        favorites: if with_opening {
-            row.try_get("favorites")?
-        } else {
-            0
-        },
-        tips: if with_opening {
-            row.try_get("tips")?
-        } else {
-            0
-        },
+        favorites: row.try_get("favorites")?,
+        tips: row.try_get("tips")?,
         tip_total: if with_opening {
             row.try_get("tip_total")?
         } else {

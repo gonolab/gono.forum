@@ -11,6 +11,8 @@ in `docs/` go into more detail:
 - [queries.md](queries.md): how thread lists and thread pages are queried, with the copy columns and count tables
   that keep them cheap.
 - [api.md](api.md): the member REST API under `/api/v1/`.
+- [data.md](data.md): the data sources that blocks, the page data block and the read-only JSON under `/data/v1/`
+  share.
 - [roles.md](roles.md): staff roles, mutes, level gates and honor groups.
 - [styles.md](styles.md): the style guide for stylesheets, class names and templates, and how to check changes.
 - [skins.md](skins.md): skins (format, sources, checks, cascade layers, choosing and previewing one) and the markup
@@ -94,7 +96,9 @@ Endpoints used by HTMX return HTML fragments, for example:
 | Preview | `POST /api/preview` | the rendered Markdown |
 
 The member API under `/api/v1/` (threads, replies, likes, check-in and so on) is JSON with personal bearer tokens;
-see [api.md](api.md).
+see [api.md](api.md). The data sources ([data.md](data.md)) are read-only views of forum data shared by a layout's
+blocks, the page data block and `GET /data/v1/<source>`, which answers the session's own view as JSON to the site's
+own pages.
 
 ## Data
 

@@ -6,6 +6,7 @@ mod attachments;
 mod auth;
 mod colors;
 mod custom_style;
+mod data_sources;
 mod directory;
 mod domains;
 mod editing;
@@ -357,6 +358,10 @@ pub fn build_with_updater(
         .route("/space/{uid}", get(posting::space_page))
         .route("/space/{uid}/{collection}", get(posting::space_page))
         .route("/healthz", get(healthz))
+        .route(
+            "/data/v1/{source}",
+            axum::routing::any(data_sources::endpoint),
+        )
         .fallback(not_found)
         .layer(TraceLayer::new_for_http().make_span_with(|request: &axum::extract::Request| {
             // Token-bearing URLs must not enter ordinary request logs, even at debug level.

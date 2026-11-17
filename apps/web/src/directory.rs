@@ -198,7 +198,7 @@ pub async fn badge(db: &Database, uid: i64, now: i64) -> Result<Option<Badge>> {
 }
 
 /// One row in the directory.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Listed {
     pub uid: i64,
     pub username: String,
@@ -269,6 +269,50 @@ pub async fn section(
         })
         .collect::<Result<Vec<_>>>()?;
     Ok((listed, more))
+}
+
+/// The first members of a verification category for the public (the `members.verified` data source,
+/// docs/data.md): the same rows as [`section`], without the viewer's blocks (the caller removes them), so one result
+/// serves every visitor of a class; `signed_in` adds spaces shown to "Logged-in members". At most `limit`, on
+/// `gonof_verification_directory` in index order.
+pub async fn listed(
+    db: &Database,
+    category: Category,
+    signed_in: bool,
+    now: i64,
+    limit: i64,
+) -> Result<Vec<Listed>> {
+    let space = if signed_in {
+        "m.space_visibility IN ('public','members')"
+    } else {
+        "m.space_visibility='public'"
+    };
+    let sql = format!(
+        "SELECT v.uid,v.title,v.site_url,v.granted_at,m.username,m.avatar,m.avatar_aid \
+         FROM gonof_common_member_verification v JOIN gonof_common_member m ON m.uid=v.uid \
+         WHERE v.category=? AND (v.expires_at IS NULL OR v.expires_at>?) \
+         AND m.freeze=0 AND m.account_state='active' AND {space} \
+         ORDER BY v.granted_at,v.uid LIMIT ?"
+    );
+    db::query(&sql)
+        .bind(category.slug())
+        .bind(now)
+        .bind(limit)
+        .fetch_all(db.executor())
+        .await?
+        .iter()
+        .map(|row| {
+            Ok(Listed {
+                uid: row.try_get("uid")?,
+                username: db::text(row, "username")?,
+                avatar: row.try_get("avatar")?,
+                avatar_aid: row.try_get("avatar_aid")?,
+                title: db::text(row, "title")?,
+                site_url: row.try_get("site_url")?,
+                granted_at: row.try_get("granted_at")?,
+            })
+        })
+        .collect()
 }
 
 /// All fields of one verification (admin area).

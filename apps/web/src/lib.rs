@@ -7,6 +7,7 @@ pub mod config;
 pub mod content;
 pub mod css_check;
 pub mod custom_css;
+pub mod data;
 pub mod db;
 pub mod debug;
 pub mod directory;

@@ -364,6 +364,12 @@ fn record(name: &str, outcome: trace::BlockOutcome, loaded: Option<Instant>) {
     }
 }
 
+/// What a copy of the boards' latest threads depends on: the list version (site version and new-post watermark) and
+/// the boards, with whether each is top-level.
+pub type BoardPostsKey = ((i64, i64), Vec<(i64, bool)>, Vec<i64>);
+/// The latest thread of each board that has one, by `fid`.
+pub type BoardPosts = Vec<(i64, crate::content::Thread)>;
+
 struct Inner {
     redis: Cache,
     settings: Slot<SettingsBlock>,
@@ -380,6 +386,9 @@ struct Inner {
     forums: [Slot<Vec<crate::organization::ForumRecord>>; 2],
     /// The board stylesheet compiled from the member copy of the readable forums, cleared with them.
     board_style: Slot<crate::organization::style::BoardStyle>,
+    /// The latest thread of each board (data source `boards`): `[anonymous, members]`, keyed by the list version and
+    /// the boards the view may read.
+    board_last_posts: [Slot<(BoardPostsKey, BoardPosts)>; 2],
     /// The multi-domain sites' domain table (not read when the switch is off).
     domains: Slot<crate::domains::DomainMap>,
     /// Every skin: built in, imported and in the instance directory.
@@ -472,6 +481,9 @@ impl Inner {
             slot.clear();
         }
         self.board_style.clear();
+        for slot in &self.board_last_posts {
+            slot.clear();
+        }
         self.domains.clear();
         self.rescan.store(true, Ordering::Relaxed);
         self.skins.clear();
@@ -544,6 +556,7 @@ impl GlobalCache {
                 honors: Slot::new(),
                 forums: [Slot::new(), Slot::new()],
                 board_style: Slot::new(),
+                board_last_posts: [Slot::new(), Slot::new()],
                 domains: Slot::new(),
                 skins: Slot::new(),
                 skin_scan: Mutex::new(None),
@@ -970,6 +983,27 @@ impl GlobalCache {
                     Ok(crate::organization::style::compile(&forums))
                 },
             )
+            .await
+    }
+
+    /// The latest thread of each board for the `boards` data source (docs/data.md): kept per view (`members` or
+    /// anonymous) while the list version and the boards are the same; a new version reads again.
+    pub async fn board_last_posts<F, Fut>(
+        &self,
+        members: bool,
+        key: BoardPostsKey,
+        fill: F,
+    ) -> anyhow::Result<Vec<(i64, crate::content::Thread)>>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = anyhow::Result<Vec<(i64, crate::content::Thread)>>>,
+    {
+        let (slot, name) = if members {
+            (&self.inner.board_last_posts[1], "board-last-posts-members")
+        } else {
+            (&self.inner.board_last_posts[0], "board-last-posts-public")
+        };
+        slot.segment(name, self.statistics_bypass(), key, fill)
             .await
     }
 

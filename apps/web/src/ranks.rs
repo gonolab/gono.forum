@@ -314,7 +314,7 @@ async fn replace(
 }
 
 /// One row on the page.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Standing {
     /// Place after filtering, starting from 1; people filtered out take no place.
     pub rank: usize,
@@ -327,7 +327,7 @@ pub struct Standing {
 }
 
 /// The current snapshot of one board; an empty `computed_at` means it has not been computed yet.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Snapshot {
     pub standings: Vec<Standing>,
     pub computed_at: Option<i64>,
@@ -344,6 +344,42 @@ pub async fn read(
     period: Period,
     viewer: Option<i64>,
 ) -> Result<Snapshot> {
+    let mut snapshot = read_listed(db, board, period, viewer.is_some()).await?;
+    if let Some(viewer) = viewer {
+        let uids: BTreeSet<i64> = snapshot
+            .standings
+            .iter()
+            .map(|standing| standing.uid)
+            .collect();
+        let blocked = blocked_among(db, viewer, &uids).await?;
+        snapshot.without(&blocked);
+    }
+    Ok(snapshot)
+}
+
+impl Snapshot {
+    /// Removes these members and closes up the places.
+    pub fn without(&mut self, uids: &HashSet<i64>) {
+        if uids.is_empty() {
+            return;
+        }
+        self.standings
+            .retain(|standing| !uids.contains(&standing.uid));
+        for (index, standing) in self.standings.iter_mut().enumerate() {
+            standing.rank = index + 1;
+        }
+    }
+}
+
+/// [`read`] without the viewer's blocks: the board as every anonymous visitor (`signed_in` false) or every signed-in
+/// member sees it before their own blocks, so one copy can serve all of them (the `members.rank` data source caches
+/// it and removes the viewer's blocks in code).
+pub async fn read_listed(
+    db: &Database,
+    board: Board,
+    period: Period,
+    signed_in: bool,
+) -> Result<Snapshot> {
     let rows = crate::db::query(
         "SELECT s.uid,s.score,m.username,m.avatar,m.avatar_aid,m.account_state,m.freeze,m.space_visibility,g.growth
          FROM gonof_rank_snapshot s JOIN gonof_common_member m ON m.uid=s.uid
@@ -355,24 +391,13 @@ pub async fn read(
     .fetch_all(db.executor())
     .await?;
     let computed_at = computed_at(db, None, board, period).await?;
-    let blocked = match viewer {
-        Some(viewer) => {
-            let uids: BTreeSet<i64> = rows
-                .iter()
-                .map(|row| row.try_get("uid"))
-                .collect::<std::result::Result<_, _>>()?;
-            blocked_among(db, viewer, &uids).await?
-        }
-        None => HashSet::new(),
-    };
     let mut standings = Vec::new();
     for row in rows {
         let uid: i64 = row.try_get("uid")?;
         let space = crate::db::text(&row, "space_visibility")?;
         let listed = crate::db::text(&row, "account_state")? == "active"
             && row.try_get::<i64, _>("freeze")? == 0
-            && (space == "public" || (space == "members" && viewer.is_some()))
-            && !blocked.contains(&uid);
+            && (space == "public" || (space == "members" && signed_in));
         if !listed {
             continue;
         }

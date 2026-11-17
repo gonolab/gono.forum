@@ -103,7 +103,8 @@ successful response is the object described for each endpoint. An error looks li
 ```
 
 `code` is stable and is what programs should check. `error` is for people: it is written in the site's language (or
-the domain's) and may change. `401` responses carry `WWW-Authenticate: Bearer realm="gonof"`; `429` and `503`
+the domain's) and may change. The read-only data API under `/data/v1` answers errors the same way
+([data.md](data.md)). `401` responses carry `WWW-Authenticate: Bearer realm="gonof"`; `429` and `503`
 responses carry `Retry-After` in seconds.
 
 ### Status and error codes

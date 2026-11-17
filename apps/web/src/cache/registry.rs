@@ -99,6 +99,10 @@ impl Entry {
             "floors" => t.debug_cache_floors(),
             "rendered-bodies" => t.debug_cache_rendered_bodies(),
             "member-frame" => t.debug_cache_member_frame(),
+            "data-threads" => t.debug_cache_data_threads(),
+            "data-members" => t.debug_cache_data_members(),
+            "thread-outline" => t.debug_cache_thread_outline(),
+            "board-last-posts" => t.debug_cache_board_last_posts(),
             "brand-images" => t.debug_cache_brand_images(),
             "display-images" => t.debug_cache_display_images(),
             "thumbnails" => t.debug_cache_thumbnails(),
@@ -198,23 +202,24 @@ const fn anonymous(
     }
 }
 
+/// v10: rows carry the last replier's uid and excerpt, the pin level, the highest floor, favorites and tips.
 pub const THREAD_LIST: Entry = anonymous(
     "thread-list",
     &[Invalidation::Versioned],
     Lifetime::List,
-    "home-v9",
+    "home-v10",
 );
 pub const SIDEBAR_TOPICS: Entry = anonymous(
     "sidebar-topics",
     &[Invalidation::Versioned, Invalidation::Segmented],
     Lifetime::List,
-    "sidebar-topics-v8",
+    "sidebar-topics-v9",
 );
 pub const FORUM_PINS: Entry = anonymous(
     "forum-pins",
     &[Invalidation::Versioned],
     Lifetime::List,
-    "forum-pins-v3",
+    "forum-pins-v4",
 );
 /// v8: the key carries the interface language (docs/architecture.md, "Languages").
 pub const FEED_ITEMS: Entry = anonymous(
@@ -259,6 +264,107 @@ pub const RENDERED_BODIES: Entry = anonymous(
     Lifetime::Page,
     "rendered-v11",
 );
+
+// ---- Data sources (docs/data.md) ----
+
+/// Anonymous `threads` lists of the data sources, keyed like thread lists by the list version (hot threads also by a
+/// list-lifetime segment) and the request's time format.
+pub const DATA_THREADS: Entry = anonymous(
+    "data-threads",
+    &[Invalidation::Versioned, Invalidation::Segmented],
+    Lifetime::List,
+    "data-threads-v1",
+);
+/// Member lists of the data sources (`members.rank`, `members.honors`, `members.verified`), one copy per visitor
+/// class (anonymous, signed in) without anyone's blocks, segmented by the list lifetime; each viewer's blocks are
+/// removed in code.
+pub const DATA_MEMBERS: Entry = anonymous(
+    "data-members",
+    &[Invalidation::Segmented],
+    Lifetime::List,
+    "data-members-v1",
+);
+/// The floors behind `thread.outline`, by thread and its `cache_revision`.
+pub const THREAD_OUTLINE: Entry = anonymous(
+    "thread-outline",
+    &[Invalidation::Versioned],
+    Lifetime::Page,
+    "thread-outline-v1",
+);
+/// The latest thread of each board for `boards` with `last_post`: one slot for the anonymous view and one for
+/// members, each keyed by the list version and the boards it covers.
+pub const BOARD_LAST_POSTS: Entry = Entry {
+    name: "board-last-posts",
+    layer: Layer::Process,
+    invalidation: &[Invalidation::Versioned],
+    lifetime: Lifetime::Process,
+    per_member: false,
+    slots: &["board-last-posts-public", "board-last-posts-members"],
+    redis_tag: None,
+};
+
+/// How each data source (docs/data.md) is read: the caches above or the process blocks it draws on, or none.
+pub struct SourceCache {
+    pub source: &'static str,
+    pub entries: &'static [&'static Entry],
+}
+
+/// Every data source; a unit test keeps it equal to `data::Source::ALL`.
+pub const SOURCES: &[SourceCache] = &[
+    SourceCache {
+        source: "threads",
+        entries: &[&DATA_THREADS],
+    },
+    SourceCache {
+        source: "boards",
+        entries: &[&FORUMS, &FORUM_STATISTICS, &BOARD_LAST_POSTS],
+    },
+    SourceCache {
+        source: "members.recent",
+        entries: &[&RECENT_MEMBERS],
+    },
+    SourceCache {
+        source: "members.rank",
+        entries: &[&DATA_MEMBERS],
+    },
+    SourceCache {
+        source: "members.honors",
+        entries: &[&HONORS, &DATA_MEMBERS],
+    },
+    SourceCache {
+        source: "members.verified",
+        entries: &[&DATA_MEMBERS],
+    },
+    SourceCache {
+        source: "moderators",
+        entries: &[&MODERATORS],
+    },
+    SourceCache {
+        source: "site.stats",
+        entries: &[&STATISTICS, &SCOPED_STATISTICS, &FORUM_STATISTICS],
+    },
+    SourceCache {
+        source: "site.links",
+        entries: &[&LINKS],
+    },
+    SourceCache {
+        source: "thread.outline",
+        entries: &[&THREAD_OUTLINE],
+    },
+    // The member's own data is never cached for others: the session, the member frame and live reads.
+    SourceCache {
+        source: "me.card",
+        entries: &[&MEMBER_FRAME],
+    },
+    SourceCache {
+        source: "me.counts",
+        entries: &[],
+    },
+    SourceCache {
+        source: "me.checkin",
+        entries: &[],
+    },
+];
 
 // ---- Redis only: per member (key deleted on write) ----
 
@@ -342,6 +448,10 @@ pub const ENTRIES: &[&Entry] = &[
     &FLOORS,
     &RENDERED_BODIES,
     &MEMBER_FRAME,
+    &DATA_THREADS,
+    &DATA_MEMBERS,
+    &THREAD_OUTLINE,
+    &BOARD_LAST_POSTS,
     &BRAND_IMAGES,
     &DISPLAY_IMAGES,
     &THUMBNAILS,
@@ -492,6 +602,33 @@ mod tests {
     }
 
     #[test]
+    fn every_data_source_is_registered_once() {
+        let names: Vec<_> = SOURCES.iter().map(|source| source.source).collect();
+        let expected: Vec<_> = crate::data::Source::ALL
+            .iter()
+            .map(|source| source.name())
+            .collect();
+        assert_eq!(names, expected);
+        for source in SOURCES {
+            for entry in source.entries {
+                assert!(
+                    ENTRIES.iter().any(|known| std::ptr::eq(*known, *entry)),
+                    "{}: {} is not in ENTRIES",
+                    source.source,
+                    entry.name
+                );
+                if source.source.starts_with("me.") {
+                    assert!(
+                        entry.per_member,
+                        "{} is personal and only reads per-member caches",
+                        source.source
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn only_redis_entries_make_keys() {
         for entry in ENTRIES {
             let key = CacheKey::new(entry, 1, &("fixture", 1));
@@ -504,7 +641,7 @@ mod tests {
             other.redis_key("ns"),
             "different tags make different keys"
         );
-        assert!(first.redis_key("ns").starts_with("ns:cache:v2:home-v9:"));
+        assert!(first.redis_key("ns").starts_with("ns:cache:v2:home-v10:"));
         assert_eq!(slot("forums-members").map(|e| e.name), Some("forums"));
         assert!(slot("nope").is_none());
     }

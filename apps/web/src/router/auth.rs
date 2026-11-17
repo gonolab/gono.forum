@@ -473,7 +473,9 @@ pub(super) async fn context(
         && !["/api/", "/media/", "/static/"]
             .iter()
             .any(|prefix| request.uri().path().starts_with(prefix));
-    let landing_channel = if session.is_none() {
+    // The read-only data API answers JSON: it reads the session but sets no cookie of its own.
+    let data_api = path.starts_with(super::data_sources::PREFIX);
+    let landing_channel = if session.is_none() && !data_api {
         registration_source::landing(&request)
     } else {
         None
@@ -575,7 +577,7 @@ pub(super) async fn context(
             if !viewer.raw_sid.is_empty() {
                 set_cookie(&mut response, secure, true, "", 0);
             }
-            if anonymous_csrf.is_none() {
+            if anonymous_csrf.is_none() && !data_api {
                 set_cookie(&mut response, secure, false, &viewer.csrf, 3600);
             }
         }

@@ -151,6 +151,49 @@ bounds.
 - **Statistics** (`content::statistics_in`, `content::forum_statistics_at`) are aggregate counts over public content,
   cached by time period, not count-table reads; their thread counts leave out withdrawn threads.
 
+## Data sources
+
+The data sources ([data.md](data.md)) read through the same paths as lists and pages, so most of their statements
+are listed above; the new ones are below. Plans are from MySQL 8.4 and 5.7 on the development fixture.
+
+- **`threads`** (`content::sources::threads`): the list statements above without the total, `LIMIT` 1 to 20 and no
+  `OFFSET`: `latest`, `pinned` and a category on the scope's `*_latest` (or `*_category_latest`) index, `created` on
+  `*_created`, `featured` on `gonof_thread_featured`, `hot` on `gonof_thread_global_active` as the sidebar's hot
+  threads (a window of 1, 3, 7 or 30 days, the 30-day window being the largest sort, as the sidebar's
+  `settings.display.hot_days` allows today; snapshots like the leaderboards' would replace it on very busy sites).
+  The list thumbnails are one more `IN` statement when the site shows them. Anonymous results are cached in Redis
+  (`data-threads`, keyed by the list version).
+- **`boards` with `last_post`** (`content::sources::board_last_posts`): for each board, one statement per pin level,
+  3 to 0, an index seek to the newest row of that level, the newest of the four kept in code:
+
+  ```sql
+  SELECT … FROM gonof_forum_thread t FORCE INDEX (gonof_thread_family_latest)   -- a child board: gonof_thread_forum_latest, t.fid = ?
+  WHERE t.family_fid = ? AND t.displayorder = ? AND t.visibility = 'public' AND t.fid IN (…)
+  ORDER BY t.lastpost DESC, t.tid DESC LIMIT 1
+  ```
+
+  `ref` on the index with the scope and the pin level as equalities, read backwards, `Using index` for the
+  conditions (8.4: `Backward index scan; Using index`). The result is kept in the process cache per view (anonymous,
+  members) until the list version changes (`board-last-posts`); a page with the boards' block reads at most four
+  statements per board on a miss.
+- **`thread.outline`** (`content::sources`): outside the thread's own page, `outline_head` reads the thread row by
+  primary key under `content::thread_visible_sql` (`const`); `outline_floors` reads `(position, dateline)` on the post
+  primary key, `FORCE INDEX (PRIMARY)` (`range` on `PRIMARY`; without the hint 8.4 takes `gonof_post_root_position`
+  and sorts): every floor up to 5,000, a sample of at most 201 floors by `position IN (…)` past that. Cached in Redis
+  by thread and `cache_revision` (`thread-outline`).
+- **`members.honors`** (`honors::listed_holders`): `gonof_member_honor_group (honor_id, granted_at, uid)` with the group
+  as an equality, read backwards (`ref`), and the member by primary key (`eq_ref`), at most the limit plus up to 20
+  members the viewer blocked, who are removed in code.
+- **`members.verified`** (`directory::listed`): `gonof_verification_directory (category, granted_at, uid)` with the
+  category as an equality (`ref`), the member by primary key (`eq_ref`), as the verified members page reads it but
+  without the viewer's blocks, which are removed in code.
+- **`members.rank`** (`ranks::read_listed`): the leaderboard page's two statements without the viewer's blocks.
+- **`me.card`**: the growth account by primary key, besides the member card's summary.
+
+`members.rank`, `members.honors` and `members.verified` keep one copy per visitor class (anonymous, signed in) in
+Redis (`data-members`, segmented by the list lifetime) and remove each viewer's blocks in code, so a block costs a
+Redis read for every visitor. `members.recent`, `moderators`, `site.stats` and `site.links` read process caches only.
+
 ## Thread page
 
 `topic_response` in `router.rs` makes these reads:
