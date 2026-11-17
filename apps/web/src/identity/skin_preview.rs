@@ -47,14 +47,19 @@ impl Identity {
 
     /// The preview `uid` started; `None` when the cookie is empty, expired, undecryptable or someone else's.
     pub fn open_skin_preview(&self, raw: &str, uid: i64) -> Option<SkinPreview> {
+        self.sealed_skin_preview(raw)
+            .filter(|preview| preview.uid == uid)
+    }
+
+    /// The preview in a cookie that this site sealed and that has not expired, whoever started it. Opening it needs no
+    /// database; callers that act on it still check that the signed-in member is `preview.uid`.
+    pub fn sealed_skin_preview(&self, raw: &str) -> Option<SkinPreview> {
         let timestamp = now();
         self.config
             .cookie
             .open_value::<SkinPreview>(AAD, raw)
             .filter(|preview| {
-                preview.uid == uid
-                    && preview.expires_at > timestamp
-                    && preview.expires_at <= timestamp + PREVIEW_TTL
+                preview.expires_at > timestamp && preview.expires_at <= timestamp + PREVIEW_TTL
             })
     }
 }

@@ -1692,6 +1692,27 @@ fn auxiliary_cookie(headers: &HeaderMap, name: &str) -> Option<String> {
                 .unwrap_or_default()
         })
 }
+/// The skin preview of a request that this middleware does not see (the skin stylesheet route, docs/skins.md, "The
+/// stylesheet of a skin"), when `wanted` accepts it and the signed-in member is the administrator who started it.
+/// The sealed cookie is opened first, which needs no database, so a request without a preview this site sealed costs
+/// no session lookup.
+pub(super) async fn own_skin_preview(
+    state: &AppState,
+    headers: &HeaderMap,
+    extensions: &axum::http::Extensions,
+    wanted: impl FnOnce(&crate::identity::SkinPreview) -> bool,
+) -> Option<crate::identity::SkinPreview> {
+    let raw = auxiliary_cookie(headers, super::skins::PREVIEW_COOKIE)?;
+    let preview = state.identity.sealed_skin_preview(&raw)?;
+    if !wanted(&preview) {
+        return None;
+    }
+    let secure = secure_transport(headers, extensions, state.config.listen);
+    let raw_sid = session_cookie(headers, cookie_name(secure, true))?;
+    let session = state.identity.session(&raw_sid).await.ok()??;
+    (session.member.is_admin && session.member.uid == preview.uid).then_some(preview)
+}
+
 pub(super) fn auxiliary_set_cookie(response: &mut Response, name: &str, value: &str, seconds: i64) {
     let value: String = url::form_urlencoded::byte_serialize(value.as_bytes()).collect();
     if let Ok(header) = HeaderValue::from_str(&format!(

@@ -190,11 +190,16 @@ order:
 
 The address is served without a session or cookies. With the current hash it is cached for a year: `public` for skins
 a page of the site uses (the site's or a domain's choice, and `default`) and for the colored variants a page uses (the
-skin and seed colors of the site or of a domain), `private` for others, so a skin or colors being previewed stay out of
-shared caches. Another hash gets the current stylesheet with `no-cache`; a `c` that is not twelve hex digits is not
-found. The process keeps the colored variants pages use with the skins (at most 32, the oldest dropped first); one no
-page uses is compiled for its answer only. `errors/plain.html` links the built-in default skin without seed colors,
-which needs neither settings nor the database.
+skin and seed colors of the site or of a domain), `private` for others, so a skin being previewed stays out of shared
+caches. Another hash gets the current stylesheet with `no-cache`; a `c` that is not twelve hex digits is not found.
+
+A colored variant is only compiled for seed colors the site or a domain uses, and the process keeps those with the
+skins (at most 32, the oldest dropped first), or for the administrator previewing those colors on that skin: the
+request carries their sealed preview cookie, only then is their session looked up, and the variant is compiled off the
+request workers, served `private` and not kept. Any other `c` compiles nothing and gets the skin's own stylesheet with
+`no-cache`, so made-up addresses cost no work, and a page cached from before a color change still has a stylesheet.
+`errors/plain.html` links the built-in default skin without seed colors, which needs neither settings nor the
+database.
 
 ## Choosing a skin
 
@@ -270,8 +275,9 @@ preview of a skin shows it with the colors the page has anyway (the site's or th
 that skin); a preview from Appearance › Colors shows the entered seeds over the site's skin and replaces any preview of
 a skin. A bar at the top of every page offers **Publish** (make the skin the site's, recording `skin.select`, or save
 the colors as the site's, recording `skin.colors`) and **Exit preview**. Pages of signed-in members are never stored
-by shared caches (`private, no-store`) and the anonymous caches are not used for them; the stylesheet of a skin or of
-colors no page uses is served `private`.
+by shared caches (`private, no-store`) and the anonymous caches are not used for them; the stylesheet of a skin no
+page uses is served `private`, and that of previewed colors only to the administrator previewing them, `private` too
+(see "The stylesheet of a skin").
 
 ## The hooks
 

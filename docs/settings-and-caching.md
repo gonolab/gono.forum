@@ -251,7 +251,9 @@ publish. Other rules:
 Skin stylesheets (`/skin/<id>.css?v=<hash>`, and `?c=<seeds>&v=<hash>` for a skin with seed colors) are not cached
 by the server beyond the `skins` block, which holds them compiled; browsers keep the one with the current hash for a
 year (`public` when a page of the site uses the skin, or the skin with those colors, `private` otherwise, so a
-previewed skin or colors stay out of shared caches). An administrator's preview is a sealed cookie,
+previewed skin or colors stay out of shared caches). Colors that no page uses are compiled only for the administrator
+previewing them; any other request for them gets the skin's own stylesheet with `no-cache` ([skins.md](skins.md),
+"The stylesheet of a skin"). An administrator's preview is a sealed cookie,
 not a cache entry, and the pages it changes are those of a signed-in member, which are never cached for others
 ([skins.md](skins.md), "Preview").
 

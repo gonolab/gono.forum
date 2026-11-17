@@ -47,10 +47,17 @@ struct StylesheetQuery {
 /// so the matching version is cached for a year; `public` only for skins and colors a page of the site uses, so a
 /// skin or colors being previewed stay out of shared caches. An old hash gets the current stylesheet uncached. Served
 /// without a session: it is the same for everyone.
+///
+/// A colored variant is only compiled for seed colors that the site or a domain uses (and kept for the next
+/// request), or for the preview of the administrator asking, recognised by their sealed preview cookie and their
+/// session (compiled off the async workers and not kept). Any other `c=` gets the skin's own stylesheet with
+/// `no-cache` and compiles nothing, so made-up addresses cost no work; a page cached from before a color change still
+/// gets a stylesheet.
 async fn stylesheet(
     State(state): State<Arc<AppState>>,
     AxumPath(file): AxumPath<String>,
     Query(query): Query<StylesheetQuery>,
+    request: axum::extract::Request,
 ) -> Response {
     let Some(id) = file.strip_suffix(".css") else {
         return StatusCode::NOT_FOUND.into_response();
@@ -71,6 +78,9 @@ async fn stylesheet(
             None
         }
     };
+    let in_use = block.as_ref().map_or_else(Vec::new, |block| {
+        skins::selection::in_use(block.layout.as_ref(), &block.domain_layouts)
+    });
     let active = match seeds {
         None => {
             id == skins::DEFAULT_ID
@@ -82,25 +92,62 @@ async fn stylesheet(
                         .any(|layout| layout.skin.as_deref() == Some(id))
                 })
         }
-        Some(seeds) => block.as_ref().is_some_and(|block| {
-            skins::selection::in_use(block.layout.as_ref(), &block.domain_layouts)
-                .iter()
-                .any(|(skin, colors)| skin == id && *colors == Some(seeds))
-        }),
+        Some(seeds) => in_use
+            .iter()
+            .any(|(skin, colors)| skin == id && *colors == Some(seeds)),
     };
-    let skin = match catalog.as_ref().and_then(|catalog| catalog.get(id)) {
-        // Colors no page uses (a preview, or an address made up) are compiled for this answer only.
-        Some(skin) => catalog.as_ref().map_or_else(
-            || skin.clone(),
-            |catalog| catalog.colored(skin, seeds, active),
-        ),
+    let base = match catalog.as_ref().and_then(|catalog| catalog.get(id)) {
+        Some(skin) => skin.clone(),
         None if id == skins::DEFAULT_ID => skins::DEFAULT_SKIN.clone(),
         None => return StatusCode::NOT_FOUND.into_response(),
     };
-    let cache = match (query.v == skin.version_hash, active) {
-        (true, true) => "public, max-age=31536000, immutable",
-        (true, false) => "private, max-age=31536000, immutable",
-        (false, _) => "no-cache",
+    let (skin, uncolored) = match (seeds, &catalog) {
+        (None, _) => (base, false),
+        (Some(seeds), Some(catalog)) if active => {
+            (catalog.colored(&base, Some(seeds), true), false)
+        }
+        (Some(seeds), Some(catalog)) => {
+            // The preview's own seeds, or for a preview of a skin the seeds a page has anyway over that skin.
+            let previewed = super::auth::own_skin_preview(
+                &state,
+                request.headers(),
+                request.extensions(),
+                |preview| {
+                    preview.skin == id
+                        && match preview.colors {
+                            skins::selection::Colors::Seeds(own) => own == seeds,
+                            skins::selection::Colors::Inherit => {
+                                in_use.iter().any(|(_, colors)| *colors == Some(seeds))
+                            }
+                            skins::selection::Colors::Skin => false,
+                        }
+                },
+            )
+            .await;
+            match previewed {
+                Some(_) => {
+                    let (catalog, skin) = (catalog.clone(), base.clone());
+                    match tokio::task::spawn_blocking(move || {
+                        catalog.colored(&skin, Some(seeds), false)
+                    })
+                    .await
+                    {
+                        Ok(variant) => (variant, false),
+                        Err(error) => {
+                            tracing::error!(%error, "compiling a previewed colored skin failed");
+                            (base, true)
+                        }
+                    }
+                }
+                None => (base, true),
+            }
+        }
+        (Some(_), None) => (base, true),
+    };
+    let cache = match (uncolored, query.v == skin.version_hash, active) {
+        (true, _, _) | (false, false, _) => "no-cache",
+        (false, true, true) => "public, max-age=31536000, immutable",
+        (false, true, false) => "private, max-age=31536000, immutable",
     };
     (
         [

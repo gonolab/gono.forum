@@ -4,6 +4,7 @@
 //! an id decides it: when that skin fails its checks the id has no usable skin at all, rather than silently falling
 //! to a lower source the administrator may not expect.
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use super::{Checked, Skin, Source};
@@ -102,6 +103,8 @@ pub struct Catalog {
     /// Colored variants of usable skins (docs/styles.md, "Seed colors"), compiled on first use and dropped with the
     /// catalog: the ones pages of the site and previews ask for, at most [`VARIANTS`], the oldest going first.
     variants: Mutex<Vec<Arc<Skin>>>,
+    /// How many variants this catalog has compiled; the tests check with it what compiles and what does not.
+    compiled: AtomicU64,
 }
 
 /// How many colored variants a catalog keeps: enough for the site, every domain with its own colors or skin, and a
@@ -123,6 +126,7 @@ impl Catalog {
         Self {
             listed,
             variants: Mutex::default(),
+            compiled: AtomicU64::new(0),
         }
     }
 
@@ -135,8 +139,9 @@ impl Catalog {
     }
 
     /// `skin` with the seed colors, or `skin` itself without them. `remember` keeps a newly compiled variant for the
-    /// next request; the stylesheet route passes `false` for colors no page uses, so arbitrary addresses cannot push
-    /// out the variants pages need.
+    /// next request; the stylesheet route passes `false` for an administrator's own preview, so it cannot push out
+    /// the variants pages need. Nothing else compiles a variant: the stylesheet route serves colors that no page uses
+    /// and no preview of the requester shows without them.
     pub fn colored(
         &self,
         skin: &Arc<Skin>,
@@ -161,6 +166,7 @@ impl Catalog {
             return variant;
         }
         // Compiled outside the lock; two requests racing for the same variant compile it twice and keep one.
+        self.compiled.fetch_add(1, Ordering::Relaxed);
         let variant = Arc::new(skin.colored(seeds));
         if remember {
             let mut variants = self.variants.lock().unwrap_or_else(PoisonError::into_inner);
@@ -173,6 +179,11 @@ impl Catalog {
             variants.push(variant.clone());
         }
         variant
+    }
+
+    /// How many colored variants this catalog has compiled so far.
+    pub fn compiled(&self) -> u64 {
+        self.compiled.load(Ordering::Relaxed)
     }
 
     pub fn usable(&self) -> impl Iterator<Item = &Arc<Skin>> {

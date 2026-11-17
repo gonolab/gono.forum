@@ -1011,6 +1011,18 @@ fn seeds(primary: &str, secondary: &str) -> skins::seed::Seeds {
     skins::seed::Seeds::parse(primary, secondary).unwrap()
 }
 
+impl Site {
+    /// How many colored variants the site's skin catalog has compiled.
+    async fn compiled(&self) -> u64 {
+        self.services
+            .global
+            .skins(self.db(), &self.root.join("skins"), 3600)
+            .await
+            .unwrap()
+            .compiled()
+    }
+}
+
 #[tokio::test]
 async fn seed_colors_derive_over_the_skin_and_change_its_stylesheet_address() {
     let site = Site::new(&[]).await;
@@ -1109,16 +1121,27 @@ async fn seed_colors_derive_over_the_skin_and_change_its_stylesheet_address() {
     assert!(css.html.contains("--primary-bg: #0f766e;"), "{}", css.html);
     // The guard colors of the footer follow the derived palette.
     assert!(!css.html.contains("color: #57637a !important"));
-    // Colors no page uses are compiled for that answer only and stay private; a malformed code is unknown.
+    // The colors in use are compiled once and kept.
+    let compiled = site.compiled().await;
+    assert!(compiled >= 1);
+    site.get(&colored, None).await;
+    site.get("/", None).await;
+    assert_eq!(site.compiled().await, compiled);
+    // Colors no page uses compile nothing, even with their right hash: the skin's own stylesheet, uncached. A
+    // malformed code is unknown.
     let unused = skins::DEFAULT_SKIN.colored(seeds("#e11d48", "#7c3aed"));
-    let other = site
-        .get(
-            &format!("/skin/default.css?c=e11d487c3aed&v={}", unused.version_hash),
-            None,
-        )
-        .await;
-    assert_eq!(other.cache, "private, max-age=31536000, immutable");
-    assert!(other.html.contains("--primary-bg: #e11d48;"));
+    for path in [
+        format!("/skin/default.css?c=e11d487c3aed&v={}", unused.version_hash),
+        "/skin/default.css?c=123456abcdef&v=x".to_owned(),
+        "/skin/default.css?c=000000ffffff".to_owned(),
+    ] {
+        let other = site.get(&path, None).await;
+        assert_eq!(other.status, StatusCode::OK, "{path}");
+        assert_eq!(other.cache, "no-cache", "{path}");
+        assert!(!other.html.contains("with the seed colors"), "{path}");
+        assert!(other.html.contains("--primary-bg: #4f46e5;"), "{path}");
+    }
+    assert_eq!(site.compiled().await, compiled);
     assert_eq!(
         site.get("/skin/default.css?c=nothex000000&v=x", None)
             .await
@@ -1370,7 +1393,7 @@ async fn a_domain_follows_the_site_colors_or_chooses_its_own() {
 
 #[tokio::test]
 async fn a_color_preview_is_only_seen_by_the_administrator_who_started_it() {
-    let site = Site::new(&[]).await;
+    let site = Site::new(&[("ledger", &ledger_dir())]).await;
     let started = site
         .post(
             "/manage/appearance/colors/preview",
@@ -1399,10 +1422,63 @@ async fn a_color_preview_is_only_seen_by_the_administrator_who_started_it() {
             .contains(&gono_forum_web::i18n::Lang::default().skin_preview_colors_bar("Default"))
     );
     assert_eq!(previewed.cache, "private, no-store");
-    assert_eq!(
-        site.get(&unescape(&href), None).await.cache,
-        "private, max-age=31536000, immutable"
+    // The administrator gets the previewed colors, kept out of shared caches; anyone else the skin's own colors.
+    let own = site
+        .get_on(TEST_SITE_URL, &unescape(&href), &admin_cookies)
+        .await;
+    assert_eq!(own.cache, "private, max-age=31536000, immutable");
+    assert!(own.html.contains("--primary-bg: #e11d48;"));
+    let theirs = site.get(&unescape(&href), None).await;
+    assert_eq!(theirs.cache, "no-cache");
+    assert!(!theirs.html.contains("with the seed colors"));
+    // A preview whose variant was never compiled for a page (another process, or evicted) is compiled for its
+    // administrator alone: not for another member holding the same cookie, nor for a cookie of other colors.
+    let fresh = site
+        .post(
+            "/manage/appearance/colors/preview",
+            &site.admin,
+            &[("primary", "#1e3a8a"), ("secondary", "#fef08a")],
+        )
+        .await;
+    let fresh_cookie = fresh
+        .cookies
+        .iter()
+        .find(|cookie| cookie.starts_with("gonof_skin_preview="))
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let fresh_path = format!(
+        "/skin/default.css?c=1e3a8afef08a&v={}",
+        skins::DEFAULT_SKIN
+            .colored(seeds("#1e3a8a", "#fef08a"))
+            .version_hash
     );
+    let before = site.compiled().await;
+    for cookies in [
+        vec![
+            format!("gonof_session={}", site.member.0),
+            fresh_cookie.clone(),
+        ],
+        vec![format!("gonof_session={}", site.admin.0), cookie.clone()],
+        vec![fresh_cookie.clone()],
+    ] {
+        let refused = site.get_on(TEST_SITE_URL, &fresh_path, &cookies).await;
+        assert_eq!(refused.cache, "no-cache");
+        assert!(!refused.html.contains("with the seed colors"));
+    }
+    assert_eq!(site.compiled().await, before);
+    let compiled = site
+        .get_on(
+            TEST_SITE_URL,
+            &fresh_path,
+            &[format!("gonof_session={}", site.admin.0), fresh_cookie],
+        )
+        .await;
+    assert_eq!(compiled.cache, "private, max-age=31536000, immutable");
+    assert!(compiled.html.contains("--primary-bg: #1e3a8a;"));
+    assert_eq!(site.compiled().await, before + 1);
     // Nobody else sees it, and nothing was saved.
     assert!(!skin_href(&site.get("/", None).await.html).contains("c="));
     let member = site
@@ -1451,6 +1527,39 @@ async fn a_color_preview_is_only_seen_by_the_administrator_who_started_it() {
         )
         .await;
     assert!(skin_href(&page.html).contains("c=0f766ef97316"));
+    // So does a preview of another skin; its stylesheet with those colors is the previewing administrator's alone.
+    let other_skin = site
+        .post(
+            "/manage/skins/preview",
+            &site.admin,
+            &[("choice", "ledger:")],
+        )
+        .await;
+    let other_cookie = other_skin
+        .cookies
+        .iter()
+        .find(|cookie| cookie.starts_with("gonof_skin_preview="))
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let other_cookies = vec![format!("gonof_session={}", site.admin.0), other_cookie];
+    let page = site.get_on(TEST_SITE_URL, "/", &other_cookies).await;
+    let ledger = unescape(&skin_href(&page.html));
+    assert!(
+        ledger.starts_with("/skin/ledger.css?c=0f766ef97316&v="),
+        "{ledger}"
+    );
+    let own = site.get_on(TEST_SITE_URL, &ledger, &other_cookies).await;
+    assert_eq!(own.cache, "private, max-age=31536000, immutable");
+    assert!(
+        own.html
+            .contains("with the seed colors #0f766e and #f97316")
+    );
+    let theirs = site.get(&ledger, None).await;
+    assert_eq!(theirs.cache, "no-cache");
+    assert!(!theirs.html.contains("with the seed colors"));
     // Publishing the color preview saves its colors and ends it.
     let published = site
         .post_with(

@@ -152,7 +152,9 @@ the like); the seeds are not variables of the contract.
   "Choosing a skin"). They apply over any skin, built in or external, stay when the skin changes and are derived again
   for the new one. The skin's stylesheet is compiled again with the derived palettes into a colored variant at
   `/skin/<id>.css?c=<seeds>&v=<hash>` ([skins.md](skins.md), "The stylesheet of a skin"), whose footer guard colors
-  come from the derived palette. Without seeds nothing changes: the skin and its address are as they were.
+  come from the derived palette. Only seeds a page uses, or that the requesting administrator previews, are compiled;
+  any other `c` gets the skin's own stylesheet. Without seeds nothing changes: the skin and its address are as they
+  were.
 - **The form** works without JavaScript. The fields are `<input type="color">`; where a browser shows a text field
   instead, the value must be `#` and six hexadecimal digits, which the server checks either way. "Show the derived
   colors" derives without saving, "Preview" shows the entered colors to this administrator only ([skins.md](skins.md),
