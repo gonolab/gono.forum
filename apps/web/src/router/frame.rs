@@ -282,14 +282,14 @@ impl SiteFrame {
                 .map(|(_, places)| places.clone())
         });
         // A previewed draft replaces the places it is the draft of: the site's on every domain, a domain's on that
-        // domain only. A draft that cannot be read shows the published places and is logged.
-        let mut preview_layout = false;
+        // domain only (elsewhere the preview bar still says a draft is previewed). A draft that cannot be read shows
+        // the published places and is logged.
+        let preview_layout = draft.is_some();
         if let Some(draft) = draft
             && (draft.domain.is_none() || draft.domain == domain_id)
         {
             match crate::skins::selection::read_draft(&state.db, draft.domain).await {
                 Ok(places) => {
-                    preview_layout = true;
                     let places = places.filter(|places| !places.is_empty());
                     match draft.domain {
                         None => site_places = places,
