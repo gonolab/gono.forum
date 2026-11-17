@@ -369,10 +369,10 @@ Draw new icons yourself, or take them from a set whose licence allows it and rec
 - Shown times are `<time>` elements with `datetime` in UTC (`crate::clock::iso`); see [skins.md](skins.md), "Times".
 - Every focusable element shows keyboard focus. Links, buttons and other controls get a `:focus-visible` ring,
   normally a 2px outline in `--focus-ring`. Form fields get no ring: text fields, selects and textareas darken their
-  own border to `--input-focus` (the header search darkens its box), and checkboxes and radios, which keep the native
-  look, get a 1px `--input-focus` line around their own shape (a `drop-shadow` filter, since browsers draw outlines
-  of native radios square). File inputs look like buttons and keep the ring. A field built
-  by a script takes the `control` class so that it has a border to darken. `test:checks` fails on a Tab stop that
+  own border to `--input-focus` (the header search darkens its box, and its button has the ring like other buttons),
+  and checkboxes and radios, which keep the native look, get a 1px `--input-focus` line around their own shape (a
+  `drop-shadow` filter, since browsers draw outlines of native radios square). File inputs look like buttons and keep
+  the ring. A field built by a script takes the `control` class so that it has a border to darken. `test:checks` fails on a Tab stop that
   shows neither. The build copies the focus rules into the `guards` layer for built-in skins.
 - Toggles (favorite, like, downvote) use `aria-pressed`; a favorite placeholder that cannot be pressed uses
   `data-active` instead of ARIA.

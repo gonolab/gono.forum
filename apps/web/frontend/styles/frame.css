@@ -394,9 +394,17 @@ html[data-history-revalidating] body {
   cursor: pointer;
 }
 
-.masthead__search-button:hover,
+.masthead__search-button:hover {
+  background: var(--panel-alt);
+  color: var(--text);
+}
+
+/* Keyboard focus: the ring every button has (docs/styles.md, "HTML conventions"), drawn just inside the button's
+   round edge so it stays whole within the search box and never crosses the box's own border; it borders only the
+   button's ground and the box's. The build copies it into the guards layer for built-in skins. */
 .masthead__search-button:focus-visible {
-  outline: none;
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
   background: var(--panel-alt);
   color: var(--text);
 }
