@@ -337,6 +337,10 @@ technology; the text beside it names the control, or an icon-only control gets a
   reading direction.
 - Admin module icons are `<symbol>` elements in `partials/manage_icons.html` (stroke width 1.6), used as
   `<svg><use href="#manage-icon-<name>"></use></svg>`. A new module adds its symbol there.
+- Board glyphs, the icons an administrator can give a board, are 32 `<symbol>`s written by
+  `partials/board_glyphs.html` from `organization/glyphs.rs`, used as `<svg><use href="#board-glyph-<name>"></use></svg>`
+  on pages that show them. The same bodies become the `--board-glyph` images of the board stylesheet
+  ([skins.md](skins.md), "Board colors and glyphs"), so a new glyph is added in that one file.
 - Editor toolbar icons are SVG masks in `composer.css` (`.tool-*::after` with a `data:image/svg+xml` URI), painted
   with `background-color: currentColor`.
 - Icons are static; nothing animates.

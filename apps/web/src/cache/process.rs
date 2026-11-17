@@ -378,6 +378,8 @@ struct Inner {
     honors: Slot<Vec<crate::honors::Honor>>,
     /// Readable forums: `[anonymous, member]`, each the result of the `organization::forums` SQL query.
     forums: [Slot<Vec<crate::organization::ForumRecord>>; 2],
+    /// The board stylesheet compiled from the member copy of the readable forums, cleared with them.
+    board_style: Slot<crate::organization::style::BoardStyle>,
     /// The multi-domain sites' domain table (not read when the switch is off).
     domains: Slot<crate::domains::DomainMap>,
     /// Every skin: built in, imported and in the instance directory.
@@ -442,6 +444,7 @@ impl Inner {
                 for slot in &self.forums {
                     slot.clear();
                 }
+                self.board_style.clear();
             }
             Block::Domains => self.domains.clear(),
             Block::Skins => {
@@ -468,6 +471,7 @@ impl Inner {
         for slot in &self.forums {
             slot.clear();
         }
+        self.board_style.clear();
         self.domains.clear();
         self.rescan.store(true, Ordering::Relaxed);
         self.skins.clear();
@@ -539,6 +543,7 @@ impl GlobalCache {
                 moderators: Slot::new(),
                 honors: Slot::new(),
                 forums: [Slot::new(), Slot::new()],
+                board_style: Slot::new(),
                 domains: Slot::new(),
                 skins: Slot::new(),
                 skin_scan: Mutex::new(None),
@@ -945,6 +950,27 @@ impl GlobalCache {
             || crate::organization::readable_forums(db, members),
         )
         .await
+    }
+
+    /// The board stylesheet (docs/skins.md, "Board colors and glyphs"), compiled from the forums signed-in members
+    /// can read and kept until the forums block is cleared.
+    pub async fn board_style(
+        &self,
+        db: &Database,
+        ttl: u64,
+    ) -> anyhow::Result<Arc<crate::organization::style::BoardStyle>> {
+        self.inner
+            .board_style
+            .get(
+                "board-style",
+                ttl == 0,
+                |_| ttl,
+                || async {
+                    let forums = self.forums(db, true, ttl).await?;
+                    Ok(crate::organization::style::compile(&forums))
+                },
+            )
+            .await
     }
 
     /// The multi-domain sites' domain table: the entry layer reads it once per request

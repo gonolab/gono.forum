@@ -1,4 +1,7 @@
 //! Source of truth for the two-level forums; all public entry points reuse the same access conditions.
+pub mod glyphs;
+pub mod style;
+
 use crate::db::Tx;
 use std::collections::BTreeSet;
 
@@ -258,6 +261,10 @@ pub struct ForumRecord {
     pub status: i64,
     pub visibility: String,
     pub version: i64,
+    /// Empty or `#rrggbb` in lowercase (docs/skins.md, "Board colors and glyphs").
+    pub color: String,
+    /// Empty or the name of a built-in board glyph ([`glyphs::GLYPHS`]).
+    pub glyph: String,
 }
 impl ForumRecord {
     pub fn parent_value(&self) -> i64 {
@@ -280,6 +287,8 @@ fn forum_row(r: DbRow) -> anyhow::Result<ForumRecord> {
         status: r.try_get("status")?,
         visibility: r.try_get("visibility")?,
         version: r.try_get("version")?,
+        color: r.try_get("color")?,
+        glyph: r.try_get("glyph")?,
     })
 }
 /// Forums readable by this visitor, by the same rule as [`forum_readable_sql`] (this level and the parent both enabled,
@@ -421,6 +430,25 @@ pub struct ForumInput {
     pub status: i64,
     pub visibility: String,
     pub version: i64,
+    /// Empty for none, or `#rrggbb` (upper case is stored in lower case).
+    pub color: String,
+    /// Empty for none, or a built-in glyph name.
+    pub glyph: String,
+}
+/// A board color as stored: empty, or `#rrggbb` in lowercase; `None` when it is neither.
+pub fn board_color(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Some(String::new());
+    }
+    let digits = value.strip_prefix('#')?;
+    (digits.len() == 6 && digits.bytes().all(|b| b.is_ascii_hexdigit()))
+        .then(|| format!("#{}", digits.to_ascii_lowercase()))
+}
+/// A board glyph as stored: empty, or the name of a built-in glyph; `None` for anything else.
+pub fn board_glyph(value: &str) -> Option<String> {
+    let value = value.trim();
+    (value.is_empty() || glyphs::find(value).is_some()).then(|| value.to_owned())
 }
 /// Value rules for forum name, slug, visibility and enabled state (the rules that need only this row, guaranteed
 /// here, not by the schema; hierarchy rules need other forum rows and are checked under the lock in `save_forum`).
@@ -489,6 +517,11 @@ async fn save_forum_with_orphan_seconds_inner(
         ));
     };
     let name = name.as_str();
+    let (Some(color), Some(glyph)) = (board_color(&input.color), board_glyph(&input.glyph)) else {
+        return Err(ContentWriteError::Validation(
+            crate::i18n::current().forum_error_look(),
+        ));
+    };
     // Description and guidance are limited by character count, not bytes, the same rule as the form's `maxlength`.
     if input.fid < 0
         || input.version < 0
@@ -607,11 +640,11 @@ async fn save_forum_with_orphan_seconds_inner(
         ));
     }
     let fid = if input.fid == 0 {
-        db::query("INSERT INTO gonof_forum_forum(name,slug,description,guidance,displayorder,status,visibility,parent_fid,icon_aid) VALUES(?,?,?,?,?,?,?,?,?)")
-            .bind(name).bind(&slug).bind(&input.description).bind(&input.guidance).bind(input.displayorder).bind(input.status).bind(&input.visibility).bind(parent).bind(icon).execute(db.observe(&mut *tx)).await.map_err(namespace_error)?.last_insert_id() as i64
+        db::query("INSERT INTO gonof_forum_forum(name,slug,description,guidance,displayorder,status,visibility,parent_fid,icon_aid,color,glyph) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
+            .bind(name).bind(&slug).bind(&input.description).bind(&input.guidance).bind(input.displayorder).bind(input.status).bind(&input.visibility).bind(parent).bind(icon).bind(&color).bind(&glyph).execute(db.observe(&mut *tx)).await.map_err(namespace_error)?.last_insert_id() as i64
     } else {
-        db::query("UPDATE gonof_forum_forum SET name=?,slug=?,description=?,guidance=?,displayorder=?,status=?,visibility=?,parent_fid=?,icon_aid=?,version=version+1 WHERE fid=? AND version=?")
-            .bind(name).bind(&slug).bind(&input.description).bind(&input.guidance).bind(input.displayorder).bind(input.status).bind(&input.visibility).bind(parent).bind(icon).bind(input.fid).bind(input.version).execute(db.observe(&mut *tx)).await.map_err(namespace_error)?;
+        db::query("UPDATE gonof_forum_forum SET name=?,slug=?,description=?,guidance=?,displayorder=?,status=?,visibility=?,parent_fid=?,icon_aid=?,color=?,glyph=?,version=version+1 WHERE fid=? AND version=?")
+            .bind(name).bind(&slug).bind(&input.description).bind(&input.guidance).bind(input.displayorder).bind(input.status).bind(&input.visibility).bind(parent).bind(icon).bind(&color).bind(&glyph).bind(input.fid).bind(input.version).execute(db.observe(&mut *tx)).await.map_err(namespace_error)?;
         input.fid
     };
     // A newly created top-level forum is shown only on the main domain; one changed into a child forum is no longer

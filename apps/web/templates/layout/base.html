@@ -41,6 +41,10 @@
   <script src="{{ crate::site::base() }}/static/js/navigation.js?v={{ p.asset_version }}"></script>
   <link rel="stylesheet" href="{{ crate::site::base() }}/static/css/fonts.css?v={{ p.asset_version }}">
   <link rel="stylesheet" href="{{ crate::site::base() }}/static/css/forum.css?v={{ p.asset_version }}">
+  {%- if !p.frame.board_style.is_empty() %}
+  {#- Board colors and glyphs as variables on [data-board] (docs/skins.md, "Board colors and glyphs"), in the core layer. #}
+  <link rel="stylesheet" href="{{ crate::site::base() }}{{ p.frame.board_style.href() }}" data-board-style>
+  {%- endif %}
   {#- The skin: its palettes and stylesheet, in the skin cascade layer (docs/skins.md). #}
   <link rel="stylesheet" href="{{ crate::site::base() }}{{ p.skin.href() }}" data-skin-style>
   {# The member's own personal style: appears only on the member's own pages, and comes after the skin in its own

@@ -587,6 +587,7 @@ async fn same_host_sub_paths_settings_and_forums_follow_the_domain_table() {
         status: 1,
         visibility: "public".into(),
         version: 0,
+        ..Default::default()
     };
     assert!(
         organization::save_forum(&f.f.db, f.actor(), &input("help"))

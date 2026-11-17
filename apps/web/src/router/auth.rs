@@ -399,8 +399,9 @@ pub(super) async fn context(
     next: Next,
 ) -> Response {
     let path = request.uri().path();
-    // Skin stylesheets are the same for everyone and carry their own cache headers (router/skins.rs).
-    if path.starts_with("/skin/") {
+    // Skin stylesheets and the board stylesheet are the same for everyone and carry their own cache headers
+    // (router/skins.rs).
+    if path.starts_with("/skin/") || path == "/boards.css" {
         return next.run(request).await;
     }
     // Images whose visibility depends on the viewer: forum icons (member-only forums), post attachments and list

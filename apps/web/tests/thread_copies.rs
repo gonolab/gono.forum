@@ -144,7 +144,7 @@ impl Fixture {
 
     /// Reads the forum's current values, changes a few items, and saves through the admin entry point.
     async fn edit_forum(&self, fid: i64, change: impl FnOnce(&mut ForumInput)) {
-        let row = db::query("SELECT name,slug,description,guidance,displayorder,status,visibility,parent_fid,icon_aid,version FROM gonof_forum_forum WHERE fid=?")
+        let row = db::query("SELECT name,slug,description,guidance,displayorder,status,visibility,parent_fid,icon_aid,version,color,glyph FROM gonof_forum_forum WHERE fid=?")
             .bind(fid)
             .fetch_one(self.db.executor())
             .await
@@ -167,6 +167,8 @@ impl Fixture {
             status: row.try_get("status").unwrap(),
             visibility: db::text(&row, "visibility").unwrap(),
             version: row.try_get("version").unwrap(),
+            color: db::text(&row, "color").unwrap(),
+            glyph: db::text(&row, "glyph").unwrap(),
         };
         change(&mut input);
         organization::save_forum(&self.db, self.admin(), &input)

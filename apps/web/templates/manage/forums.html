@@ -58,6 +58,27 @@
   <select id="forum-edit-icon_aid" aria-describedby="forum-edit-icon_aid-hint" name="icon_aid"><option value="0">{{ p.t.forum_forums_icon_default() }}</option>{% for icon in icons %}<option value="{{ icon.aid }}"{% if icon.aid == input.icon_aid %} selected{% endif %}>{{ icon.name }}</option>{% endfor %}</select>
   <p class="field__hint" id="forum-edit-icon_aid-hint">{{ p.t.forum_forums_icon_help(p.link("/manage/branding", p.t.forum_forums_icon_help_link()))|safe }}</p>
 </div>
+{#- A color picker always sends a value, so the box says whether the forum has a color (docs/skins.md, "Board colors and glyphs"). #}
+<fieldset class="option-group" data-forum-color>
+  <legend class="option-group__legend">{{ p.t.forum_forums_color() }}</legend>
+  <div class="checkline">
+    <label class="checkline__label"><input type="checkbox" name="color_on" value="1"{% if !input.color.is_empty() %} checked{% endif %}><span>{{ p.t.forum_forums_color_use() }}</span></label>
+  </div>
+  <label class="sr-only" for="forum-edit-color">{{ p.t.forum_forums_color() }}</label>
+  <input class="color-field" type="color" id="forum-edit-color" name="color" value="{% if input.color.is_empty() %}#4f46e5{% else %}{{ input.color }}{% endif %}" aria-describedby="forum-edit-color-hint">
+  <p class="field__hint" id="forum-edit-color-hint">{{ p.t.forum_forums_color_help() }}</p>
+</fieldset>
+<fieldset class="option-group" data-forum-glyph aria-describedby="forum-edit-glyph-hint">
+  <legend class="option-group__legend">{{ p.t.forum_forums_glyph() }}</legend>
+  {%- include "partials/board_glyphs.html" %}
+  <div class="glyph-choices">
+    <label class="glyph-choice"><input type="radio" name="glyph" value=""{% if input.glyph.is_empty() %} checked{% endif %}><span class="glyph-choice__icon" aria-hidden="true"></span><span class="glyph-choice__name">{{ p.t.forum_forums_glyph_none() }}</span></label>
+    {%- for glyph in crate::organization::glyphs::GLYPHS %}
+    <label class="glyph-choice"><input type="radio" name="glyph" value="{{ glyph.name }}"{% if input.glyph == glyph.name %} checked{% endif %}><svg class="glyph-choice__icon" aria-hidden="true" focusable="false"><use href="#board-glyph-{{ glyph.name }}"></use></svg><span class="glyph-choice__name">{{ glyph.label() }}</span></label>
+    {%- endfor %}
+  </div>
+  <p class="field__hint" id="forum-edit-glyph-hint">{{ p.t.forum_forums_glyph_help() }}</p>
+</fieldset>
 {% if let Some(own) = rewrite %}<p class="form-note" data-forum-rewrite>{{ p.t.forum_forums_rewrite(own) }}</p>{% endif %}
 <div class="form-actions"><button class="button button--primary" type="submit">{{ p.t.forum_forums_save() }}</button></div>
 </form></section>

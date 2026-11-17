@@ -228,6 +228,35 @@ imported skin, that its row still exists, then write the document, record `skin.
 (colors, with the seeds before and after) and clear the settings block. Changing skins keeps the colors. An imported
 skin that a page uses cannot be deleted.
 
+## Board colors and glyphs
+
+An administrator can give each board a color and one of 32 built-in glyphs in the board's form (Forums › Forums):
+"Give this forum a color" with a color picker, and a choice of icon. They are stored on the board row (`color`, empty
+or `#rrggbb` in lower case; `glyph`, empty or a glyph name, `organization/glyphs.rs`) and checked on every save. They
+do not change the default look: the core stylesheets do not use them; a skin does.
+
+- **Variables.** While at least one board has a color or a glyph, every page links the board stylesheet
+  `/boards.css?v=<hash>` after `forum.css` (`<link … data-board-style>`). It sets, on the `data-board="<fid>"` hook of
+  list rows and board blocks, inside the `core` cascade layer:
+
+  | Variable | Value |
+  | --- | --- |
+  | `--board-color` | The board's color, moved in lightness only as far as needed for 3:1 against the core scheme's `--panel` and `--bg`, separately in light and dark mode (dark values under `[data-theme="dark"]` and in `@media (prefers-color-scheme: dark)` for the system theme). |
+  | `--board-on-color` | Text for `--board-color` as a fill: white or the light mode's ink, with 4.5:1. |
+  | `--board-glyph` | The board's glyph as an SVG image with black strokes, for `mask-image: var(--board-glyph)`. |
+
+  A board without a color has no `--board-color`, so a skin writes a fallback: `var(--board-color, var(--accent))`.
+  The grounds are the core scheme's whatever the skin, so a skin with very different grounds sets its own board
+  colors. The stylesheet is served without a session, `public` for a year with the current hash.
+- **Symbols.** Pages that draw glyphs include `partials/board_glyphs.html` once, which defines
+  `#board-glyph-<name>` symbols drawn like every other icon (docs/styles.md, "Icons"); markup uses them as
+  `<svg><use href="#board-glyph-<name>"></use></svg>`.
+
+The glyph names are `chat`, `megaphone`, `question`, `lightbulb`, `bug`, `wrench`, `code`, `book`, `graduation`,
+`newspaper`, `calendar`, `people`, `coffee`, `star`, `image`, `music`, `film`, `gamepad`, `palette`, `briefcase`,
+`tag`, `globe`, `pin`, `archive`, `heart`, `home`, `flag`, `shield`, `leaf`, `rocket`, `trophy` and `lock`. A board's
+uploaded icon image (`icon_aid`) is separate and unchanged.
+
 ## Frame
 
 The skin's manifest and the request's choice are written on `<html>`:

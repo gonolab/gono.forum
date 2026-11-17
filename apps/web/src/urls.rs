@@ -142,6 +142,7 @@ pub(crate) const RESERVED_SEGMENTS: &[&str] = &[
     "appeals",
     "auth",
     "avatar",
+    "boards.css",
     "brand",
     "confirm-email-change",
     "contact",

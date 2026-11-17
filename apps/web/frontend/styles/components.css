@@ -253,6 +253,15 @@ select.control:dir(rtl) {
   min-inline-size: 0;
 }
 
+/* The built-in board glyphs (partials/board_glyphs.html): symbols drawn once on a page and used by reference. */
+.board-glyph-sprite {
+  position: absolute;
+  inline-size: 0;
+  block-size: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
 .option-group--inline .option-group__options {
   display: flex;
   flex-wrap: wrap;

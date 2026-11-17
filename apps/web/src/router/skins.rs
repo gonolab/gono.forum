@@ -16,6 +16,7 @@ const PATH: &str = "/manage/skins";
 pub(super) fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/skin/{file}", get(stylesheet))
+        .route("/boards.css", get(board_stylesheet))
         .route(PATH, get(page))
         .route("/manage/skins/select", post(select))
         .route("/manage/skins/rescan", post(rescan))
@@ -156,6 +157,46 @@ async fn stylesheet(
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
         ],
         skin.stylesheet.to_string(),
+    )
+        .into_response()
+}
+
+#[derive(Default, Deserialize)]
+struct BoardStyleQuery {
+    #[serde(default)]
+    v: String,
+}
+
+/// `/boards.css` (docs/skins.md, "Board colors and glyphs"): the same for everyone, served without a session. The
+/// current version is kept for a year; any other `v` gets the current stylesheet with `no-cache`, so a page cached
+/// from before a board save still has one.
+async fn board_stylesheet(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<BoardStyleQuery>,
+) -> Response {
+    let ttl = match state.global.settings(&state.db).await {
+        Ok(block) => block.settings.cache_ttl(),
+        Err(_) => 0,
+    };
+    let style = match state.global.board_style(&state.db, ttl).await {
+        Ok(style) => style,
+        Err(error) => {
+            tracing::error!(%error, "the board stylesheet could not be compiled");
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    };
+    let cache = if !style.is_empty() && query.v == style.version {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-cache"
+    };
+    (
+        [
+            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
+            (header::CACHE_CONTROL, cache),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        ],
+        style.css.clone(),
     )
         .into_response()
 }

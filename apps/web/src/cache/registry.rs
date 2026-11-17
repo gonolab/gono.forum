@@ -132,7 +132,11 @@ pub const LINKS: Entry = Entry::block("links", &["links.home", "links.directory"
 pub const PINS: Entry = Entry::block("pins", &["pins"]);
 pub const MODERATORS: Entry = Entry::block("moderators", &["moderators"]);
 pub const HONORS: Entry = Entry::block("honors", &["honors"]);
-pub const FORUMS: Entry = Entry::block("forums", &["forums-public", "forums-members"]);
+/// The board stylesheet (`board-style`) is derived from the member copy and cleared with the block.
+pub const FORUMS: Entry = Entry::block(
+    "forums",
+    &["forums-public", "forums-members", "board-style"],
+);
 pub const DOMAINS: Entry = Entry::block("domains", &["domains"]);
 pub const SKINS: Entry = Entry::block("skins", &["skins"]);
 

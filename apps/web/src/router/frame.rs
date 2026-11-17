@@ -63,6 +63,8 @@ pub(super) struct SiteFrame {
     pub preview: bool,
     /// The preview is one of unsaved colors (docs/styles.md, "Seed colors") rather than of a skin.
     pub preview_colors: bool,
+    /// The board stylesheet (docs/skins.md, "Board colors and glyphs"); empty when no board has a color or glyph.
+    pub board_style: Arc<crate::organization::style::BoardStyle>,
 }
 
 /// Scope of multi-domain sites: forums readable by this visitor within the scope.
@@ -96,6 +98,7 @@ impl Default for SiteFrame {
             palette: crate::skins::DEFAULT_SKIN.palettes[0].clone(),
             preview: false,
             preview_colors: false,
+            board_style: Arc::default(),
         }
     }
 }
@@ -249,6 +252,11 @@ impl SiteFrame {
         let mut directory = directory_link();
         super::nav_fit::fit_tail(&navigation, &mut directory, &header);
         let (skin, palette, preview, preview_colors) = skin(state, &block, viewer_uid, ttl).await;
+        let board_style = state
+            .global
+            .board_style(&state.db, ttl)
+            .await
+            .map_err(IdentityError::Internal)?;
         // The page frame is the only place this request fetches site settings, so the time basis is written into the
         // task-local storage along the way, sparing every call site that displays a time from passing it all the way
         // down. The whole site uses only the site time zone; members have no time zone of their own.
@@ -270,6 +278,7 @@ impl SiteFrame {
             palette,
             preview,
             preview_colors,
+            board_style,
         })
     }
 

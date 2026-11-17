@@ -43,11 +43,21 @@ struct ForumForm {
     status: i64,
     visibility: String,
     version: i64,
+    /// The color picker always sends a value; the box beside it says whether the forum has a color at all.
+    color: String,
+    color_on: String,
+    glyph: String,
 }
 csrf_forms!(ForumForm);
 impl ForumForm {
     fn input(self) -> service::ForumInput {
         service::ForumInput {
+            color: if self.color_on == "1" {
+                self.color
+            } else {
+                String::new()
+            },
+            glyph: self.glyph,
             fid: self.fid,
             parent_fid: self.parent_fid,
             icon_aid: self.icon_aid,
@@ -259,6 +269,8 @@ async fn forums_response_with(
                 status: f.status,
                 visibility: f.visibility.clone(),
                 version: f.version,
+                color: f.color.clone(),
+                glyph: f.glyph.clone(),
             })
             .unwrap_or_else(|| service::ForumInput {
                 status: 1,

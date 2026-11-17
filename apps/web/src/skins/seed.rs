@@ -244,7 +244,7 @@ const MARGIN: f64 = 0.01;
 /// The color nearest in lightness to `start` (same hue, as much of its chroma as sRGB allows, same alpha) whose
 /// contrast on every ground is at least `min`: `start` itself when it passes. A translucent color that cannot pass
 /// becomes opaque; black or white when no lightness passes at all.
-fn lift(start: Rgba, grounds: &[Rgba], min: f64) -> Rgba {
+pub(crate) fn lift(start: Rgba, grounds: &[Rgba], min: f64) -> Rgba {
     if grounds.is_empty() || worst(start, grounds) + 1e-9 >= min {
         return start;
     }

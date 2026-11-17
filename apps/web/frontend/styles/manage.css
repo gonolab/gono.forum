@@ -181,6 +181,41 @@
   color: var(--input-text);
   cursor: pointer;
 }
+/* The forum form's built-in icon (docs/skins.md, "Board colors and glyphs"): one radio button per glyph, with the
+   glyph and its name. */
+.glyph-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 6px;
+  min-inline-size: 0;
+}
+.glyph-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-inline-size: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+.glyph-choice:has(input:checked) {
+  border-color: var(--selected-border);
+  background: var(--selected-bg);
+  color: var(--selected-text);
+}
+.glyph-choice__icon {
+  flex: none;
+  inline-size: 20px;
+  block-size: 20px;
+}
+.glyph-choice__name {
+  min-inline-size: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
 .color-value {
   display: inline-flex;
   align-items: center;

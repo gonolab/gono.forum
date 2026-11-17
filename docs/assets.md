@@ -58,6 +58,7 @@ All interface icons are inline SVG drawn for this project. They are part of the 
 | `apps/web/templates/partials/user_card.html`, `partials/my_card.html` | Member card shortcuts and menu |
 | `apps/web/templates/layout/base.html` | Lightning bolt before the footer performance line |
 | `apps/web/templates/partials/manage_icons.html` | Ten admin module icons, as `<symbol>` elements |
+| `apps/web/src/organization/glyphs.rs`, drawn by `partials/board_glyphs.html` and as `data:` images in the board stylesheet | 32 built-in board glyphs, as `<symbol>` elements: chat, megaphone, question, light bulb, bug, wrench, code, book, graduation cap, newspaper, calendar, people, coffee, star, image, music, film, game controller, palette, briefcase, tag, globe, map pin, archive, heart, home, flag, shield, leaf, rocket, trophy, lock |
 | `apps/web/frontend/styles/composer.css` | Editor toolbar: 14 SVG masks as `data:` URIs for 13 tools (full screen has two states) |
 
 ## Scripts
