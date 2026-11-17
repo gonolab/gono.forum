@@ -133,6 +133,23 @@ fn block(html: &str) -> Value {
     serde_json::from_str(block_text(html)).unwrap()
 }
 
+/// The page data block without each block's `generated_at`, the second the block was built (docs/data.md, "Common
+/// shapes"): two requests for the same page can fall on either side of a second, so only this field may differ
+/// between them. Every block must still carry it.
+fn timeless_block(html: &str) -> Value {
+    let mut data = block(html);
+    for (id, envelope) in data["blocks"].as_object_mut().unwrap() {
+        let at = envelope.as_object_mut().unwrap().remove("generated_at");
+        assert!(
+            at.as_ref()
+                .and_then(Value::as_str)
+                .is_some_and(|at| at.ends_with('Z')),
+            "{id}: {at:?}"
+        );
+    }
+    data
+}
+
 /// The `<li>` of a thread in the first list on the page that has it.
 fn row(html: &str, tid: i64) -> &str {
     let marker = format!("data-thread-id=\"{tid}\"");
@@ -495,7 +512,11 @@ async fn the_page_data_block_has_nothing_personal() {
                 || member.contains("class=\"account-nav"),
             "{path} is rendered for the member"
         );
-        assert_eq!(block_text(&anonymous), block_text(&member), "{path}");
+        assert_eq!(
+            timeless_block(&anonymous),
+            timeless_block(&member),
+            "{path}"
+        );
         let data = block(&member);
         for (_, envelope) in data["blocks"].as_object().unwrap() {
             assert!(
