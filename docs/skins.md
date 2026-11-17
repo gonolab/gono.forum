@@ -580,6 +580,7 @@ Inside the row:
 | `row-meta__author` | The author: an icon and `.row-author`. |
 | `row-meta__board` | The board, where the row names it: a child board's thread in its parent board's list (`[data-child-forum]`), and every cross-forum pin. |
 | `row-meta__replies` | The reply count (see "Counts"). In the main list it is an icon and the number, named for screen readers by its `aria-label`; in the pins block the number and the word. |
+| `row-meta__views` | The view count, after the reply count and built the same way: an icon and the number in the main list, the number and the word in the pins block, named by its `aria-label` in both. Approximate ([queries.md](queries.md), "Views"). |
 | `row-meta__last` | The last replier, when the thread has replies. |
 | `row-meta__time` | The time of the last activity, a `<time>` (see "Times"); in the main list its `title` is the full date. |
 
@@ -606,11 +607,12 @@ number above the word:
   messages". The text reads exactly as one message did.
 - `stat` is an element of its own inside the meta item, so the space between number and word survives the meta
   item's flex layout.
-- Counts shown without a word keep `stat` and `stat__value` only: the reply count of the main list, whose word is in
-  the `aria-label`.
+- Counts shown without a word keep `stat` and `stat__value` only: the reply and view counts of the main list, whose
+  words are in the `aria-label`.
 
-Counts split into number and word: the reply count of cross-forum pins, of threads in a member's space and in the
-following feed, and the forum directory's thread count and posts today.
+Counts split into number and word: the reply and view counts of cross-forum pins, the reply count of threads in a
+member's space and in the following feed, and the forum directory's thread count and posts today. The thread head
+shows its reply and view counts as one phrase each, `span.thread-stats__count` and `span.thread-stats__views`.
 
 ## Times
 

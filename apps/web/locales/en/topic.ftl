@@ -22,6 +22,12 @@ topic-reply-count =
         [one] { $count } reply
        *[other] { $count } replies
     }
+# The view count next to the reply count under the thread title; approximate (docs/queries.md, "Views").
+topic-view-count =
+    { $count ->
+        [one] { $count } view
+       *[other] { $count } views
+    }
 # The badge next to the thread author's name on the opening post.
 topic-author = Author
 topic-quote = Quote

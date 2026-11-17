@@ -289,9 +289,9 @@ callers read the database.
   the path prefix, the language) are part of the variants.
 - **Versions.** `gonof_common_content_revision.revision` is raised by `content::copies::bump_site` on structural events
   (title changes, hiding, withdrawal, moves, board changes, renames, account deletion); every update of a thread row
-  raises `gonof_forum_thread.cache_revision`; list keys also carry the highest post id, so new threads and replies
-  change them without touching the revision row. A key only uses versions this request read from the database, never
-  one read from Redis. See [queries.md](queries.md).
+  raises `gonof_forum_thread.cache_revision`, except the view count's ("View counting"); list keys also carry the
+  highest post id, so new threads and replies change them without touching the revision row. A key only uses versions
+  this request read from the database, never one read from Redis. See [queries.md](queries.md).
 - **Anonymous only.** Lists, sidebars, pins, floors and rendered bodies are cached for anonymous visitors only;
   members' views depend on their own blocks and permissions.
 - **Member frame.** One key per uid holds the raw choices (board hides and blocks, reading choices, the custom style
@@ -358,6 +358,29 @@ Rate limits (`apps/web/src/rate_limit.rs`) follow the same switch. The limits ar
 
 Posting intervals and the hourly posting limit are not rate limits: they are counted from the posts table inside the
 posting transaction, so they are exact across processes without Redis.
+
+## View counting
+
+Thread views ([queries.md](queries.md), "Views") count once per visitor and thread in 30 minutes. Like rate limits,
+the deduplication follows the Redis switch; it is not a cache and is not in the registry (`content/views.rs`).
+
+- **Visitor.** A signed-in member is their uid. Anyone else is the first 16 bytes of SHA-256 over a daily key, the
+  client address (as rate limits see it, through a trusted proxy's `X-Real-IP`) and the `User-Agent`. The daily key is
+  32 random bytes for the current UTC day. It is never written to the database or the logs: each process keeps the
+  current day's key in memory and drops it when the day changes, and with Redis on the first process to need it
+  stores it as `{namespace}:view-key:<day>` (`SET … NX GET`), which expires five minutes after its day, so that every
+  process derives the same digest. Once a key is gone, the digests made with it cannot be traced back to an address;
+  a guest who opens a thread on both sides of midnight UTC counts twice.
+- **Redis on:** `SET {namespace}:view:<tid>:<visitor> 1 NX EX 1800`, where the visitor part is `u<uid>` or `g` and
+  the digest in hex. A key that already exists means the view does not count. One command per counted request (plus
+  one a day for the key), shared by every process. A failed command answers 503, as every Redis failure does.
+- **Redis off:** each process remembers the pairs it has seen in a table of at most 100,000 entries, each kept for 30
+  minutes; when it is full, the oldest pairs are forgotten first. A site that runs several processes without Redis
+  counts a visitor once in each process that serves them.
+- **Writing.** Counted views wait in the process's buffer and are written every minute and at a normal shutdown
+  ([queries.md](queries.md), "Views"). The writing task only needs the database, so unlike the polling workers it
+  does not pause while Redis is unreachable. It takes no write gate, and read-only mode does not stop it: a view is
+  bookkeeping, not a change a member makes.
 
 ## What may be cached
 

@@ -18,6 +18,7 @@ pub mod sample;
 mod seed;
 pub mod sources;
 pub mod thread_images;
+pub mod views;
 pub mod writes;
 
 use anyhow::{Context, Result, ensure};

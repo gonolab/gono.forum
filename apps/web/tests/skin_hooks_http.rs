@@ -178,6 +178,7 @@ fn assert_list_row_hooks(row: &str) {
     for hook in [
         "class=\"row-meta__author\"",
         "class=\"row-meta__replies\"",
+        "<span class=\"row-meta__views\" aria-label=\"",
         "<span class=\"stat\"><span class=\"stat__value\">",
         "<time class=\"row-meta__time\" datetime=\"",
         // The optional board badge, after the row body.
@@ -259,6 +260,16 @@ async fn list_rows_carry_their_classes_states_and_optional_elements() {
     assert!(pin.contains(
         "<span class=\"stat\"><span class=\"stat__value\">6</span> <span class=\"stat__label\">replies</span></span>"
     ), "{pin}");
+    // The view count likewise, number and word.
+    let views = scalar(
+        &services.db,
+        &format!("SELECT views FROM gonof_forum_thread WHERE tid={SITE_PIN}"),
+    )
+    .await;
+    assert!((2..1000).contains(&views), "{views}");
+    assert!(pin.contains(&format!(
+        "<span class=\"row-meta__views\" aria-label=\"{views} views\"><span class=\"stat\"><span class=\"stat__value\">{views}</span> <span class=\"stat__label\">views</span></span></span>"
+    )), "{pin}");
     assert!(pin.contains("<span class=\"row-icon row-icon--pinned\" data-optional>"));
 
     // Search results use the same rows.
@@ -285,6 +296,7 @@ async fn thread_profile_and_directory_hooks_are_present() {
         "<a class=\"button button--small thread-head__reply\" href=\"#reply-editor\" data-optional>Reply</a>"
     ));
     assert!(thread.contains("id=\"reply-editor\""));
+    assert!(thread.contains("<span class=\"thread-stats__views\">"));
     // The action icons are <use> references to symbols drawn once per page.
     assert_eq!(
         thread

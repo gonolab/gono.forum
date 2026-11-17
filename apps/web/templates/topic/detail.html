@@ -23,6 +23,7 @@
         <h1 class="thread-head__title" id="thread-title">{{ thread.title }}</h1>
         <div class="thread-stats">
           <span class="thread-stats__count" id="topic-reply-count">{{ p.t.topic_reply_count(thread.reply_count) }}</span>
+          <span class="thread-stats__views">{{ p.t.topic_view_count(thread.views) }}</span>
           <div class="thread-stats__tools">
             {#- Optional shortcut to the reply box, hidden unless a skin shows it; it adds a link and stands in for nothing (docs/skins.md, "Optional elements"). #}
             <a class="button button--small thread-head__reply" href="#reply-editor" data-optional>{{ p.t.topic_reply() }}</a>
@@ -305,6 +306,6 @@
     {% for html in p.places.aside %}{{ html|safe }}{% endfor %}
   </aside>
 </div>
-{# The server does not record views: site.js reads this marker and keeps the reader's recent threads in local storage. #}
+{# The reader's recent threads live in the browser: site.js reads this marker and keeps them in local storage. #}
 <div hidden data-recent-thread="{{ thread.id }}" data-recent-title="{{ thread.title }}" data-recent-owner="{{ p.uid }}"></div>
 {% endblock %}

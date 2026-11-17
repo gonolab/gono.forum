@@ -448,6 +448,16 @@ async fn main() -> Result<()> {
         },
     );
 
+    // Thread views: the router buffers them and this task writes them every minute, and once more after the server
+    // has stopped taking requests (docs/queries.md, "Views"). It needs only the database, so it is not a polling
+    // worker paused by Redis outages.
+    let views = gono_forum_web::content::views::Views::new(cache.clone());
+    workers.spawn(views.clone().run(
+        db.clone(),
+        gono_forum_web::content::views::FLUSH_PERIOD,
+        shutdown.clone(),
+    ));
+
     let listener = tokio::net::TcpListener::from_std(listener)?;
     tracing::info!(url = %format!("http://{}", listener.local_addr()?), version = gono_forum_web::VERSION, "Gono Forum started");
     gono_forum_web::systemd::notify("READY=1\nSTATUS=Serving");
@@ -459,7 +469,7 @@ async fn main() -> Result<()> {
     }
     axum::serve(
         listener,
-        router::build_with_global(config, &root, db, cache, global)
+        router::build_with_views(config, &root, db, cache, global, views)
             .into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .with_graceful_shutdown(async {
@@ -471,8 +481,9 @@ async fn main() -> Result<()> {
     })
     .await?;
     gono_forum_web::systemd::notify("STOPPING=1");
-    // HTTP no longer accepts requests; let background tasks finish their current round, and only stop waiting on
-    // timeout. Aborted leases are reclaimed by their own expiry mechanisms and need no compensation here.
+    // HTTP no longer accepts requests; let background tasks finish their current round (the view counter writes what
+    // it still holds), and only stop waiting on timeout. Aborted leases are reclaimed by their own expiry mechanisms
+    // and need no compensation here.
     shutdown.cancel();
     if tokio::time::timeout(SHUTDOWN_GRACE, async {
         while workers.join_next().await.is_some() {}

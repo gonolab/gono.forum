@@ -5,6 +5,12 @@ home-replies-label =
         [one] { $count } reply
        *[other] { $count } replies
     }
+# The accessible view count of a thread in a list.
+home-views-label =
+    { $count ->
+        [one] { $count } view
+       *[other] { $count } views
+    }
 # The word of the visible reply count of a pinned thread from another forum; $count only picks the plural form.
 home-replies-short-label =
     { $count ->
@@ -15,6 +21,14 @@ home-replies-short-label =
 # (home-replies-short-label), each in its own element so that skins can style them apart. Put them in your language's
 # order.
 home-replies-short = { $value_html } { $label_html }
+# The word of the visible view count of a pinned thread from another forum; $count only picks the plural form.
+home-views-short-label =
+    { $count ->
+        [one] view
+       *[other] views
+    }
+# The visible view count of a pinned thread from another forum, built like home-replies-short.
+home-views-short = { $value_html } { $label_html }
 home-search-scope = Search in
 home-search-threads = Threads
 home-search-members = Members

@@ -6,6 +6,7 @@ topic-tip-more = {" "}等
 topic-members-only = 仅会员
 topic-move = 移动主题
 topic-reply-count = { $count } 回复
+topic-view-count = { $count } 浏览
 topic-author = 作者
 topic-quote = 引用
 topic-opening-permalink = 首帖永久链接

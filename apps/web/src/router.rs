@@ -90,6 +90,8 @@ pub(crate) struct AppState {
     instance: crate::updates::Paths,
     /// `skins/` under the instance root: the instance directory of skins (docs/skins.md, "Sources").
     skins_dir: Arc<Path>,
+    /// Thread views of this process, buffered until its writing task flushes them ([`crate::content::views`]).
+    views: crate::content::views::Views,
 }
 
 impl AppState {
@@ -280,6 +282,39 @@ pub fn build_with_updater(
     global: crate::cache::GlobalCache,
     updater: crate::updates::Updater,
 ) -> Router {
+    let views = crate::content::views::Views::new(cache.clone());
+    build_full(config, root, db, cache, global, updater, views)
+}
+/// For the real startup and the view count tests: [`build_with_global`] with the view counter whose writing task
+/// ([`crate::content::views::Views::run`]) the caller runs. The other builders give each application a counter
+/// nobody flushes, so their views stay in memory.
+pub fn build_with_views(
+    config: Config,
+    root: &Path,
+    db: Database,
+    cache: crate::cache::Cache,
+    global: crate::cache::GlobalCache,
+    views: crate::content::views::Views,
+) -> Router {
+    build_full(
+        config,
+        root,
+        db,
+        cache,
+        global,
+        crate::updates::Updater::default(),
+        views,
+    )
+}
+fn build_full(
+    config: Config,
+    root: &Path,
+    db: Database,
+    cache: crate::cache::Cache,
+    global: crate::cache::GlobalCache,
+    updater: crate::updates::Updater,
+    views: crate::content::views::Views,
+) -> Router {
     // The debug layer is always attached; each request decides by `settings.debug.panel` whether to collect
     // (docs/settings-and-caching.md, "Profiling").
     let debug_state = crate::debug::DebugState {
@@ -317,6 +352,7 @@ pub fn build_with_updater(
         updater,
         instance: crate::updates::Paths::for_process(root),
         skins_dir: root.join("skins").into(),
+        views,
     });
     let router = static_files
         .mount(auth::routes(upload_limit))
@@ -1399,6 +1435,8 @@ async fn browse(
     State(state): State<Arc<AppState>>,
     Extension(viewer): Extension<auth::Viewer>,
     OriginalUri(uri): OriginalUri,
+    method: axum::http::Method,
+    headers: axum::http::HeaderMap,
     query: Result<Query<BrowseQuery>, axum::extract::rejection::QueryRejection>,
 ) -> Response {
     // The page frame (site settings, navigation, brand images, readable forums) comes from the process-wide global
@@ -1443,7 +1481,7 @@ async fn browse(
         );
     };
     if let PageRoute::Thread { id, page } = route {
-        return topic(&state, &uri, &query, id, page).await;
+        return topic(&state, &uri, &query, id, page, (&method, &headers)).await;
     }
     let slug = match &route {
         PageRoute::Forum { slug, .. } => slug.as_str(),
@@ -2497,10 +2535,20 @@ async fn topic(
     query: &BrowseQuery,
     id: u64,
     page: usize,
+    (method, headers): (&axum::http::Method, &axum::http::HeaderMap),
 ) -> Response {
-    topic_response(state, uri, query, id, page, false).await
+    let user_agent = content::views::counted_request(method, headers).then(|| {
+        headers
+            .get(header::USER_AGENT)
+            .map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned())
+            .unwrap_or_default()
+    });
+    topic_response(state, uri, query, id, page, false, user_agent.as_deref()).await
 }
 
+/// The thread page, or with `fragment` the reply fragment a posted reply answers with. `view` is the `User-Agent` of
+/// a full page request that counts as a view ([`content::views::counted_request`]); the view is recorded once
+/// everything that could answer something other than the thread has passed.
 async fn topic_response(
     state: &AppState,
     uri: &axum::http::Uri,
@@ -2508,6 +2556,7 @@ async fn topic_response(
     id: u64,
     page: usize,
     fragment: bool,
+    view: Option<&str>,
 ) -> Response {
     // Floors per page and nested replies per floor are settings (9.1); page numbers, floor location and floor
     // cache keys all follow this one copy.
@@ -3118,6 +3167,25 @@ async fn topic_response(
             Err(error) => database_error(state, error.into()),
         }
     } else {
+        // Counted before rendering, so the page's footer and debug panel include the Redis command. Anonymous thread
+        // pages are never served whole from a cache, so every view passes here (docs/queries.md, "Views"); with
+        // Redis on, a failed deduplication answers 503 like any other Redis failure.
+        if let Some(user_agent) = view {
+            let visitor = match session {
+                Some(session) => content::views::Visitor::Member(session.member.uid),
+                None => content::views::Visitor::Guest {
+                    ip: &state.viewer.client_ip,
+                    user_agent,
+                },
+            };
+            if let Err(error) = state
+                .views
+                .record(id, visitor, crate::identity::now())
+                .await
+            {
+                return database_error(state, error);
+            }
+        }
         render(&template)
     }
 }

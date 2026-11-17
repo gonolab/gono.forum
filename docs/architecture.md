@@ -131,8 +131,9 @@ own pages.
   break the rules after tests have written through the real code paths.
 - **List copies.** Thread rows carry what lists need (author and last poster names, top-level board), and counters
   (replies, reactions, favorites, tips) are kept on the rows they count, all updated in the same transaction as the
-  data they copy. Lists filter, sort and page in SQL against narrow indexes and stay bounded (at most 1,000 pages);
-  see [queries.md](queries.md).
+  data they copy. The view count is the exception: counted in memory and added once a minute, approximate. Lists
+  filter, sort and page in SQL against narrow indexes and stay bounded (at most 1,000 pages); see
+  [queries.md](queries.md).
 - **Simple SQL.** Queries return plain columns; turning `NULL` into a default, formatting and per-row decisions
   happen in Rust. Filtering, sorting and paging stay in SQL.
 
@@ -142,6 +143,8 @@ Mail, notifications, media processing and data requests are written as Outbox ev
 change that causes them, and consumed by workers inside the web process. Workers claim events with a lease, retry
 transient failures with backoff and give up after 20 attempts (an administrator can schedule another try). Posting
 and other writes carry request keys, so a retried request returns the original result instead of writing twice.
+Thread views are not events: each process buffers the views it counts and writes them once a minute and when it shuts
+down ([queries.md](queries.md), "Views").
 
 Uploads land in a private staging directory first, are checked and re-encoded in a time-limited child process
 outside any transaction, and are stored in a private S3-compatible bucket. Images are served through the forum

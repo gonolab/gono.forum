@@ -7,8 +7,9 @@
 //!   unregistered slot name; every block ([`super::Block`]) has an entry.
 //! - The debug panel takes the display name from here by slot name ([`Entry::label`], translated).
 //!
-//! Redis's two other uses are not caches and are not here: rate limiting ([`crate::rate_limit`]) and the
-//! invalidation broadcast of the process cache.
+//! Redis's other uses are not caches and are not here: rate limiting ([`crate::rate_limit`]), the invalidation
+//! broadcast of the process cache, and the deduplication keys and daily key of thread views
+//! ([`crate::content::views`]).
 
 /// Which layer it lives in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

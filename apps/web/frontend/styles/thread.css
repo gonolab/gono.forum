@@ -60,7 +60,8 @@
   color: var(--text-muted);
 }
 
-.thread-stats__count {
+.thread-stats__count,
+.thread-stats__views {
   font-variant-numeric: tabular-nums;
 }
 

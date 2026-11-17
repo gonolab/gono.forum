@@ -527,6 +527,53 @@ impl Cache {
         self.command(&command).await
     }
 
+    /// `SET key 1 NX EX seconds`: claims `key` for `seconds` and answers whether this call claimed it (`false` when it
+    /// is already held). For the deduplication of thread views ([`crate::content::views`]), which is not a cache: the
+    /// caller builds the whole key under [`Cache::namespace`], as rate limiting does. Counted like every command;
+    /// failures carry the [`Unavailable`] marker.
+    pub async fn claim(&self, key: &str, seconds: u64) -> Result<bool> {
+        ensure!(
+            self.enabled(),
+            "Redis is disabled; no key should be claimed"
+        );
+        let reply: Option<String> = self
+            .command(
+                redis::cmd("SET")
+                    .arg(key)
+                    .arg(1)
+                    .arg("NX")
+                    .arg("EX")
+                    .arg(seconds.max(1)),
+            )
+            .await?;
+        Ok(reply.is_some())
+    }
+
+    /// `SET key value NX GET EX seconds` (Redis 7): stores `value` unless `key` exists, and returns the value that was
+    /// already there, or `None` when this call stored its own. One round trip lets every process agree on one value
+    /// (the daily key of [`crate::content::views`]). The debug panel shows the key, never the value.
+    pub async fn claim_or_get(
+        &self,
+        key: &str,
+        value: &str,
+        seconds: u64,
+    ) -> Result<Option<String>> {
+        ensure!(
+            self.enabled(),
+            "Redis is disabled; no key should be claimed"
+        );
+        self.command(
+            redis::cmd("SET")
+                .arg(key)
+                .arg(value)
+                .arg("NX")
+                .arg("GET")
+                .arg("EX")
+                .arg(seconds.max(1)),
+        )
+        .await
+    }
+
     /// Invalidation broadcast for the process cache ([`super::process`]). Counts toward this request's Redis count and
     /// the debug panel.
     pub async fn publish(&self, channel: &str, message: &str) -> Result<u64> {

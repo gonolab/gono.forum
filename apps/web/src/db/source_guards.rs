@@ -206,7 +206,9 @@ fn ledgers_are_append_only_and_activity_values_go_through_the_invariants() {
 /// Threads, posts, forums, member display columns and the site content version
 /// (docs/queries.md, "Rules enforced by the source scan"). The thread row's denormalized copies are rewritten only
 /// through `content/copies.rs`, and a new thread's INSERT must write all copies; every UPDATE of a thread row bumps the
-/// thread version (`cache_revision`); changing `fid` writes `family_fid` in the same statement; `displayorder`
+/// thread version (`cache_revision`), except the view count's, which is the only statement that writes `views` and
+/// writes nothing else (`content/views.rs`; only the fixture and sample import insert threads with a `views` value);
+/// changing `fid` writes `family_fid` in the same statement; `displayorder`
 /// (negative means not listed) changes only in copies.rs and the pin actions; forum thread counts, member counts and
 /// nested replies' `root_invisible` go only through copies.rs; posts' like and downvote counts and threads' favorite
 /// and tip counts go only through `interaction/counters.rs`, and the three detail tables are only inserted into or
@@ -218,7 +220,63 @@ fn ledgers_are_append_only_and_activity_values_go_through_the_invariants() {
 /// threads the foreign key blocks it too).
 #[test]
 fn content_copies_versions_and_identities_change_only_through_their_code() {
+    let found = content_breaches(production_sources());
+    assert!(
+        found.is_empty(),
+        "thread copies are rewritten only through content/copies.rs; like, downvote, favorite and tip counts only through interaction/counters.rs; changing the forum also writes the top-level forum id; displayorder changes only in the visibility sync and pinning; forum counts and parent post copies only through copies.rs; every UPDATE of a thread row bumps cache_revision, except the view count's in content/views.rs, the only writer of views; the site version only through bump_site; the first post writes first_tid; post identity and thread category and author do not change; erasure markers are written only by the erasure statements: {found:?}"
+    );
+}
+
+/// The view count is written only by `content/views.rs`, by a statement that writes nothing else and leaves
+/// `cache_revision` alone; everywhere else a thread UPDATE still bumps `cache_revision` and may not touch `views`, and
+/// only the fixture and sample import insert a `views` value.
+#[test]
+fn only_the_view_counter_writes_views_and_skips_cache_revision() {
+    let source = |file: &str, sql: &str| (file.to_owned(), format!("let sql = \"{sql}\";\n"));
+    let allowed = [
+        source(
+            "content/views.rs",
+            "UPDATE gonof_forum_thread SET views=views+? WHERE tid=?",
+        ),
+        source(
+            "content/seed.rs",
+            "INSERT INTO gonof_forum_thread (tid, author, family_fid, views) VALUES (?,?,?,?)",
+        ),
+    ];
+    assert_eq!(content_breaches(allowed), Vec::<String>::new());
+    let refused = [
+        source(
+            "content/edits.rs",
+            "UPDATE gonof_forum_thread SET views=views+1, cache_revision=cache_revision+1 WHERE tid=?",
+        ),
+        source(
+            "content/edits.rs",
+            "UPDATE gonof_forum_thread SET views=0 WHERE tid=?",
+        ),
+        source(
+            "content/views.rs",
+            "UPDATE gonof_forum_thread SET views=views+?, replies=replies+1 WHERE tid=?",
+        ),
+        source(
+            "content/views.rs",
+            "UPDATE gonof_forum_thread SET replies=replies+1 WHERE tid=?",
+        ),
+        source(
+            "content/writes.rs",
+            "INSERT INTO gonof_forum_thread (tid, author, family_fid, views) VALUES (?,?,?,?)",
+        ),
+    ];
+    let found = content_breaches(refused);
+    assert_eq!(found.len(), 5, "{found:?}");
+}
+
+/// The breaches of [`content_copies_versions_and_identities_change_only_through_their_code`] in `sources` (file path
+/// under `apps/web/src`, text).
+fn content_breaches(sources: impl IntoIterator<Item = (String, String)>) -> Vec<String> {
     const COPIES: &str = "content/copies.rs";
+    // The view count is buffered and added by one statement that leaves the thread version alone
+    // (docs/queries.md, "Views").
+    const VIEWS: &str = "content/views.rs";
     // Only the author name and top-level forum ID are copied onto the thread row (not the forum name, URL, inherited
     // scope or author avatar).
     const THREAD_COPIES: &[&str] = &["author", "family_fid"];
@@ -262,13 +320,14 @@ fn content_copies_versions_and_identities_change_only_through_their_code() {
     ];
     let mut found = Vec::new();
     let has = |columns: &[String], name: &str| columns.iter().any(|column| column == name);
-    for (file, text) in production_sources() {
+    for (file, text) in sources {
         let file = file.as_str();
         for (line, table, columns) in inserts(&text) {
             let bad = match table.as_str() {
                 "gonof_forum_thread" => {
                     !CONTENT_INSERTERS.contains(&file)
                         || THREAD_COPIES.iter().any(|copy| !has(&columns, copy))
+                        || (file != "content/seed.rs" && has(&columns, "views"))
                 }
                 table if COUNTERS.contains(&table) => file != COPIES,
                 "gonof_forum_post" => {
@@ -306,8 +365,10 @@ fn content_copies_versions_and_identities_change_only_through_their_code() {
                     .any(|column| names.contains(&column.as_str()))
             };
             let bad = match table.as_str() {
+                "gonof_forum_thread" if file == VIEWS => assigned != ["views"],
                 "gonof_forum_thread" => {
                     !has(&assigned, "cache_revision")
+                        || has(&assigned, "views")
                         || (file != COPIES && any(THREAD_COPIES))
                         || (!DISPLAYORDER_WRITERS.contains(&file) && has(&assigned, "displayorder"))
                         || (has(&assigned, "fid") && !has(&assigned, "family_fid"))
@@ -335,10 +396,7 @@ fn content_copies_versions_and_identities_change_only_through_their_code() {
             }
         }
     }
-    assert!(
-        found.is_empty(),
-        "thread copies are rewritten only through content/copies.rs; like, downvote, favorite and tip counts only through interaction/counters.rs; changing the forum also writes the top-level forum id; displayorder changes only in the visibility sync and pinning; forum counts and parent post copies only through copies.rs; every UPDATE of a thread row bumps cache_revision; the site version only through bump_site; the first post writes first_tid; post identity and thread category and author do not change; erasure markers are written only by the erasure statements: {found:?}"
-    );
+    found
 }
 
 /// Identity and moderation tables, which have no triggers. Values are guaranteed before writing by `identity/rules.rs`

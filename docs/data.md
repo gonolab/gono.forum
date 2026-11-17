@@ -87,7 +87,7 @@ Pinned threads of every level come first in `latest`, `created`, `featured` and 
 | `last_reply` | `{"pid", "member", "href", "summary"}` for the last live reply (`member` from the thread row's `last_reply_uid` and `last_reply_author`, `href` its permanent address `/posts/<pid>`, `summary` its first 120 characters as plain text), or `null`. |
 | `pages` | Pages of the thread in the visitor's view (flat or nested). |
 | `max_position` | The highest floor number, for comparing with the floor a reader saw last. |
-| `views` | Views, approximate. |
+| `views` | Views, approximate: each member or guest counts once per thread in 30 minutes, and new views are written once a minute ([queries.md](queries.md), "Views"). Anonymous results are cached for the list lifetime, so the number can lag by that much as well. |
 | `thumbs` | `[{"src", "width", "height"}]`: the list thumbnails, as many as `settings.display.list_thumbnails`. |
 
 ### `boards`

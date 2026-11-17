@@ -307,12 +307,44 @@ on the thread row (`interaction::lock_target`, or the tip transaction), so write
 - **Tips** only grow: after the payment and receipt ledger rows are written, `tips + 1` and `tip_total + amount`.
 - **Account deletion** leaves the member's likes, downvotes and favorites in place, so these counts do not change.
 
+## Views
+
+`gonof_forum_thread.views` is approximate. It is not kept in the transaction of a detail row, because there is none:
+`content/views.rs` counts a view in memory and adds the counts to the column in batches.
+
+- **What counts** is a `GET` of a thread page that answers 200 with the thread, opened directly or by an HTMX boosted
+  navigation: not `HEAD`, other HTMX requests, browser prefetches (`Sec-Purpose` or `Purpose` with `prefetch`),
+  requests without a `User-Agent`, or one containing a crawler word (`bot`, `crawl`, `spider`, `slurp`, `headless`,
+  `curl`, `wget`, `python`, `http-client`, `httpclient`, `libwww`, `java/`). Anonymous thread pages are never served
+  whole from a cache (only their floors and bodies are), so every view passes the handler.
+- **Once per visitor and thread every 30 minutes**: a member by uid, anyone else by a digest of the address, the
+  `User-Agent` and a key that changes daily ([settings-and-caching.md](settings-and-caching.md), "View counting").
+  Visitors behind one address with the same browser count once; a visitor who changes networks counts again.
+- **Buffered.** A counted view adds one to the process's buffer (tid → count). Every 60 seconds the process writes its
+  buffer in one write transaction, one statement per thread in `tid` order, and once more when it shuts down normally;
+  a crash loses at most a minute of views. A failed transaction puts its counts back for the next minute. A thread
+  that no longer exists matches no row, which is not an error.
+- **No new versions.** The statement does not raise `cache_revision`, the only thread `UPDATE` that leaves it alone,
+  so no cached page or list is invalidated by views. A thread page shows the column as read for that request; a cached
+  list shows it as of its last fill, up to `settings.cache.list_ttl_seconds` old.
+
+```sql
+UPDATE gonof_forum_thread SET views=views+? WHERE tid=?
+```
+
+The same plan on MySQL 8.4.11 and 5.7.44 (`tests/thread_views.rs` pins it), a primary-key update of one row. `views` is
+in no index, so no index is rewritten:
+
+| id | select_type | table | type | possible_keys | key | key_len | ref | rows | filtered | Extra |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | UPDATE | gonof_forum_thread | range | PRIMARY,tid | PRIMARY | 8 | const | 1 | 100 | Using where |
+
 ## Cache versions
 
 Every `UPDATE` of a thread row increments `cache_revision`, counter updates included (`copies::touch_thread` does it
-when only a post changed); `copies::bump_site` raises the site-wide content version on structural events only. List
-keys carry `content::list_revision`, the site-wide version plus `MAX(pid)` of the post table, so new threads and
-replies change them without touching the version row. The keys are described in
+when only a post changed), except the view count's (see "Views"); `copies::bump_site` raises the site-wide content
+version on structural events only. List keys carry `content::list_revision`, the site-wide version plus `MAX(pid)` of
+the post table, so new threads and replies change them without touching the version row. The keys are described in
 [settings-and-caching.md](settings-and-caching.md), "The Redis cache".
 
 ## Leaderboards
@@ -332,8 +364,8 @@ source and fails when:
 
 | Statement | Fails when |
 | --- | --- |
-| `INSERT INTO gonof_forum_thread` | outside `content/writes.rs` and `content/seed.rs`, or without `author` and `family_fid` (which has no default) |
-| `UPDATE gonof_forum_thread` | without `cache_revision`; `fid` without `family_fid`; `author` or `family_fid` outside `content/copies.rs`; `displayorder` outside `copies.rs` and `content/edits.rs`; `last_reply_author` or `last_reply_uid` outside `content/writes.rs`, `content.rs` and `copies.rs`; `favorites`, `tips`, `tip_total` outside `interaction/counters.rs`; `category` or `authorid` anywhere |
+| `INSERT INTO gonof_forum_thread` | outside `content/writes.rs` and `content/seed.rs`, or without `author` and `family_fid` (which has no default); with `views` outside `content/seed.rs` (the fixture and sample import) |
+| `UPDATE gonof_forum_thread` | without `cache_revision`, apart from `content/views.rs`, whose statement must assign `views` and nothing else; `views` anywhere else; `fid` without `family_fid`; `author` or `family_fid` outside `content/copies.rs`; `displayorder` outside `copies.rs` and `content/edits.rs`; `last_reply_author` or `last_reply_uid` outside `content/writes.rs`, `content.rs` and `copies.rs`; `favorites`, `tips`, `tip_total` outside `interaction/counters.rs`; `category` or `authorid` anywhere |
 | `UPDATE gonof_forum_post` | `root_invisible` outside `copies.rs`; `reactions`, `downvotes` outside `counters.rs` |
 | the two count tables | written outside `copies.rs`, apart from deleting an empty forum's rows in `organization.rs` |
 | like, downvote and favorite rows | written outside `interaction.rs`, `interaction/counters.rs` and `growth.rs` |
