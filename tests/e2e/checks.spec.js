@@ -42,10 +42,10 @@ for (const instance of instances()) {
 
           // Keyboard focus: the first few Tab stops must each show an outline or a ring, or, on a form field, a
           // darker edge: its own border or its wrapper's, or the line drawn around a checkbox or radio
-          // (docs/styles.md, "HTML conventions"); the header search's button changes its ground in the box.
+          // (docs/styles.md, "HTML conventions").
           const edges = (element) => [element, element.parentElement].flatMap((node) => {
             const style = node && getComputedStyle(node);
-            return style ? [style.borderColor, style.filter, style.backgroundColor] : [];
+            return style ? [style.borderColor, style.filter] : [];
           });
           for (let step = 0; step < 4; step++) {
             await page.keyboard.press('Tab');
@@ -61,9 +61,7 @@ for (const instance of instances()) {
               const wrapper = element.parentElement;
               return {
                 name: `${element.tagName.toLowerCase()}.${[...element.classList].join('.')}`,
-                // The header search's button shows focus like its field: the search box darkens its edge
-                // (docs/styles.md, "HTML conventions"), and the button its ground.
-                field: element.matches('input, select, textarea, .masthead__search > button'),
+                field: element.matches('input, select, textarea'),
                 shown: shows(element) || Boolean(wrapper && wrapper.matches(':focus-within') && shows(wrapper)),
                 visible: rect.width > 0 && rect.height > 0,
               };
