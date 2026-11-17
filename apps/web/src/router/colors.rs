@@ -487,10 +487,65 @@ struct DomainForm {
     primary: String,
     #[serde(default)]
     secondary: String,
+    /// `preview` shows the choice on this domain to the administrator alone instead of saving it.
+    #[serde(default)]
+    operation: String,
 }
 csrf_forms!(DomainForm);
 
 /// A domain's colors: the site's (`site`), its skin's own (`skin`) or its own seeds (`own`).
+/// Shows a domain's colors to this administrator alone, on that domain's address (docs/skins.md, "Preview"), over the
+/// skin and palette the domain uses. Following the site previews the site's colors there.
+async fn domain_preview(state: &AppState, domain_id: i64, colors: Colors) -> Response {
+    let block = match state.global.settings(&state.db).await {
+        Ok(block) => block,
+        Err(error) => return auth::identity_error(state, error),
+    };
+    let found: Option<i64> = match crate::db::query_scalar(
+        "SELECT domain_id FROM gonof_common_site_domain WHERE domain_id=?",
+    )
+    .bind(domain_id)
+    .fetch_optional(state.db.executor())
+    .await
+    {
+        Ok(found) => found,
+        Err(error) => return database_error(state, error.into()),
+    };
+    if found.is_none() {
+        return error_page(
+            state,
+            StatusCode::NOT_FOUND,
+            crate::i18n::current().account_error_not_found(),
+        );
+    }
+    let layout = block
+        .domain_layouts
+        .iter()
+        .find(|(id, _)| *id == domain_id)
+        .map(|(_, layout)| layout);
+    let (skin, palette) = selection::choose(block.layout.as_ref(), layout);
+    let colors = match colors {
+        Colors::Inherit => match selection::colors(block.layout.as_ref(), None) {
+            Some(seeds) => Colors::Seeds(seeds),
+            None => Colors::Skin,
+        },
+        own => own,
+    };
+    match state.identity.seal_domain_colors_preview(
+        actor(state).uid,
+        (skin, palette.unwrap_or("")),
+        colors,
+        domain_id,
+    ) {
+        Ok(sealed) => {
+            let mut response = auth::redirect("/");
+            preview_cookie(&mut response, &sealed, crate::identity::SKIN_PREVIEW_TTL);
+            response
+        }
+        Err(error) => auth::identity_error(state, error),
+    }
+}
+
 async fn domain_save(
     AdminPage(state): AdminPage,
     AxumPath(domain_id): AxumPath<i64>,
@@ -522,6 +577,9 @@ async fn domain_save(
             );
         }
     };
+    if form.operation == "preview" {
+        return domain_preview(&state, domain_id, colors).await;
+    }
     match selection::save_colors(
         &state.db,
         &state.global,

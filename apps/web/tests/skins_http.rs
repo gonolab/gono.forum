@@ -1392,6 +1392,94 @@ async fn a_domain_follows_the_site_colors_or_chooses_its_own() {
 }
 
 #[tokio::test]
+async fn a_domain_color_preview_shows_on_that_domain_and_publishes_there() {
+    let site = Site::new(&[]).await;
+    for sql in [
+        format!(
+            "INSERT INTO gonof_common_site_domain(site_url,dateline) VALUES('{TEST_SITE_URL}',1)"
+        ),
+        format!(
+            "INSERT INTO gonof_common_site_domain(site_url,site_name,dateline) VALUES('{OTHER}','Other',1)"
+        ),
+    ] {
+        execute(site.db(), &sql).await;
+    }
+    test_support::set_setting(site.db(), "settings.domains.enabled", "true")
+        .await
+        .unwrap();
+    site.services.global.clear_local();
+    let other: i64 = scalar(
+        site.db(),
+        &format!("SELECT domain_id FROM gonof_common_site_domain WHERE site_url='{OTHER}'"),
+    )
+    .await;
+    let form = site
+        .get(&format!("/manage/domains/{other}"), Some(&site.admin))
+        .await;
+    assert!(form.html.contains("name=\"operation\" value=\"preview\""));
+    // Previewing saves nothing and sets the preview cookie for this domain.
+    let started = site
+        .post(
+            &format!("/manage/domains/{other}/colors"),
+            &site.admin,
+            &[
+                ("mode", "own"),
+                ("primary", "#e11d48"),
+                ("secondary", "#7c3aed"),
+                ("operation", "preview"),
+            ],
+        )
+        .await;
+    assert_eq!(started.location, "/", "{}", started.html);
+    assert!(
+        layout_body(site.db(), &format!("settings.domain_layout.{other}.body"))
+            .await
+            .is_none()
+    );
+    let cookie = started
+        .cookies
+        .iter()
+        .find(|cookie| cookie.starts_with("gonof_skin_preview="))
+        .expect("the preview cookie")
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let cookies = vec![format!("gonof_session={}", site.admin.0), cookie];
+    // On that domain the administrator sees the colors; on the main domain the page keeps its own, with the bar.
+    let there = site.get_on(OTHER, "/", &cookies).await;
+    assert!(skin_href(&there.html).contains("c=e11d487c3aed"));
+    assert!(there.html.contains("data-skin-preview"));
+    let here = site.get_on(TEST_SITE_URL, "/", &cookies).await;
+    assert!(
+        !skin_href(&here.html).contains("c="),
+        "{}",
+        skin_href(&here.html)
+    );
+    assert!(here.html.contains("data-skin-preview"));
+    // Nobody else sees them.
+    assert!(!skin_href(&site.get_on(OTHER, "/", &[]).await.html).contains("c="));
+    // Publishing from the bar saves them as the domain's colors.
+    let published = site
+        .post_with(
+            "/manage/skins/preview/publish",
+            &site.admin,
+            &cookies[1..],
+            &[],
+        )
+        .await;
+    assert_eq!(
+        published.location,
+        format!("/manage/domains/{other}?colors=saved"),
+        "{}",
+        published.html
+    );
+    assert!(skin_href(&site.get_on(OTHER, "/", &[]).await.html).contains("c=e11d487c3aed"));
+    assert!(!skin_href(&site.get("/", None).await.html).contains("c="));
+    site.services.cleanup().await.unwrap();
+}
+
+#[tokio::test]
 async fn a_color_preview_is_only_seen_by_the_administrator_who_started_it() {
     let site = Site::new(&[("ledger", &ledger_dir())]).await;
     let started = site

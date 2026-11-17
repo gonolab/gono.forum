@@ -714,18 +714,21 @@ async fn publish(AdminPage(state): AdminPage, CsrfForm(_): CsrfForm<CsrfOnly>) -
     if let Some(draft) = preview.layout {
         return super::layout_admin::publish_draft(&state, draft.domain).await;
     }
-    if !preview.colors.inherits() {
+    if !preview.colors.inherits() || preview.domain.is_some() {
         return match skins::selection::save_colors(
             &state.db,
             &state.global,
             actor,
-            None,
+            preview.domain,
             preview.colors,
         )
         .await
         {
             Ok(()) => {
-                let mut response = auth::redirect(&format!("{}?saved=saved", super::colors::PATH));
+                let mut response = auth::redirect(&match preview.domain {
+                    None => format!("{}?saved=saved", super::colors::PATH),
+                    Some(domain) => format!("/manage/domains/{domain}?colors=saved"),
+                });
                 preview_cookie(&mut response, "", 0);
                 response
             }

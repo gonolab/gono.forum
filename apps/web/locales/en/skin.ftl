@@ -210,6 +210,8 @@ skin-domain-colors-follow = Same as the whole site: { $state }
 skin-domain-colors-skin = The skin's own colors
 skin-domain-colors-own = Own seed colors
 skin-domain-colors-submit = Save colors
+skin-domain-colors-preview = Preview on this domain
+skin-domain-colors-preview-note = The preview shows the chosen colors to you alone, on this domain's address; open the domain's pages there to see them, then publish or exit the preview from the bar at the top.
 skin-domain-colors-saved = The domain's colors were saved.
 
 ## Personal settings: the avatar shape when the skin fixes it. $shape is one of the shapes below.

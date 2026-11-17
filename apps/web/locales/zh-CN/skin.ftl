@@ -160,6 +160,8 @@ skin-domain-colors-follow = 与全站相同：{ $state }
 skin-domain-colors-skin = 皮肤自带的配色
 skin-domain-colors-own = 另设种子色
 skin-domain-colors-submit = 保存配色
+skin-domain-colors-preview = 在此域名预览
+skin-domain-colors-preview-note = 预览只对你显示，而且只在这个域名的地址上生效；到这个域名下打开页面查看，再从顶部的预览条发布或退出。
 skin-domain-colors-saved = 已保存域名的配色。
 
 skin-avatar-fixed = 当前皮肤固定为所有头像显示{ $shape }。

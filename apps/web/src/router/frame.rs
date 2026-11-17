@@ -473,9 +473,16 @@ async fn skin(
                 .identity
                 .open_skin_preview(&state.viewer.skin_preview, uid)
         });
-    if let Some(preview) = &preview {
-        wanted = &preview.skin;
-        palette = Some(&preview.palette);
+    // A preview of one domain's colors shows on that domain's address only; elsewhere the page keeps its own (the
+    // preview bar still says a preview is on).
+    let here = preview.as_ref().is_none_or(|preview| {
+        preview.domain.is_none() || preview.domain == crate::site::other(|row| row.domain_id)
+    });
+    if let Some(preview) = preview.as_ref().filter(|_| here) {
+        if preview.domain.is_none() {
+            wanted = &preview.skin;
+            palette = Some(&preview.palette);
+        }
         match preview.colors {
             crate::skins::selection::Colors::Inherit => {}
             crate::skins::selection::Colors::Skin => colors = None,
@@ -507,7 +514,7 @@ async fn skin(
     let palette = skin.palette(palette).to_owned();
     let preview_colors = preview
         .as_ref()
-        .is_some_and(|preview| !preview.colors.inherits());
+        .is_some_and(|preview| !preview.colors.inherits() || preview.domain.is_some());
     let draft = preview.as_ref().and_then(|preview| preview.layout);
     (skin, palette, preview.is_some(), preview_colors, draft)
 }

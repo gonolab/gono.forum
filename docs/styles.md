@@ -161,7 +161,7 @@ the like); the seeds are not variables of the contract.
 - **The form** works without JavaScript. The fields are `<input type="color">`; where a browser shows a text field
   instead, the value must be `#` and six hexadecimal digits, which the server checks either way. "Show the derived
   colors" derives without saving, "Preview" shows the entered colors to this administrator only ([skins.md](skins.md),
-  "Preview"), "Save colors" saves them and "Use the skin's own colors" removes them; saving locks the layout document,
+  "Preview"; a domain's page has "Preview on this domain", which shows them on that domain's address), "Save colors" saves them and "Use the skin's own colors" removes them; saving locks the layout document,
   records `skin.colors` and clears the settings block. The swatches on the page are SVG with `fill` attributes, since
   the Content-Security-Policy allows no `style` attributes.
 

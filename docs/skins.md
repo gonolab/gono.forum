@@ -538,7 +538,9 @@ what anyone else sees. The choice lives in a cookie sealed with the cookie key (
 is applied only while the signed-in member is that administrator; publishing, exiting and signing out clear it. A
 preview of a skin shows it with the colors the page has anyway (the site's or the domain's seeds, derived again for
 that skin); a preview from Appearance › Colors shows the entered seeds over the site's skin and replaces any preview of
-a skin; a preview of a layout draft ("Editing a layout") shows the draft's places over the skin and colors the page has
+a skin; **Preview on this domain** on a domain's page (Multiple domains) shows that domain's chosen colors (its own
+seeds, the skin's own colors, or the site's when it follows the site) over the domain's skin, on that domain's address
+only, and publishing it saves them as the domain's; a preview of a layout draft ("Editing a layout") shows the draft's places over the skin and colors the page has
 anyway. A bar at the top of every page offers **Publish** (make the skin the site's, recording `skin.select`, save the
 colors as the site's, recording `skin.colors`, or publish the layout draft, recording `layout.save`) and **Exit
 preview**. Pages of signed-in members are never stored

@@ -23,6 +23,10 @@ pub struct SkinPreview {
     /// skin and colors the page has anyway; left out for a preview of a skin or colors.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout: Option<LayoutDraft>,
+    /// A preview of one domain's colors (its page under Multiple domains): they show on that domain's address only,
+    /// and publishing saves them as the domain's. Left out for the site's colors or a skin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<i64>,
     pub expires_at: i64,
 }
 
@@ -51,6 +55,32 @@ impl Identity {
                     palette: palette.to_owned(),
                     colors,
                     layout: None,
+                    domain: None,
+                    expires_at: now() + PREVIEW_TTL,
+                },
+            )
+            .map_err(IdentityError::Internal)
+    }
+
+    /// A preview of one domain's colors: `colors` over the domain's `skin` and `palette`, on that domain only.
+    pub fn seal_domain_colors_preview(
+        &self,
+        uid: i64,
+        (skin, palette): (&str, &str),
+        colors: Colors,
+        domain: i64,
+    ) -> Result<String> {
+        self.config
+            .cookie
+            .seal_value(
+                AAD,
+                &SkinPreview {
+                    uid,
+                    skin: skin.to_owned(),
+                    palette: palette.to_owned(),
+                    colors,
+                    layout: None,
+                    domain: Some(domain),
                     expires_at: now() + PREVIEW_TTL,
                 },
             )
@@ -75,6 +105,7 @@ impl Identity {
                     palette: palette.to_owned(),
                     colors: Colors::Inherit,
                     layout: Some(LayoutDraft { domain }),
+                    domain: None,
                     expires_at: now() + PREVIEW_TTL,
                 },
             )

@@ -151,7 +151,8 @@
   <input class="color-field" type="color" id="domain-colors-secondary" name="secondary" value="{{ skin.colors.secondary }}" maxlength="7" pattern="#[0-9a-fA-F]{6}" aria-describedby="domain-colors-secondary-hint">
   <p class="field__hint" id="domain-colors-secondary-hint">{{ p.t.skin_colors_field_secondary_hint() }}</p>
 </div>
-<div class="form-actions"><button class="button" type="submit">{{ p.t.skin_domain_colors_submit() }}</button></div>
+<div class="form-actions"><button class="button" type="submit">{{ p.t.skin_domain_colors_submit() }}</button><button class="button button--secondary" type="submit" name="operation" value="preview" formnovalidate>{{ p.t.skin_domain_colors_preview() }}</button></div>
+<p class="form-note">{{ p.t.skin_domain_colors_preview_note() }}</p>
 </form>
 {#- The domain's own places (docs/skins.md, "Editing a layout"). #}
 <p data-domain-layout><a href="{{ crate::site::base() }}/manage/layout?domain={{ domain_id }}">{{ p.t.layout_domain_link() }}</a> {{ p.t.layout_domain_lead() }}</p>
