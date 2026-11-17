@@ -197,6 +197,11 @@ async fn list_rows_carry_their_classes_states_and_optional_elements() {
         daily,
     } = site(None).await;
     let home = page(&app, "/", None).await;
+    // A board page's head carries the board, so the board variables reach it.
+    let board = page(&app, "/daily", None).await;
+    assert!(board.contains(&format!(
+        "data-block=\"board-head\" data-board=\"{daily}\">"
+    )));
 
     for tid in [PINNED, FEATURED, LOCKED_POLL, PLAIN, SITE_PIN] {
         assert_list_row_hooks(row(&home, tid));

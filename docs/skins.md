@@ -328,7 +328,7 @@ debug panel lists every block of the page with its time and the skipped ones wit
 | `recent-local` | `list` | The visitor's recently viewed threads, which `site.js` fills from local storage. |
 | `site-overview` | `card` | The site statistics and the newest members. |
 | `friend-links` | `list` | The friend links and the link to apply; only on page 1 of the main domain's home page. |
-| `board-head` | `head` | A board page's head: name, icon, follow and filter controls, description, moderators, posting guide. |
+| `board-head` | `head` | A board page's head: name, icon, follow and filter controls, description, moderators, posting guide; it carries the board's `data-board`. |
 | `nav-boards` | `tree` | The board tree with the new-thread button; the board of the page, or of the thread, is `aria-current="page"`. |
 | `nav-links` | `list` | The header navigation's entries. |
 | `markdown` | `prose` | Its `body` in the page's language. |
@@ -350,8 +350,9 @@ Each view is an Askama template, `templates/blocks/<source>/<view>.html`; the me
 
 Every block's outer element carries `block block--<source> block--<view>` among its classes (the dot of a source name
 written as a hyphen, `block--site-stats`) and `data-block="<id>"`. Rows and tiles of threads and boards carry
-`data-board`, so the board variables ("Board colors and glyphs") reach them. The core default layout renders the
-same markup the templates wrote before layouts plus these two hooks and the `div.page-head` around a board head;
+`data-board`, so the board variables ("Board colors and glyphs") reach them, and so does the board head. The core
+default layout renders the same markup the templates wrote before layouts plus these hooks (and the board head's
+`data-board`) and the `div.page-head` around a board head;
 `tests/default_layout_http.rs` compares it with HTML recorded from the old templates.
 
 ## Frame

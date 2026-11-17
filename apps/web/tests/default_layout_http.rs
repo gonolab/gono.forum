@@ -1,7 +1,7 @@
 //! The core default layout (docs/skins.md, "Places and blocks") renders the asides, the page heads, the footer and
 //! the start of the body exactly as the templates did before layouts existed, apart from the block hooks every block
-//! carries (`block block--<source> block--<view>` on its outer element, `data-block`) and the `div.page-head` wrapper
-//! around a page head that has blocks. The reference HTML in `tests/default_layout/` was recorded from the templates
+//! carries (`block block--<source> block--<view>` on its outer element, `data-block`), the `data-board` of the board
+//! head and the `div.page-head` wrapper around a page head that has blocks. The reference HTML in `tests/default_layout/` was recorded from the templates
 //! before layouts; `GONOF_WRITE_DEFAULT_LAYOUT=1` records it again from the current templates.
 #[path = "support/http_auth.rs"]
 mod http_auth;
@@ -90,8 +90,8 @@ fn without_tokens(html: &str) -> String {
     text
 }
 
-/// Removes the block hooks: ` block block--<source> block--<view>` inside a class attribute, ` data-block="…"`, and
-/// the `div.page-head` wrapper (its opening tag and the `</div>` that closes it, found by counting nested `div`s).
+/// Removes the block hooks: ` block block--<source> block--<view>` inside a class attribute, ` data-block="…"` (with
+/// the board head's ` data-board="…"` after it), and the `div.page-head` wrapper (its opening tag and the `</div>` that closes it, found by counting nested `div`s).
 fn without_block_hooks(html: &str) -> String {
     let mut out = html.to_owned();
     while let Some(at) = out.find(" block block--") {
@@ -104,7 +104,11 @@ fn without_block_hooks(html: &str) -> String {
     }
     let attribute = " data-block=\"";
     while let Some(at) = out.find(attribute) {
-        let close = at + attribute.len() + out[at + attribute.len()..].find('"').unwrap();
+        let mut close = at + attribute.len() + out[at + attribute.len()..].find('"').unwrap();
+        let board = " data-board=\"";
+        if out[close + 1..].starts_with(board) && out[at..close].contains("board-head") {
+            close = close + 1 + board.len() + out[close + 1 + board.len()..].find('"').unwrap();
+        }
         out.replace_range(at..=close, "");
     }
     let open = "<div class=\"page-head\">";
@@ -258,7 +262,7 @@ async fn the_core_default_layout_renders_the_pages_as_before() {
                 ],
                 "board" | "board-member" | "child-board" | "board-plain" => &[
                     "<div class=\"page-head\">",
-                    " block block--board-head block--head\" data-block=\"board-head\"",
+                    " block block--board-head block--head\" data-block=\"board-head\" data-board=\"",
                     " data-block=\"hot-board\"",
                 ],
                 _ => &[" block block--member-card block--card\" data-block=\"member-card-thread\""],

@@ -1855,6 +1855,7 @@ async fn browse(
     // The head of a board page goes to its board-head block (docs/skins.md, "Places and blocks"); search results
     // keep the same head with their heading only, outside places.
     let head = || blocks::BoardHead {
+        fid: None,
         heading: heading.clone(),
         icon: String::new(),
         follow: None,
@@ -1877,6 +1878,7 @@ async fn browse(
     let board_head = current_forum
         .filter(|_| !search)
         .map(|f| blocks::BoardHead {
+            fid: Some(f.fid),
             icon: forum_icon.clone(),
             follow: forum_follow,
             filter: forum_filter,

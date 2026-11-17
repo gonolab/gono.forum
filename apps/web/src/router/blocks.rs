@@ -23,6 +23,8 @@ use crate::organization::ForumRecord;
 
 /// A board page's head, which the board-head block shows (and the search results show without block hooks).
 pub(super) struct BoardHead {
+    /// The board, written as `data-board` so the board variables reach the head; `None` for search results.
+    pub fid: Option<i64>,
     pub heading: String,
     pub icon: String,
     pub follow: Option<super::social::Control>,

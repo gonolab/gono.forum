@@ -1,5 +1,5 @@
-{#- The board-head block (docs/skins.md, "Core blocks"): a board page's head, and the search results' heading without hooks. Own moderators first, then the ones inherited from the parent board (server order). #}
-      <header class="panel{% if block.keep %} panel--keep{% endif %} board-head{{ block.hooks() }}"{{ block.attribute()|safe }}>
+{#- The board-head block (docs/skins.md, "Core blocks"): a board page's head with data-board, and the search results' heading without hooks. Own moderators first, then the ones inherited from the parent board (server order). #}
+      <header class="panel{% if block.keep %} panel--keep{% endif %} board-head{{ block.hooks() }}"{{ block.attribute()|safe }}{% if let Some(fid) = data.fid %} data-board="{{ fid }}"{% endif %}>
         <div class="board-head__top">
           {%- if !data.icon.is_empty() %}
           <img class="board-head__icon" src="{{ crate::site::href(data.icon) }}" alt="" width="40" height="40">
