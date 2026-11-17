@@ -188,14 +188,20 @@ async fn the_core_default_layout_renders_the_pages_as_before() {
     let db = services.db.clone();
     content::seed_forums(&db).await.unwrap();
     content::seed_fixture(&db).await.unwrap();
-    let showcase = scalar(&db, "SELECT fid FROM gonof_forum_forum WHERE slug='showcase'").await;
+    let showcase = scalar(
+        &db,
+        "SELECT fid FROM gonof_forum_forum WHERE slug='showcase'",
+    )
+    .await;
     let ai = scalar(&db, "SELECT fid FROM gonof_forum_forum WHERE slug='ai'").await;
     execute(
         &db,
         &format!("UPDATE gonof_forum_forum SET parent_fid={showcase} WHERE fid={ai}"),
     )
     .await;
-    test_support::sync_forum_copies(&db, showcase).await.unwrap();
+    test_support::sync_forum_copies(&db, showcase)
+        .await
+        .unwrap();
     // Recent activity on a few threads, so the hot card lists them whatever day the test runs.
     let now = gono_forum_web::identity::now();
     execute(

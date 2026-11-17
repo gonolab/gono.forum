@@ -204,6 +204,12 @@ pub fn last_reply_name(username: Option<String>, account_state: Option<&str>) ->
     }
 }
 
+/// The `last_reply_uid` copy of a reply by `authorid` whose account is in `account_state`: `None` when the reply has
+/// no author or the account is deleted, the same cases [`last_reply_name`] shows as "Deleted user".
+pub fn last_reply_uid(authorid: Option<i64>, account_state: Option<&str>) -> Option<i64> {
+    authorid.filter(|_| account_state.is_some_and(|state| state != "deleted"))
+}
+
 /// Increments the site-wide content version. Only called on structural events, preferably among the last statements
 /// of the transaction: the exclusive lock on this row is held until commit.
 pub async fn bump_site(db: &Database, tx: &mut Tx<'_>) -> Result<()> {
@@ -458,20 +464,21 @@ pub async fn member_changed(db: &Database, tx: &mut Tx<'_>, uid: i64) -> Result<
     .execute(db.observe(&mut **tx))
     .await?;
     let shown = last_reply_name(Some(username), Some(&state));
-    // First read with a lock the threads whose last replier is this member, then update by thread id (not a multi-table
-    // UPDATE, which SQLite writes differently): once locked, other replies cannot change the last reply of these
-    // threads, and updating by thread id cannot hit the wrong person.
-    let tids: Vec<i64> = db::query_scalar(
-        "SELECT t.tid FROM gonof_forum_thread t JOIN gonof_forum_post p ON p.pid=t.last_reply_pid WHERE p.authorid=? FOR UPDATE",
-    )
-    .bind(uid)
-    .fetch_all(db.observe(&mut **tx))
-    .await?;
+    // A deleted account is no longer the last replier by uid either: the copy becomes NULL with the name.
+    let shown_uid = last_reply_uid(Some(uid), Some(&state));
+    // First read with a lock the threads whose last replier is this member, on the `last_reply_uid` index, then update
+    // by thread id (not a multi-table UPDATE, which SQLite writes differently): once locked, other replies cannot
+    // change the last reply of these threads, and updating by thread id cannot hit the wrong person.
+    let tids: Vec<i64> =
+        db::query_scalar("SELECT tid FROM gonof_forum_thread WHERE last_reply_uid=? FOR UPDATE")
+            .bind(uid)
+            .fetch_all(db.observe(&mut **tx))
+            .await?;
     update_keys(
         db,
         tx,
-        "UPDATE gonof_forum_thread SET last_reply_author=?,cache_revision=cache_revision+1 WHERE tid IN (",
-        |query| query.bind(shown.clone()),
+        "UPDATE gonof_forum_thread SET last_reply_author=?,last_reply_uid=?,cache_revision=cache_revision+1 WHERE tid IN (",
+        |query| query.bind(shown.clone()).bind(shown_uid),
         &tids,
     )
     .await?;
@@ -731,5 +738,15 @@ mod tests {
             DELETED_AUTHOR
         );
         assert_eq!(last_reply_name(None, None), DELETED_AUTHOR);
+    }
+
+    #[test]
+    fn the_last_replier_uid_is_dropped_with_the_name() {
+        assert_eq!(last_reply_uid(Some(7), Some("active")), Some(7));
+        assert_eq!(last_reply_uid(Some(7), Some("deleting")), Some(7));
+        assert_eq!(last_reply_uid(Some(7), Some("deleted")), None);
+        // No member row: the reply has no author, like `last_reply_name` showing "Deleted user".
+        assert_eq!(last_reply_uid(Some(7), None), None);
+        assert_eq!(last_reply_uid(None, None), None);
     }
 }

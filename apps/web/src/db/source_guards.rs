@@ -312,7 +312,7 @@ fn content_copies_versions_and_identities_change_only_through_their_code() {
                         || (!DISPLAYORDER_WRITERS.contains(&file) && has(&assigned, "displayorder"))
                         || (has(&assigned, "fid") && !has(&assigned, "family_fid"))
                         || (!LAST_REPLY_WRITERS.contains(&file)
-                            && has(&assigned, "last_reply_author"))
+                            && any(&["last_reply_author", "last_reply_uid"]))
                         || any(&["category", "authorid"])
                         || (file != MARK_COUNTERS && any(THREAD_MARK_COUNTS))
                 }

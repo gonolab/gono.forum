@@ -643,8 +643,8 @@ impl ContentWriter {
         .await?;
         // A new valid reply only does a constant number of copy updates and does not scan the whole thread's counts.
         let summary: String = request.body.chars().take(255).collect();
-        crate::db::query("UPDATE gonof_forum_thread SET valid_replies=valid_replies+1,last_reply_pid=IF(lastpost<=?,?,last_reply_pid),last_reply_author=IF(lastpost<=?,?,last_reply_author),last_reply_summary=IF(lastpost<=?,?,last_reply_summary),cache_revision=cache_revision+1 WHERE tid=?")
-            .bind(timestamp).bind(pid).bind(timestamp).bind(&author.username).bind(timestamp).bind(summary).bind(request.tid)
+        crate::db::query("UPDATE gonof_forum_thread SET valid_replies=valid_replies+1,last_reply_pid=IF(lastpost<=?,?,last_reply_pid),last_reply_author=IF(lastpost<=?,?,last_reply_author),last_reply_uid=IF(lastpost<=?,?,last_reply_uid),last_reply_summary=IF(lastpost<=?,?,last_reply_summary),cache_revision=cache_revision+1 WHERE tid=?")
+            .bind(timestamp).bind(pid).bind(timestamp).bind(&author.username).bind(timestamp).bind(uid).bind(timestamp).bind(summary).bind(request.tid)
             .execute(self.db.observe(&mut *tx)).await?;
         if let Some(root) = request.root_pid {
             crate::db::query(

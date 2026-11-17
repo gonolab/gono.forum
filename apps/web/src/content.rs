@@ -2787,7 +2787,7 @@ pub(crate) async fn refresh_effective_replies(
     // `gonof_post_dateline` index backwards for the ORDER BY … LIMIT 1 and, for an old thread, reads every newer post
     // on the site first, inside this write transaction.
     let last = crate::db::query(&format!(
-        "SELECT p.pid,p.dateline,m.username AS author,m.account_state AS author_state,p.message AS summary
+        "SELECT p.pid,p.dateline,p.authorid,m.username AS author,m.account_state AS author_state,p.message AS summary
          FROM gonof_forum_post p FORCE INDEX (PRIMARY)
          LEFT JOIN gonof_common_member m ON m.uid=p.authorid
          WHERE {valid} ORDER BY p.dateline DESC,p.position DESC LIMIT 1"
@@ -2795,24 +2795,25 @@ pub(crate) async fn refresh_effective_replies(
         .bind(tid)
         .fetch_optional(db.observe(&mut **tx))
         .await?;
-    let (pid, date, author, summary) = match last {
-        Some(row) => (
-            Some(row.try_get::<i64, _>("pid")?),
-            row.try_get::<i64, _>("dateline")?,
-            copies::last_reply_name(
-                row.try_get("author")?,
-                row.try_get::<Option<String>, _>("author_state")?.as_deref(),
-            ),
-            row.try_get::<String, _>("summary")?
-                .chars()
-                .take(255)
-                .collect(),
-        ),
-        None => (None, 0, String::new(), String::new()),
+    let (pid, date, author, uid, summary) = match last {
+        Some(row) => {
+            let state = row.try_get::<Option<String>, _>("author_state")?;
+            (
+                Some(row.try_get::<i64, _>("pid")?),
+                row.try_get::<i64, _>("dateline")?,
+                copies::last_reply_name(row.try_get("author")?, state.as_deref()),
+                copies::last_reply_uid(row.try_get("authorid")?, state.as_deref()),
+                row.try_get::<String, _>("summary")?
+                    .chars()
+                    .take(255)
+                    .collect(),
+            )
+        }
+        None => (None, 0, String::new(), None, String::new()),
     };
     // A structural change: the caller increments the site-wide version at the end of the transaction
     // (`copies::bump_site`).
-    crate::db::query("UPDATE gonof_forum_thread SET valid_replies=?,last_reply_pid=?,last_reply_author=?,last_reply_summary=?,lastpost=GREATEST(dateline,?),cache_revision=cache_revision+1 WHERE tid=?")
-        .bind(count).bind(pid).bind(author).bind(summary).bind(date).bind(tid).execute(db.observe(&mut **tx)).await?;
+    crate::db::query("UPDATE gonof_forum_thread SET valid_replies=?,last_reply_pid=?,last_reply_author=?,last_reply_uid=?,last_reply_summary=?,lastpost=GREATEST(dateline,?),cache_revision=cache_revision+1 WHERE tid=?")
+        .bind(count).bind(pid).bind(author).bind(uid).bind(summary).bind(date).bind(tid).execute(db.observe(&mut **tx)).await?;
     Ok(())
 }

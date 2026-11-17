@@ -221,6 +221,7 @@ lifetimes, clearing and broadcasting.
 | --- | --- | --- |
 | `gonof_forum_thread.author` | the author's username; for a deleted account a fixed marker (`copies::DELETED_AUTHOR`, translated when shown by `copies::shown_name`) | the INSERT (`copies::ThreadCopies`); `copies::member_changed` on renames and account deletion |
 | `last_reply_pid`, `last_reply_author`, `last_reply_summary`, `lastpost`, `valid_replies` | the latest visible reply | the reply statement in `content/writes.rs`; `content::refresh_effective_replies` after moderation; `copies::member_changed` for the name |
+| `last_reply_uid` | the uid of the latest visible reply's author; `NULL` without a reply, for a reply without an author and once that account is deleted (indexed, foreign key to the member) | the same statements as `last_reply_author`, in the same `UPDATE`: the reply statement, `content::refresh_effective_replies`, and `copies::member_changed`, which finds a member's threads by `WHERE last_reply_uid = ?` on its index and writes `NULL` on account deletion; migration 0004 filled it from `last_reply_pid` |
 | `family_fid` | the parent forum's id, or the forum's own id for a top-level forum | the INSERT (`copies::ForumCopies`); `copies::move_thread`, in the statement that changes `fid`; `copies::resync_forum` when a forum gets another parent (`copies::forum_saved`) |
 | `displayorder` (negative values) | first post hidden, or a reserved state | `copies::sync_first_hidden` |
 | `gonof_forum_post.root_invisible` | the parent reply's `invisible` on nested replies; 0 on top-level replies and first posts | `copies::sync_root_invisible` when a top-level reply is hidden or unhidden |
@@ -284,7 +285,7 @@ source and fails when:
 | Statement | Fails when |
 | --- | --- |
 | `INSERT INTO gonof_forum_thread` | outside `content/writes.rs` and `content/seed.rs`, or without `author` and `family_fid` (which has no default) |
-| `UPDATE gonof_forum_thread` | without `cache_revision`; `fid` without `family_fid`; `author` or `family_fid` outside `content/copies.rs`; `displayorder` outside `copies.rs` and `content/edits.rs`; `last_reply_author` outside `content/writes.rs`, `content.rs` and `copies.rs`; `favorites`, `tips`, `tip_total` outside `interaction/counters.rs`; `category` or `authorid` anywhere |
+| `UPDATE gonof_forum_thread` | without `cache_revision`; `fid` without `family_fid`; `author` or `family_fid` outside `content/copies.rs`; `displayorder` outside `copies.rs` and `content/edits.rs`; `last_reply_author` or `last_reply_uid` outside `content/writes.rs`, `content.rs` and `copies.rs`; `favorites`, `tips`, `tip_total` outside `interaction/counters.rs`; `category` or `authorid` anywhere |
 | `UPDATE gonof_forum_post` | `root_invisible` outside `copies.rs`; `reactions`, `downvotes` outside `counters.rs` |
 | the two count tables | written outside `copies.rs`, apart from deleting an empty forum's rows in `organization.rs` |
 | like, downvote and favorite rows | written outside `interaction.rs`, `interaction/counters.rs` and `growth.rs` |
@@ -304,7 +305,8 @@ On MySQL the session table uses the MEMORY engine: a database restart empties it
 
 ## Checking consistency
 
-- `apps/web/tests/consistency/content.sql` holds read-only checks that must all be 0: the copies, `displayorder`
+- `apps/web/tests/consistency/content.sql` holds read-only checks that must all be 0: the copies (the last replier's
+  name and uid against the author of `last_reply_pid` among them), `displayorder`
   against the first post's hidden flag and the reserved states, thread and first-post withdrawal, `root_invisible`,
   both count tables, the counter columns against the detail rows and the tip ledger, reply counts and post shapes.
   `test_support::content_drift` runs it (MySQL only); `tests/thread_copies.rs` runs it after every test.

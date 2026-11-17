@@ -386,8 +386,8 @@ async fn both_backends_build_the_same_schema_and_seed_rows() {
         .values()
         .map(|table| table.indexes.len())
         .sum();
-    // 171 in the baseline, one more from 0003.
-    assert_eq!(indexes, 172);
+    // 171 in the baseline, one more each from 0003 and 0004.
+    assert_eq!(indexes, 173);
 
     let mysql_rows = table_rows(&fixture.db).await;
     let sqlite_rows = table_rows(&sqlite).await;

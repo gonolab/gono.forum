@@ -37,7 +37,17 @@ SELECT 'threads whose last replier disagrees with the author of the last reply',
 UNION ALL
 SELECT 'threads with a last replier but no last reply', COUNT(*)
   FROM gonof_forum_thread
- WHERE last_reply_pid IS NULL AND last_reply_author <> ''
+ WHERE last_reply_pid IS NULL AND (last_reply_author <> '' OR last_reply_uid IS NOT NULL)
+UNION ALL
+-- The last replier's uid is the author of the last reply, and NULL when that account is deleted or the reply has no
+-- author.
+SELECT 'threads whose last replier uid disagrees with the author of the last reply', COUNT(*)
+  FROM gonof_forum_thread t
+  JOIN gonof_forum_post p ON p.pid = t.last_reply_pid
+  LEFT JOIN gonof_common_member m ON m.uid = p.authorid
+ WHERE NOT (CASE WHEN m.uid IS NULL OR m.account_state = 'deleted'
+     THEN t.last_reply_uid IS NULL
+     ELSE COALESCE(t.last_reply_uid, 0) = m.uid END)
 UNION ALL
 -- A thread whose first post is hidden by moderation has displayorder -1, the reserved states (unpublished, private,
 -- read permission set) have -2, and everything else is not negative.
