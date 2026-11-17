@@ -1,0 +1,27 @@
+{#- The board-head block (docs/skins.md, "Core blocks"): a board page's head, and the search results' heading without hooks. Own moderators first, then the ones inherited from the parent board (server order). #}
+      <header class="panel{% if block.keep %} panel--keep{% endif %} board-head{{ block.hooks() }}"{{ block.attribute()|safe }}>
+        <div class="board-head__top">
+          {%- if !data.icon.is_empty() %}
+          <img class="board-head__icon" src="{{ crate::site::href(data.icon) }}" alt="" width="40" height="40">
+          {%- endif %}
+          <h1 class="board-head__title">{{ data.heading }}</h1>
+        </div>
+        {%- if data.follow.is_some() || data.filter.is_some() %}
+        <div class="board-head__actions">
+          {%- if let Some(control) = data.follow %}{% include "social/control.html" %}{% endif %}
+          {%- if let Some(filter) = data.filter %}{% include "social/forum_filter.html" %}{% endif %}
+        </div>
+        {%- endif %}
+        {%- if !data.description.is_empty() %}
+        <p class="board-head__desc">{{ data.description }}</p>
+        {%- endif %}
+        {%- if !data.moderators.is_empty() %}
+        <p class="board-head__mods" data-forum-moderators>{{ p.t.home_moderators() }}{{ p.t.common_colon() }}{% for (uid, name) in data.moderators %}{% if !loop.first %}{{ p.t.common_list_separator() }}{% endif %}<a href="{{ crate::site::base() }}/space/{{ uid }}" translate="no">{{ name }}</a>{% endfor %}</p>
+        {%- endif %}
+        {%- if !data.guidance.is_empty() %}
+        <details class="board-head__guide" data-forum-guidance>
+          <summary>{{ p.t.home_guidance() }}</summary>
+          <p class="board-head__guide-body">{% for line in data.guidance %}{% if !loop.first %}<br>{% endif %}{{ line }}{% endfor %}</p>
+        </details>
+        {%- endif %}
+      </header>

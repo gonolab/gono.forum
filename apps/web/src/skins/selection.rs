@@ -4,9 +4,10 @@
 //!
 //! The body is JSON: `{"v":1,"skin":"ledger","palette":"main","based_on":{"skin":"ledger","version":"1.2.0"},
 //! "places":null}`, with `"colors":{"primary":"#rrggbb","secondary":"#rrggbb"}` when the administrator chose seed
-//! colors (docs/styles.md, "Seed colors"). `places` (the blocks of each place on a page) stays `null` until layouts
-//! arrive. A domain document leaves out what it inherits from the site's; its `colors` may also be `"skin"`, the
-//! skin's own colors even where the site has seeds.
+//! colors (docs/styles.md, "Seed colors"). `places` holds the blocks of each place the document changes
+//! (docs/skins.md, "Places and blocks"), `null` while it changes none. A domain document leaves out what it inherits
+//! from the site's, place by place; its `colors` may also be `"skin"`, the skin's own colors even where the site has
+//! seeds.
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::seed::Seeds;
@@ -34,7 +35,7 @@ pub struct Layout {
     /// The skin and version this choice was made from.
     #[serde(default)]
     pub based_on: Option<BasedOn>,
-    /// Blocks per place; `null` until layouts are edited (phase 2).
+    /// Blocks per place this document sets (`crate::layout::Places` as JSON); `null` when it sets none.
     #[serde(default)]
     pub places: serde_json::Value,
     /// Seed colors over the skin's palettes; left out when the document inherits them.
@@ -104,10 +105,20 @@ impl Layout {
         if layout.v != 1 {
             return Err(format!("unknown layout document version {}", layout.v));
         }
-        if !layout.places.is_null() {
-            return Err("places are not supported yet".into());
+        if !(layout.places.is_null() || layout.places.is_object()) {
+            return Err("places must be null or an object".into());
         }
         Ok(Some(layout))
+    }
+
+    /// The places the document sets, read leniently (docs/skins.md, "Places and blocks"): blocks that no longer
+    /// pass their checks are skipped and logged; `None` when it sets none.
+    pub fn places(&self, owner: &str) -> Option<crate::layout::Places> {
+        if self.places.is_null() {
+            return None;
+        }
+        let places = crate::layout::Places::read(&self.places, owner);
+        (!places.is_empty()).then_some(places)
     }
 
     pub fn body(&self) -> String {
@@ -461,7 +472,14 @@ mod tests {
             r#"{"v":1,"skin":"ledger","palette":"main","based_on":{"skin":"ledger","version":"1.2.0"},"places":null}"#
         );
         assert!(Layout::parse(r#"{"v":2}"#).is_err());
-        assert!(Layout::parse(r#"{"v":1,"places":{}}"#).is_err());
+        assert!(Layout::parse(r#"{"v":1,"places":[]}"#).is_err());
+        assert!(
+            Layout::parse(r#"{"v":1,"places":{}}"#)
+                .unwrap()
+                .unwrap()
+                .places("test")
+                .is_none()
+        );
         assert!(Layout::parse(r#"{"v":1,"colour":"red"}"#).is_err());
         assert!(Layout::parse("not json").is_err());
     }

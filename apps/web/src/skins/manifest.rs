@@ -32,7 +32,8 @@ pub struct Manifest {
     pub frame: Frame,
     #[serde(default)]
     pub behaviors: Behaviors,
-    /// The skin's default layout; layouts arrive with the data sources (phase 2), so it must be absent or empty.
+    /// The skin's default layout: places with their blocks, in the format of a layout document's `places`
+    /// (docs/skins.md, "Places and blocks"), checked as strictly as a saved document.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout: Option<serde_json::Value>,
 }
@@ -192,6 +193,19 @@ impl Manifest {
         })
     }
 
+    /// The `[layout]` places when the manifest has any; absent and empty are no layout.
+    pub fn places_value(&self) -> Option<&serde_json::Value> {
+        self.layout.as_ref().filter(|layout| {
+            !(layout.is_null() || layout.as_object().is_some_and(|o| o.is_empty()))
+        })
+    }
+
+    /// The skin's default layout as pages read it (skipping what no longer passes); `None` without one.
+    pub fn places(&self) -> Option<crate::layout::Places> {
+        self.places_value()
+            .map(|layout| crate::layout::Places::read(layout, &format!("skin {}", self.id)))
+    }
+
     /// The normalized form stored in `gonof_common_skin.manifest` and in a pack.
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).expect("a manifest always serializes")
@@ -314,11 +328,12 @@ impl Manifest {
                 field: "behaviors.enabled".into(),
             });
         }
-        if self.layout.as_ref().is_some_and(|layout| {
-            !(layout.is_null() || layout.as_object().is_some_and(|o| o.is_empty()))
-        }) {
-            error(Problem::ManifestUnsupported {
-                field: "layout".into(),
+        if let Some(layout) = self.places_value()
+            && let Err(problem) = crate::layout::Places::parse(layout)
+        {
+            error(Problem::ManifestLayout {
+                path: problem.path,
+                problem: problem.problem.code().into(),
             });
         }
         // A built-in skin writes only English here; its names are messages (`super::builtin_text`), which must exist.
@@ -449,9 +464,16 @@ avatar_shape = "circle"
             [Problem::ManifestUnsupported { .. }]
         ));
         assert!(matches!(
-            problems(&format!("{base}[layout]\nhome = 1\n"))[..],
-            [Problem::ManifestUnsupported { .. }]
+            &problems(&format!("{base}[layout]\nhome = 1\n"))[..],
+            [Problem::ManifestLayout { path, problem }] if path == "places.home" && problem == "unknown"
         ));
+        assert!(
+            problems(&format!(
+                "{base}[layout]\n\"footer\" = [{{ id = \"note\", source = \"markdown\", body = {{ en = \"Hello\" }} }}]\n"
+            ))
+            .is_empty(),
+            "a valid layout passes"
+        );
         assert!(matches!(
             problems(&format!("{base}color = \"red\"\n"))[..],
             [Problem::ManifestSyntax { .. }]

@@ -1,0 +1,7 @@
+{#- The markdown block (docs/skins.md, "Core blocks"): the text in the page's language, rendered and cleaned by markdown.rs. #}
+<section class="panel{% if block.keep %} panel--keep{% endif %} block-markdown{{ block.hooks() }}"{{ block.attribute()|safe }}>
+  {%- if !block.title.is_empty() %}
+  <h2 class="panel__title">{{ block.title }}</h2>
+  {%- endif %}
+  <div class="prose">{{ data.html|safe }}</div>
+</section>

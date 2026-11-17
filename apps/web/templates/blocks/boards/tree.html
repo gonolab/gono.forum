@@ -1,0 +1,18 @@
+{#- boards as a tree (docs/skins.md, "Views"): each board with its glyph and its child boards. #}
+<section class="panel panel--aside block-boards{% if block.keep %} panel--keep{% endif %}{{ block.hooks() }}"{{ block.attribute()|safe }}>
+  <h2 class="panel__title">{{ block.title }}</h2>
+  {%- include "partials/board_glyphs.html" %}
+  <ul class="block-boards__tree">
+    {%- for board in data.items %}
+    <li data-board="{{ board.fid }}"><a class="block-boards__name" href="{{ crate::site::prefixed(board.href) }}">{% if let Some(glyph) = board.glyph %}<svg class="block-boards__glyph" aria-hidden="true" focusable="false"><use href="#board-glyph-{{ glyph }}"></use></svg>{% endif %}{{ board.name }}</a>
+      {%- if !board.children.is_empty() %}
+      <ul class="block-boards__children">
+        {%- for child in board.children %}
+        <li data-board="{{ child.fid }}"><a href="{{ crate::site::prefixed(child.href) }}">{{ child.name }}</a></li>
+        {%- endfor %}
+      </ul>
+      {%- endif %}
+    </li>
+    {%- endfor %}
+  </ul>
+</section>

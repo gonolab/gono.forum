@@ -57,6 +57,7 @@ skin-manifest-name = { $field } needs an English text (en)
 skin-manifest-text = { $field } has an unknown language tag, an empty text or a text that is too long
 skin-manifest-value = { $field } has an invalid value
 skin-manifest-unsupported = { $field } is not supported by this version of Gono Forum
+skin-manifest-layout = The [layout] of skin.toml is not valid: { $message }
 # $version is the version the skin needs, $current the running one.
 skin-manifest-min-forum = The skin needs Gono Forum { $version } or later; this is { $current }
 # $field is name or description.

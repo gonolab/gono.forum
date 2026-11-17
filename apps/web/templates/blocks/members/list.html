@@ -1,0 +1,18 @@
+{#- Members as a list (docs/skins.md, "Views"), shared by the member sources: avatar, name and what the source says about them. #}
+<section class="panel panel--aside block-members{% if block.keep %} panel--keep{% endif %}{{ block.hooks() }}"{{ block.attribute()|safe }}>
+  <h2 class="panel__title">{{ block.title }}</h2>
+  {%- for group in data.groups %}
+  {%- if let Some(heading) = group.heading %}
+  <h3 class="block-members__group">{{ heading }}</h3>
+  {%- endif %}
+  {%- if group.items.is_empty() %}
+  <p class="panel__note">{{ p.t.block_empty() }}</p>
+  {%- else %}
+  <ul class="block-members__list">
+    {%- for item in group.items %}
+    <li class="block-members__item">{% let avatar = item.avatar %}<span class="block-members__avatar" aria-hidden="true">{% include "partials/avatar.html" %}</span>{% if avatar.profile_href.is_empty() %}<span class="block-members__name" translate="no">{{ item.name }}</span>{% else %}<a class="block-members__name" href="{{ crate::site::href(avatar.profile_href) }}" translate="no">{{ item.name }}</a>{% endif %}{% if !item.note.is_empty() %}<span class="block-members__note">{{ item.note }}</span>{% endif %}</li>
+    {%- endfor %}
+  </ul>
+  {%- endif %}
+  {%- endfor %}
+</section>

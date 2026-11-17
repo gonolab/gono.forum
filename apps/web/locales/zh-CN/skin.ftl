@@ -37,6 +37,7 @@ skin-manifest-name = { $field } 必须有英文（en）
 skin-manifest-text = { $field } 含有未知的语言标签、空文字或过长的文字
 skin-manifest-value = { $field } 的值无效
 skin-manifest-unsupported = 当前版本的 Gono Forum 不支持 { $field }
+skin-manifest-layout = skin.toml 的 [layout] 不正确：{ $message }
 skin-manifest-min-forum = 皮肤需要 Gono Forum { $version } 或更新版本；当前是 { $current }
 skin-manifest-builtin-text = 内置皮肤的 { $field } 只写英文（en）：其他语言写在 skin.ftl 的翻译里
 skin-manifest-builtin-messages = 翻译文件里没有内置皮肤 { $id } 的名称：请在 skin.ftl 加上 skin-builtin-{ $id }-name 和 -description，并加进 skins.rs 的列表

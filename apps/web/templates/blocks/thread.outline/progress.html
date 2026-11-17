@@ -1,0 +1,9 @@
+{#- thread.outline as reading progress (docs/skins.md, "Views"): without a behavior module, the pages as links with the floors each one holds. #}
+<section class="panel panel--aside block-outline{% if block.keep %} panel--keep{% endif %}{{ block.hooks() }}"{{ block.attribute()|safe }} data-outline-tid="{{ data.tid }}">
+  <h2 class="panel__title">{{ block.title }}</h2>
+  <ol class="block-outline__pages">
+    {%- for mark in data.pages %}
+    <li><a href="{{ crate::site::prefixed(mark.href) }}">{{ mark.label }}</a></li>
+    {%- endfor %}
+  </ol>
+</section>

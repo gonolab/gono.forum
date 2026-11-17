@@ -1,0 +1,12 @@
+{#- site.stats as figures (docs/skins.md, "Views"): each number with its word; null figures are left out. #}
+<section class="panel{% if block.keep %} panel--keep{% endif %} block-stats{{ block.hooks() }}"{{ block.attribute()|safe }}>
+  {%- if !block.title.is_empty() %}
+  <h2 class="panel__title">{{ block.title }}</h2>
+  {%- endif %}
+  <dl class="site-stats__grid">
+    {%- if let Some(value) = data.threads %}<div class="site-stats__item"><dt>{{ p.t.home_stats_threads() }}</dt><dd>{{ value }}</dd></div>{% endif %}
+    {%- if let Some(value) = data.replies %}<div class="site-stats__item"><dt>{{ p.t.home_stats_replies() }}</dt><dd>{{ value }}</dd></div>{% endif %}
+    {%- if let Some(value) = data.contributors %}<div class="site-stats__item"><dt>{{ p.index_word() }}</dt><dd>{{ value }}</dd></div>{% endif %}
+    {%- if let Some(value) = data.today %}<div class="site-stats__item"><dt>{{ p.t.block_stats_today() }}</dt><dd>{{ value }}</dd></div>{% endif %}
+  </dl>
+</section>

@@ -1,0 +1,18 @@
+{#- The site-overview block (docs/skins.md, "Core blocks"): the site statistics and the newest members. One /space/{uid} link per member and no <div> inside the list: tests read the order up to the first </div>. #}
+
+      <section class="panel panel--aside{% if block.keep %} panel--keep{% endif %} site-stats{{ block.hooks() }}"{{ block.attribute()|safe }}>
+        <h2 class="panel__title">{{ p.t.home_stats() }}</h2>
+        <dl class="site-stats__grid">
+          <div class="site-stats__item"><dt>{{ p.t.home_stats_threads() }}</dt><dd>{{ data.total }}</dd></div>
+          <div class="site-stats__item"><dt>{{ p.t.home_stats_replies() }}</dt><dd>{{ data.replies }}</dd></div>
+          <div class="site-stats__item"><dt>{{ p.index_word() }}</dt><dd>{{ data.contributors }}</dd></div>
+        </dl>
+        {%- if !data.members.is_empty() %}
+        <h3 class="site-stats__subtitle">{{ p.t.home_new_members() }}</h3>
+        <ul class="newcomers">
+          {%- for (name, avatar) in data.members %}
+          <li><a class="newcomers__item" href="{{ crate::site::href(avatar.profile_href) }}" title="{{ name }}" translate="no"><span class="newcomers__avatar" aria-hidden="true">{% include "partials/avatar.html" %}</span><span class="newcomers__name">{{ name }}</span></a></li>
+          {%- endfor %}
+        </ul>
+        {%- endif %}
+      </section>

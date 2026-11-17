@@ -52,6 +52,25 @@
       {% endfor %}
     </ol>
     {% endif %}
+    {% if !layout.is_empty() %}
+    <div class="gonof-debug-section-heading">
+      <h2>{{ t.debug_layout_heading() }} <span>{{ layout.len() }}</span></h2>
+      <p>{{ t.debug_layout_note() }}</p>
+    </div>
+    <ol class="gonof-debug-queries" data-debug-layout>
+      {% for block in layout %}
+      <li class="gonof-debug-query" data-debug-layout-block="{{ block.id }}"{% if !block.skipped.is_empty() %} data-debug-layout-skipped{% endif %}>
+        <div class="gonof-debug-query-heading">
+          <strong class="gonof-debug-sequence">#{{ block.sequence }}</strong>
+          <span class="gonof-debug-database">{{ block.place }}</span>
+          <span class="gonof-debug-query-time">{{ block.elapsed }}</span>
+          <span class="gonof-debug-query-state">{% if block.skipped.is_empty() %}{{ t.debug_layout_shown() }}{% else %}{{ block.skipped }}{% endif %}</span>
+        </div>
+        <pre class="gonof-debug-sql"><code>{{ block.id }} · {{ block.source }}</code></pre>
+      </li>
+      {% endfor %}
+    </ol>
+    {% endif %}
     {% if redis_enabled %}
     <div class="gonof-debug-section-heading">
       <h2>Redis <span>{{ redis_count }}</span></h2>

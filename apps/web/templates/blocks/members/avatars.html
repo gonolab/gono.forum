@@ -1,0 +1,18 @@
+{#- Members as an avatar wall (docs/skins.md, "Views"), shared by the member sources: avatars with the name for screen readers and as a tooltip. #}
+<section class="panel panel--aside block-members{% if block.keep %} panel--keep{% endif %}{{ block.hooks() }}"{{ block.attribute()|safe }}>
+  <h2 class="panel__title">{{ block.title }}</h2>
+  {%- for group in data.groups %}
+  {%- if let Some(heading) = group.heading %}
+  <h3 class="block-members__group">{{ heading }}</h3>
+  {%- endif %}
+  {%- if group.items.is_empty() %}
+  <p class="panel__note">{{ p.t.block_empty() }}</p>
+  {%- else %}
+  <ul class="block-members__wall">
+    {%- for item in group.items %}
+    <li>{% let avatar = item.avatar %}{% if avatar.profile_href.is_empty() %}<span class="block-members__avatar" title="{{ item.name }}">{% include "partials/avatar.html" %}<span class="sr-only">{{ item.name }}</span></span>{% else %}<a class="block-members__avatar" href="{{ crate::site::href(avatar.profile_href) }}" title="{{ item.name }}" translate="no">{% include "partials/avatar.html" %}<span class="sr-only">{{ item.name }}</span></a>{% endif %}</li>
+    {%- endfor %}
+  </ul>
+  {%- endif %}
+  {%- endfor %}
+</section>

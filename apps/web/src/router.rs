@@ -4,6 +4,7 @@ mod api;
 mod appeals;
 mod attachments;
 mod auth;
+mod blocks;
 mod colors;
 mod custom_style;
 mod data_sources;
@@ -548,6 +549,8 @@ struct PageMeta<'a> {
     /// The address of the member's personal style sheet; empty when there is none, it is not the member's own, or
     /// this page does not apply it.
     custom_style: String,
+    /// The rendered blocks of the page's places (docs/skins.md, "Places and blocks"); empty on pages without places.
+    places: blocks::Placed,
 }
 
 /// The friend links card in the home page sidebar: up to 12 name texts plus the "All links" and "Apply for a link"
@@ -775,16 +778,12 @@ struct HomeTemplate<'a> {
     pinned_view: bool,
     /// Open list titles in a new tab (reading preference).
     title_new_tab: bool,
+    /// The board's name on a board page, the search heading on search; empty on the home page. The page writes it as
+    /// a heading for screen readers when its page head has no board-head block.
     heading: String,
-    forum_description: String,
-    /// The "Moderators: …" line in the forum page header (including moderators inherited from the parent forum),
-    /// taken from the process moderator roster: `(uid, username)`.
-    forum_moderators: Vec<(i64, String)>,
-    /// The collapsed posting guide in the forum page header, plain text by lines.
-    forum_guidance: Vec<String>,
-    forum_icon: String,
-    forum_follow: Option<social::Control>,
-    forum_filter: Option<forum_filters::Control>,
+    /// The search results' head (the board-head view without block hooks); search pages have no places in the
+    /// page head.
+    search_head: Option<String>,
     /// Child forum tabs: a parent forum page and its child forum pages share one row, and the first tab "All" is
     /// the parent forum; empty when there are no child forums.
     forum_tabs: Vec<ForumTab>,
@@ -798,13 +797,6 @@ struct HomeTemplate<'a> {
     cross_pins: Vec<Row<'a>>,
     rows: Vec<Row<'a>>,
     pages: Vec<PageLink>,
-    total: usize,
-    replies: usize,
-    contributors: usize,
-    recent_members: Vec<(String, AvatarView)>,
-    /// The friend links card in the home page sidebar; only on the home page `/`, `None`
-    /// on other list pages.
-    friend_links: Option<FriendLinksCard>,
     /// Only set on the thread search page: the "Threads / Members" scope tabs at the top.
     search_scope: Option<member_search::SearchScope>,
 }
@@ -1000,6 +992,7 @@ fn meta<'a>(
             }
         }),
         custom_style: custom_style::href(state, path),
+        places: blocks::Placed::default(),
     }
 }
 
@@ -1051,6 +1044,17 @@ impl PageMeta<'_> {
     }
 
     /// The page data block's JSON, escaped for `<script type="application/json">` (docs/skins.md, "Page data").
+    /// The member card at the top of the aside on pages without places, drawn by the member-card block's view
+    /// without block hooks.
+    fn member_card(&self) -> String {
+        blocks::render(self, &blocks::BlockView::bare(blocks::Body::MemberCard)).unwrap_or_else(
+            |error| {
+                tracing::error!(%error, "the member card failed to render");
+                String::new()
+            },
+        )
+    }
+
     fn page_data_json(&self) -> String {
         self.page_data.json(self)
     }
@@ -1639,22 +1643,6 @@ async fn browse(
         },
         route.page(),
     );
-    // Popular and latest in the right column: the same scope and exclusions as the list (a forum page looks only at
-    // this forum, a parent forum includes its child forums).
-    let mut overview = match content::layered_sidebar_for_viewer(
-        &state.db,
-        &state.global,
-        &state.timed_cache(),
-        list_viewer,
-        content::SidebarParams::from_settings(&state.frame.settings),
-        &list_scope,
-        &state.frame.statistics_fids(),
-    )
-    .await
-    {
-        Ok(overview) => overview,
-        Err(error) => return database_error(&state, error),
-    };
     let current_forum = forum;
     // The moderator list is only for display and comes from the process roster (docs/queries.md, "Process caches");
     // authorization is still checked against the database.
@@ -1757,10 +1745,6 @@ async fn browse(
     if path == "/" {
         page_meta.title = state.frame.settings.site.name.clone();
     }
-    page_meta.sidebar = Some(SidebarTopics {
-        hot: std::mem::take(&mut overview.hot),
-        latest: std::mem::take(&mut overview.latest),
-    });
     if !search {
         page_meta.feeds = syndication::feed_links(&state, current_forum);
     }
@@ -1797,75 +1781,76 @@ async fn browse(
             Err(error) => return database_error(&state, error),
         };
     }
-    let recent_members = if slug.is_empty() {
-        match content::home::layered_recent_members(
-            &state.db,
-            &state.global,
-            &state.timed_cache(),
-            viewer_uid,
-            (
-                crate::identity::now(),
-                state.frame.settings.display.recent_members,
-            ),
-            threads.site_revision,
-        )
-        .await
-        {
-            Ok(members) => members
-                .into_iter()
-                .map(|m| {
-                    // Avatar by uid: the anonymous copy goes through the cache, changing an avatar
-                    // does not bump the site-wide version, and an address with an aid would go stale.
-                    let avatar = list_avatar(Some(m.uid), &m.username);
-                    (m.username, avatar)
-                })
-                .collect(),
-            Err(error) => return database_error(&state, error),
-        }
-    } else {
-        Vec::new()
+    // The head of a board page goes to its board-head block (docs/skins.md, "Places and blocks"); search results
+    // keep the same head with their heading only, outside places.
+    let head = || blocks::BoardHead {
+        heading: heading.clone(),
+        icon: String::new(),
+        follow: None,
+        filter: None,
+        description: String::new(),
+        moderators: Vec::new(),
+        guidance: Vec::new(),
     };
-    // Friend links are exclusive to the main site (multi-domain sites): home pages of other domains do
-    // not show this block.
-    let friend_links = if slug.is_empty()
-        && !search
-        && route.page() == 1
-        && crate::site::other(|_| ()).is_none()
-    {
-        match state.global.home_links(&state.db, state.cache_ttl()).await {
-            // The cache stores up to the hard limit; the page takes `settings.links.home_count` of them.
-            Ok(links) => Some(FriendLinksCard {
-                links: links
-                    .iter()
-                    .take(usize::try_from(state.frame.settings.links.home_count).unwrap_or(0))
-                    .cloned()
-                    .collect(),
-                applications_open: state.frame.settings.links.applications,
-            }),
-            Err(error) => return database_error(&state, error),
+    let search_head = if search {
+        match blocks::render(
+            &page_meta,
+            &blocks::BlockView::bare(blocks::Body::BoardHead(Box::new(head()))),
+        ) {
+            Ok(html) => Some(html),
+            Err(error) => return database_error(&state, anyhow::Error::new(error)),
         }
     } else {
         None
     };
+    let board_head = current_forum
+        .filter(|_| !search)
+        .map(|f| blocks::BoardHead {
+            icon: forum_icon.clone(),
+            follow: forum_follow,
+            filter: forum_filter,
+            description: f.description.clone(),
+            moderators: forum_moderators,
+            guidance: posting::guidance_lines(&f.guidance),
+            ..head()
+        });
+    let placed = blocks::place(
+        &state,
+        &page_meta,
+        blocks::Page {
+            kind: if current_forum.is_some() && !search {
+                crate::layout::Page::Board
+            } else {
+                crate::layout::Page::Home
+            },
+            board: current_forum.filter(|_| !search),
+            thread: None,
+            board_head,
+            // Friend links are exclusive to the main site (multi-domain sites): home pages of other domains do not
+            // show this block, nor do later pages or search.
+            friend_links: slug.is_empty()
+                && !search
+                && route.page() == 1
+                && crate::site::other(|_| ()).is_none(),
+            list_revision: threads.site_revision,
+            blocked: Some(blocked.clone()),
+        },
+    )
+    .await;
+    page_meta.places = match placed {
+        Ok(placed) => placed,
+        Err(error) => return database_error(&state, error),
+    };
     render(&HomeTemplate {
-        friend_links,
-        forum_follow,
-        forum_filter,
         forum_tabs,
         breadcrumb,
         cross_pins,
-        forum_icon,
         pinned_view: sort == Sort::Pinned,
         title_new_tab: reading.title_new_tab,
         p: page_meta,
-        recent_members,
         search_scope: search.then(|| member_search::SearchScope::new(q, false)),
+        search_head,
         heading,
-        forum_description: forum.map(|f| f.description.clone()).unwrap_or_default(),
-        forum_moderators,
-        forum_guidance: forum
-            .map(|f| posting::guidance_lines(&f.guidance))
-            .unwrap_or_default(),
         tabs,
         categories: (1..=5)
             .map(|category| Tab {
@@ -1882,9 +1867,6 @@ async fn browse(
                 active: number == route.page(),
             })
             .collect(),
-        total: overview.total,
-        replies: overview.replies,
-        contributors: overview.contributors,
     })
 }
 
@@ -2881,6 +2863,84 @@ async fn topic_response(
         Ok(value) => value,
         Err(error) => return database_error(state, error),
     };
+    let page_meta = {
+        // Kept consistent with the condition for rendering editor/form.html in topic/detail.html.
+        // The description takes the first 160 characters of the first post's plain text: inserting the Markdown
+        // as is would write the whole body (up to about 60 KB), spoiler and quote syntax included, into the
+        // head twice.
+        // The summary and the structured data are bound by the same access permissions: a thread or forum
+        // visible to members only is a 404 for anonymous visitors, signed-in members see the site introduction
+        // as the share description, and no structured data is output.
+        let public = !thread.members_only;
+        // When the summary is empty (the first post has only images or attachments) the description falls back
+        // to the site description, and the structured data carries no `text`.
+        let excerpt = if public {
+            crate::markdown::rendered_excerpt(&opening_html, 160)
+        } else {
+            String::new()
+        };
+        let mut p = meta(
+            state,
+            paged_title(thread.title.clone(), page),
+            if excerpt.is_empty() {
+                state.frame.settings.site.description.clone()
+            } else {
+                excerpt.clone()
+            },
+            &path,
+            &forum.slug,
+            "",
+        );
+        p.og_type = "article";
+        p.page_data =
+            page_data::PageData::thread(thread, (page, page_count), page_floors(thread, &rows));
+        // The thread page's canonical and structured data point to the canonical domain of its forum (multi-domain
+        // sites).
+        let top = state
+            .frame
+            .any_forum_by_fid(thread.fid)
+            .map(|forum| forum.parent_fid.unwrap_or(forum.fid));
+        p.canonical = canonical_url(state, top, &path);
+        let base = crate::site::canonical_base(top).unwrap_or_else(|| state.site_url().to_owned());
+        if public && !thread.withdrawn && !thread.erased {
+            let base = base.trim_end_matches('/');
+            let url = format!("{base}{}", urls::thread(id, 1, false));
+            let forum_url = format!("{base}/{}", forum.slug);
+            // The breadcrumb structured data has the same condition as `DiscussionForumPosting` (thread visible
+            // to anonymous visitors, not withdrawn): the items of the page breadcrumb plus this thread.
+            p.json_ld = vec![
+                syndication::thread_json_ld(thread, &url, &excerpt, (&forum.name, &forum_url)),
+                syndication::breadcrumb_json_ld(
+                    base,
+                    &state.frame.settings.site.name,
+                    &breadcrumb,
+                    &thread.title,
+                ),
+            ];
+        }
+        let has_editor = !thread.closed && p.authenticated && !p.needs_verification;
+        p.with_composer(has_editor)
+    };
+    // The thread page's places: its aside and page head (docs/skins.md, "Places and blocks").
+    let mut page_meta = page_meta;
+    let placed = blocks::place(
+        state,
+        &page_meta,
+        blocks::Page {
+            kind: crate::layout::Page::Thread,
+            board: state.frame.any_forum_by_fid(thread.fid),
+            thread: Some(thread),
+            board_head: None,
+            friend_links: false,
+            list_revision: None,
+            blocked: None,
+        },
+    )
+    .await;
+    page_meta.places = match placed {
+        Ok(placed) => placed,
+        Err(error) => return database_error(state, error),
+    };
     let template = TopicTemplate {
         opening_downvote: interaction::downvote_control(
             state,
@@ -2893,65 +2953,7 @@ async fn topic_response(
         ),
         tip,
         follow,
-        p: {
-            // Kept consistent with the condition for rendering editor/form.html in topic/detail.html.
-            // The description takes the first 160 characters of the first post's plain text: inserting the Markdown
-            // as is would write the whole body (up to about 60 KB), spoiler and quote syntax included, into the
-            // head twice.
-            // The summary and the structured data are bound by the same access permissions: a thread or forum
-            // visible to members only is a 404 for anonymous visitors, signed-in members see the site introduction
-            // as the share description, and no structured data is output.
-            let public = !thread.members_only;
-            // When the summary is empty (the first post has only images or attachments) the description falls back
-            // to the site description, and the structured data carries no `text`.
-            let excerpt = if public {
-                crate::markdown::rendered_excerpt(&opening_html, 160)
-            } else {
-                String::new()
-            };
-            let mut p = meta(
-                state,
-                paged_title(thread.title.clone(), page),
-                if excerpt.is_empty() {
-                    state.frame.settings.site.description.clone()
-                } else {
-                    excerpt.clone()
-                },
-                &path,
-                &forum.slug,
-                "",
-            );
-            p.og_type = "article";
-            p.page_data =
-                page_data::PageData::thread(thread, (page, page_count), page_floors(thread, &rows));
-            // The thread page's canonical and structured data point to the canonical domain of its forum (multi-domain
-            // sites).
-            let top = state
-                .frame
-                .any_forum_by_fid(thread.fid)
-                .map(|forum| forum.parent_fid.unwrap_or(forum.fid));
-            p.canonical = canonical_url(state, top, &path);
-            let base =
-                crate::site::canonical_base(top).unwrap_or_else(|| state.site_url().to_owned());
-            if public && !thread.withdrawn && !thread.erased {
-                let base = base.trim_end_matches('/');
-                let url = format!("{base}{}", urls::thread(id, 1, false));
-                let forum_url = format!("{base}/{}", forum.slug);
-                // The breadcrumb structured data has the same condition as `DiscussionForumPosting` (thread visible
-                // to anonymous visitors, not withdrawn): the items of the page breadcrumb plus this thread.
-                p.json_ld = vec![
-                    syndication::thread_json_ld(thread, &url, &excerpt, (&forum.name, &forum_url)),
-                    syndication::breadcrumb_json_ld(
-                        base,
-                        &state.frame.settings.site.name,
-                        &breadcrumb,
-                        &thread.title,
-                    ),
-                ];
-            }
-            let has_editor = !thread.closed && p.authenticated && !p.needs_verification;
-            p.with_composer(has_editor)
-        },
+        p: page_meta,
         thread,
         breadcrumb,
         rows,

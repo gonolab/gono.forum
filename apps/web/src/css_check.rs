@@ -203,6 +203,12 @@ pub enum Problem {
     ManifestUnsupported {
         field: String,
     },
+    /// The manifest's `[layout]` breaks a rule of layouts (docs/skins.md, "Places and blocks"): the field's path
+    /// and the problem's code.
+    ManifestLayout {
+        path: String,
+        problem: String,
+    },
     ManifestMinForum {
         version: String,
     },
@@ -331,6 +337,9 @@ impl Problem {
             Self::ManifestText { field } => t.skin_manifest_text(field.as_str()),
             Self::ManifestValue { field } => t.skin_manifest_value(field.as_str()),
             Self::ManifestUnsupported { field } => t.skin_manifest_unsupported(field.as_str()),
+            Self::ManifestLayout { path, problem } => t.skin_manifest_layout(
+                crate::layout::LayoutError::from_code(path, problem).message(t),
+            ),
             Self::ManifestMinForum { version } => {
                 t.skin_manifest_min_forum(version.as_str(), crate::VERSION)
             }

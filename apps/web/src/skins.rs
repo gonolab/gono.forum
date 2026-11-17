@@ -110,6 +110,9 @@ pub struct Skin {
     css: String,
     /// The seed colors of a colored variant ([`Skin::colored`]); `None` for the skin as written.
     pub seeds: Option<seed::Seeds>,
+    /// The skin's default layout (`[layout]` of the manifest), read once: a site that has not changed a place shows
+    /// this skin's blocks there (docs/skins.md, "Places and blocks").
+    pub places: Option<crate::layout::Places>,
 }
 
 impl Skin {
@@ -193,6 +196,7 @@ impl Skin {
             merged: palettes.into_iter().map(|(merged, _)| merged).collect(),
             css: self.css.clone(),
             seeds: Some(seeds),
+            places: self.places.clone(),
         }
     }
 }
@@ -617,6 +621,7 @@ pub fn check(draft: &Draft, source: Source, directory: Option<&str>) -> Checked 
             merged: merged.into_iter().map(|(merged, _)| merged).collect(),
             css: draft.css.clone(),
             seeds: None,
+            places: draft.manifest.places(),
         })),
         findings,
     }
@@ -794,6 +799,7 @@ pub static DEFAULT_SKIN: LazyLock<Arc<Skin>> = LazyLock::new(|| {
         merged: vec![merged],
         css: String::new(),
         seeds: None,
+        places: None,
     })
 });
 

@@ -229,6 +229,10 @@ pub struct SettingsBlock {
     pub layout: Option<crate::skins::selection::Layout>,
     /// Each domain's override of it, by domain id.
     pub domain_layouts: Vec<(i64, crate::skins::selection::Layout)>,
+    /// The places the site's document sets, read leniently once per load (docs/skins.md, "Places and blocks").
+    pub places: Option<crate::layout::Places>,
+    /// The places each domain's override sets, by domain id.
+    pub domain_places: Vec<(i64, crate::layout::Places)>,
 }
 
 /// Friend links for the directory page, grouped by category.
@@ -721,12 +725,23 @@ impl GlobalCache {
                             })
                             .ok()
                     };
+                    let places = layout.as_ref().and_then(|layout| layout.places("the site"));
+                    let domain_places = domain_layouts
+                        .iter()
+                        .filter_map(|(id, layout)| {
+                            layout
+                                .places(&format!("domain {id}"))
+                                .map(|places| (*id, places))
+                        })
+                        .collect();
                     Ok(SettingsBlock {
                         settings: Arc::new(settings),
                         navigation,
                         navigation_entries,
                         layout,
                         domain_layouts,
+                        places,
+                        domain_places,
                     })
                 },
             )

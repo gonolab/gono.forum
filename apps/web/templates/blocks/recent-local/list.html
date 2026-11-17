@@ -1,0 +1,9 @@
+{#- The recent-local block (docs/skins.md, "Core blocks"): filled by site.js from localStorage; stays hidden without a record. The title must keep panel__title and tabindex: focus returns to it after clearing. The leading line and indentation are those of the home page before layouts. #}
+      <section class="panel panel--aside{% if block.keep %} panel--keep{% endif %}{{ block.hooks() }}"{{ block.attribute()|safe }} data-recent-threads data-recent-owner="{{ p.uid }}" data-relative-hours="{% if p.frame.settings.time.relative %}{{ p.frame.settings.time.relative_hours }}{% else %}0{% endif %}" data-offset-minutes="{{ p.site_offset_minutes() }}" data-date-format="{{ p.frame.settings.time.date_format }}" data-clock24="{{ p.frame.settings.time.clock24 }}" hidden>
+        <div class="panel__head">
+          <h2 class="panel__title" tabindex="-1">{{ p.t.home_recent() }}</h2>
+          <button class="panel__action" type="button" data-recent-clear>{{ p.t.home_recent_clear() }}</button>
+        </div>
+        <ol class="mini-list" data-recent-list aria-live="polite"></ol>
+        <p class="panel__note">{{ p.t.home_recent_note() }}</p>
+      </section>

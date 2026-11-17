@@ -134,6 +134,7 @@ pub async fn middleware(State(state): State<DebugState>, request: Request, next:
             template
         }
         .with_blocks(profile.block_snapshot(), &credit)
+        .with_layout(profile.layout_snapshot())
         .with_index_usage(index_usage, diagnostic_started.elapsed());
         let panel = match template.render() {
             Ok(panel) => panel,
@@ -207,7 +208,19 @@ struct DebugTemplate {
     /// `settings.cache.ttl_seconds` is 0).
     block_hits: usize,
     blocks: Vec<BlockUse>,
+    /// The page layout's blocks with their times, and those skipped with the reason.
+    layout: Vec<LayoutUse>,
     queries: Vec<DebugQuery>,
+}
+
+struct LayoutUse {
+    sequence: usize,
+    place: &'static str,
+    id: String,
+    source: &'static str,
+    elapsed: String,
+    /// Empty when shown.
+    skipped: &'static str,
 }
 
 struct DebugQuery {
@@ -271,6 +284,7 @@ impl DebugTemplate {
             redis_commands: Vec::new(),
             block_hits: 0,
             blocks: Vec::new(),
+            layout: Vec::new(),
             queries: records
                 .into_iter()
                 .map(|query| DebugQuery {
@@ -328,6 +342,29 @@ impl DebugTemplate {
                     .age
                     .map(|age| t.debug_block_age(age.as_secs()))
                     .unwrap_or_default(),
+            })
+            .collect();
+        self
+    }
+
+    fn with_layout(mut self, records: Vec<trace::LayoutRecord>) -> Self {
+        use trace::LayoutSkip;
+        let t = self.t;
+        self.layout = records
+            .into_iter()
+            .map(|record| LayoutUse {
+                sequence: record.sequence,
+                place: record.place,
+                id: record.id,
+                source: record.source,
+                elapsed: duration(record.elapsed),
+                skipped: match record.skipped {
+                    None => "",
+                    Some(LayoutSkip::Audience) => t.debug_layout_skip_audience(),
+                    Some(LayoutSkip::Empty) => t.debug_layout_skip_empty(),
+                    Some(LayoutSkip::Budget) => t.debug_layout_skip_budget(),
+                    Some(LayoutSkip::Failed) => t.debug_layout_skip_failed(),
+                },
             })
             .collect();
         self

@@ -80,11 +80,37 @@ pub enum BlockOutcome {
     Uncached,
 }
 
+/// One block of a page's layout (docs/skins.md, "Places and blocks"): how long it took to read and render, or why it
+/// was skipped.
+#[derive(Clone, Debug)]
+pub struct LayoutRecord {
+    pub sequence: usize,
+    pub place: &'static str,
+    pub id: String,
+    pub source: &'static str,
+    pub elapsed: Duration,
+    /// `None` when shown; otherwise what kept it off the page.
+    pub skipped: Option<LayoutSkip>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LayoutSkip {
+    /// The block's `show` leaves out this visitor.
+    Audience,
+    /// Nothing to show here (a board-only block on another page, an empty list the view hides).
+    Empty,
+    /// Past the limit of blocks per page.
+    Budget,
+    /// The source failed or its board or thread is gone; logged.
+    Failed,
+}
+
 #[derive(Debug, Default)]
 pub struct RequestProfile {
     records: Mutex<Vec<QueryRecord>>,
     redis: Mutex<Vec<RedisRecord>>,
     blocks: Mutex<Vec<BlockRecord>>,
+    layout: Mutex<Vec<LayoutRecord>>,
 }
 
 impl RequestProfile {
@@ -111,6 +137,37 @@ impl RequestProfile {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
+    }
+
+    pub fn layout_snapshot(&self) -> Vec<LayoutRecord> {
+        self.layout
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    /// Called by the page's layout for every block it read, shown or not.
+    pub fn record_layout(
+        &self,
+        place: &'static str,
+        id: &str,
+        source: &'static str,
+        elapsed: Duration,
+        skipped: Option<LayoutSkip>,
+    ) {
+        let mut layout = self
+            .layout
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let sequence = layout.len() + 1;
+        layout.push(LayoutRecord {
+            sequence,
+            place,
+            id: id.to_owned(),
+            source,
+            elapsed,
+            skipped,
+        });
     }
 
     /// Called by [`crate::cache`] after every block read.

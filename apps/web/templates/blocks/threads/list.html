@@ -1,0 +1,16 @@
+{#- threads as a list (docs/skins.md, "Views"): title, board, last activity and replies on each row. #}
+<section class="panel panel--aside block-list{% if block.keep %} panel--keep{% endif %}{{ block.hooks() }}"{{ block.attribute()|safe }}>
+  <h2 class="panel__title">{{ block.title }}</h2>
+  {%- if data.items.is_empty() %}
+  <p class="panel__note">{{ p.t.block_empty() }}</p>
+  {%- else %}
+  <ul class="block-list__items">
+    {%- for thread in data.items %}
+    <li class="block-list__item"{% if let Some(board) = thread.board %} data-board="{{ board.fid }}"{% endif %}>
+      <a class="block-list__title" href="{{ crate::site::prefixed(thread.href) }}">{{ thread.title }}</a>
+      <p class="block-list__meta">{% if let Some(board) = thread.board %}<a href="{{ crate::site::prefixed(board.href) }}">{{ board.name }}</a> · {% endif %}<time datetime="{{ thread.last_activity.at }}" title="{{ thread.last_activity.title }}">{{ thread.last_activity.text }}</time> · <span class="stat"><span class="stat__value">{{ thread.replies }}</span></span></p>
+    </li>
+    {%- endfor %}
+  </ul>
+  {%- endif %}
+</section>

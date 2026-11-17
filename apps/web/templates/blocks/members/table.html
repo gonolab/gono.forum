@@ -1,0 +1,18 @@
+{#- Members as a table (docs/skins.md, "Views"), for leaderboards: place, member and score. #}
+<section class="panel panel--aside block-members{% if block.keep %} panel--keep{% endif %}{{ block.hooks() }}"{{ block.attribute()|safe }}>
+  <h2 class="panel__title">{{ block.title }}</h2>
+  {%- for group in data.groups %}
+  {%- if group.items.is_empty() %}
+  <p class="panel__note">{{ p.t.block_empty() }}</p>
+  {%- else %}
+  <table class="block-members__table">
+    <thead><tr><th scope="col">{{ p.t.block_rank_place() }}</th><th scope="col">{{ p.t.block_rank_member() }}</th><th scope="col">{{ p.t.block_rank_score() }}</th></tr></thead>
+    <tbody>
+      {%- for item in group.items %}
+      <tr><td>{{ item.position }}</td><td>{% let avatar = item.avatar %}{% if avatar.profile_href.is_empty() %}<span translate="no">{{ item.name }}</span>{% else %}<a href="{{ crate::site::href(avatar.profile_href) }}" translate="no">{{ item.name }}</a>{% endif %}</td><td>{{ item.note }}</td></tr>
+      {%- endfor %}
+    </tbody>
+  </table>
+  {%- endif %}
+  {%- endfor %}
+</section>

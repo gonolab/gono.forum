@@ -1,0 +1,15 @@
+{#- site.links as a list of links (docs/skins.md, "Views"). #}
+<section class="panel{% if block.keep %} panel--keep{% endif %} block-links{{ block.hooks() }}"{{ block.attribute()|safe }}>
+  {%- if !block.title.is_empty() %}
+  <h2 class="panel__title">{{ block.title }}</h2>
+  {%- endif %}
+  {%- if data.items.is_empty() %}
+  <p class="panel__note">{{ p.t.home_friend_links_empty() }}</p>
+  {%- else %}
+  <ul class="friend-links">
+    {%- for link in data.items %}
+    <li><a href="{{ crate::site::href(link.url) }}" rel="nofollow noopener" referrerpolicy="origin" target="_blank">{{ link.name }}</a></li>
+    {%- endfor %}
+  </ul>
+  {%- endif %}
+</section>

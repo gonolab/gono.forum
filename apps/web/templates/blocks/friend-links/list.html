@@ -1,0 +1,19 @@
+{#- The friend-links block (docs/skins.md, "Core blocks"): on page 1 of the main domain's home page only. #}
+      <section class="panel panel--aside{% if block.keep %} panel--keep{% endif %}{{ block.hooks() }}"{{ block.attribute()|safe }} data-friend-links>
+        <h2 class="panel__title">{{ p.t.home_friend_links() }}</h2>
+        {%- if data.links.is_empty() %}
+        <p class="panel__note">{{ p.t.home_friend_links_empty() }}</p>
+        {%- else %}
+        <ul class="friend-links">
+          {%- for link in data.links %}
+          <li><a href="{{ crate::site::href(link.url) }}" rel="nofollow noopener" referrerpolicy="origin" target="_blank">{{ link.name }}</a></li>
+          {%- endfor %}
+        </ul>
+        {%- endif %}
+        <ul class="panel__links">
+          <li><a href="{{ crate::site::base() }}/links">{{ p.t.home_friend_links_all() }}</a></li>
+          {%- if data.applications_open %}
+          <li><a href="{{ crate::site::base() }}/links/apply" hx-boost="false">{{ p.t.home_friend_links_apply() }}</a></li>
+          {%- endif %}
+        </ul>
+      </section>

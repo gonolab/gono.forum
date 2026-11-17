@@ -20,36 +20,14 @@
 
   <div class="layout{% if p.active_slug.is_empty() %} layout--stack{% endif %}">
     <div class="layout__main listing__main">
-      {%- if !heading.is_empty() %}
-      <header class="panel board-head">
-        <div class="board-head__top">
-          {%- if !forum_icon.is_empty() %}
-          <img class="board-head__icon" src="{{ crate::site::href(forum_icon) }}" alt="" width="40" height="40">
-          {%- endif %}
-          <h1 class="board-head__title">{{ heading }}</h1>
-        </div>
-        {%- if forum_follow.is_some() || forum_filter.is_some() %}
-        <div class="board-head__actions">
-          {%- if let Some(control) = forum_follow %}{% include "social/control.html" %}{% endif %}
-          {%- if let Some(filter) = forum_filter %}{% include "social/forum_filter.html" %}{% endif %}
-        </div>
-        {%- endif %}
-        {%- if !forum_description.is_empty() %}
-        <p class="board-head__desc">{{ forum_description }}</p>
-        {%- endif %}
-        {%- if !forum_moderators.is_empty() %}
-        {#- Own moderators first, then the ones inherited from the parent board (server order). #}
-        <p class="board-head__mods" data-forum-moderators>{{ p.t.home_moderators() }}{{ p.t.common_colon() }}{% for (uid, name) in forum_moderators %}{% if !loop.first %}{{ p.t.common_list_separator() }}{% endif %}<a href="{{ crate::site::base() }}/space/{{ uid }}" translate="no">{{ name }}</a>{% endfor %}</p>
-        {%- endif %}
-        {%- if !forum_guidance.is_empty() %}
-        <details class="board-head__guide" data-forum-guidance>
-          <summary>{{ p.t.home_guidance() }}</summary>
-          <p class="board-head__guide-body">{% for line in forum_guidance %}{% if !loop.first %}<br>{% endif %}{{ line }}{% endfor %}</p>
-        </details>
-        {%- endif %}
-      </header>
-      {%- else %}
+      {#- The page head's blocks (docs/skins.md, "Places and blocks"), the board head of a board page by default. A page whose head has no board-head block keeps its heading for screen readers. #}
+      {%- if !p.places.head.is_empty() %}<div class="page-head">{% for html in p.places.head %}{{ html|safe }}{% endfor %}</div>{% endif %}
+      {%- if let Some(html) = search_head %}{{ html|safe }}
+      {%- else if p.places.board_head %}
+      {%- else if heading.is_empty() %}
       <h1 class="sr-only">{{ p.t.frame_all_threads() }}</h1>
+      {%- else %}
+      <h1 class="sr-only">{{ heading }}</h1>
       {%- endif %}
 
       <div class="pane">
@@ -136,59 +114,8 @@
     </div>
 
     <aside class="layout__aside" aria-label="{{ p.t.home_sidebar() }}">
-      {%- include "partials/user_card.html" %}
-      {%- include "partials/sidebar.html" %}
-
-      {%- if p.active_slug.is_empty() %}
-      {#- Filled by site.js from localStorage; stays hidden without a record. The title must keep panel__title and tabindex: focus returns to it after clearing. #}
-      <section class="panel panel--aside" data-recent-threads data-recent-owner="{{ p.uid }}" data-relative-hours="{% if p.frame.settings.time.relative %}{{ p.frame.settings.time.relative_hours }}{% else %}0{% endif %}" data-offset-minutes="{{ p.site_offset_minutes() }}" data-date-format="{{ p.frame.settings.time.date_format }}" data-clock24="{{ p.frame.settings.time.clock24 }}" hidden>
-        <div class="panel__head">
-          <h2 class="panel__title" tabindex="-1">{{ p.t.home_recent() }}</h2>
-          <button class="panel__action" type="button" data-recent-clear>{{ p.t.home_recent_clear() }}</button>
-        </div>
-        <ol class="mini-list" data-recent-list aria-live="polite"></ol>
-        <p class="panel__note">{{ p.t.home_recent_note() }}</p>
-      </section>
-
-      <section class="panel panel--aside panel--keep site-stats">
-        <h2 class="panel__title">{{ p.t.home_stats() }}</h2>
-        <dl class="site-stats__grid">
-          <div class="site-stats__item"><dt>{{ p.t.home_stats_threads() }}</dt><dd>{{ total }}</dd></div>
-          <div class="site-stats__item"><dt>{{ p.t.home_stats_replies() }}</dt><dd>{{ replies }}</dd></div>
-          <div class="site-stats__item"><dt>{{ p.index_word() }}</dt><dd>{{ contributors }}</dd></div>
-        </dl>
-        {%- if !recent_members.is_empty() %}
-        <h3 class="site-stats__subtitle">{{ p.t.home_new_members() }}</h3>
-        {#- One /space/{uid} link per member and no <div> inside: tests read the order up to the first </div>. #}
-        <ul class="newcomers">
-          {%- for (name, avatar) in recent_members %}
-          <li><a class="newcomers__item" href="{{ crate::site::href(avatar.profile_href) }}" title="{{ name }}" translate="no"><span class="newcomers__avatar" aria-hidden="true">{% include "partials/avatar.html" %}</span><span class="newcomers__name">{{ name }}</span></a></li>
-          {%- endfor %}
-        </ul>
-        {%- endif %}
-      </section>
-      {%- endif %}
-
-      {%- if let Some(card) = friend_links %}
-      <section class="panel panel--aside" data-friend-links>
-        <h2 class="panel__title">{{ p.t.home_friend_links() }}</h2>
-        {%- if card.links.is_empty() %}
-        <p class="panel__note">{{ p.t.home_friend_links_empty() }}</p>
-        {%- else %}
-        <ul class="friend-links">
-          {%- for link in card.links %}
-          <li><a href="{{ crate::site::href(link.url) }}" rel="nofollow noopener" referrerpolicy="origin" target="_blank">{{ link.name }}</a></li>
-          {%- endfor %}
-        </ul>
-        {%- endif %}
-        <ul class="panel__links">
-          <li><a href="{{ crate::site::base() }}/links">{{ p.t.home_friend_links_all() }}</a></li>
-          {%- if card.applications_open %}
-          <li><a href="{{ crate::site::base() }}/links/apply" hx-boost="false">{{ p.t.home_friend_links_apply() }}</a></li>
-          {%- endif %}
-        </ul>
-      </section>
-      {%- endif %}
+      {#- The aside's blocks (docs/skins.md, "Places and blocks"); home.aside on the home page and search, board.aside on board pages. #}
+      {%- for html in p.places.aside %}{{ html|safe }}{% endfor %}
     </aside>
   </div>
 </div>

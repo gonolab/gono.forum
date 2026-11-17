@@ -6,6 +6,8 @@
     <nav class="crumbs" aria-label="{{ p.t.common_breadcrumb() }}">
       {%- for (name, href) in breadcrumb %}{% if !loop.first %}<span class="crumbs__sep" aria-hidden="true"></span>{% endif %}<a href="{{ crate::site::href(href) }}">{{ name }}</a>{% endfor %}
     </nav>
+    {#- The page head's blocks (docs/skins.md, "Places and blocks"), after the breadcrumb; empty by default. -#}
+    {% if !p.places.head.is_empty() %}<div class="page-head">{% for html in p.places.head %}{{ html|safe }}{% endfor %}</div>{% endif %}
 
     <article class="thread" aria-labelledby="thread-title">
       <header class="thread-head">
@@ -300,7 +302,7 @@
   </div>
 
   <aside class="layout__aside" aria-label="{{ p.t.topic_sidebar() }}">
-    {% include "partials/user_card.html" %}
+    {% for html in p.places.aside %}{{ html|safe }}{% endfor %}
   </aside>
 </div>
 {# The server does not record views: site.js reads this marker and keeps the reader's recent threads in local storage. #}

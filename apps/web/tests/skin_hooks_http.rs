@@ -341,7 +341,9 @@ async fn the_page_data_block_describes_the_page_and_the_site() {
         showcase,
         ..
     } = site(None).await;
-    let fields = ["v", "type", "tid", "fid", "uid", "page", "thread", "site"];
+    let fields = [
+        "v", "type", "tid", "fid", "uid", "page", "thread", "site", "blocks",
+    ];
     let site_part = serde_json::json!({
         "name": "Sample Community",
         "description": "A sample community built with Gono Forum, for running tests.",
@@ -370,6 +372,17 @@ async fn the_page_data_block_describes_the_page_and_the_site() {
 
     let home = block(&page(&app, "/page-2", None).await);
     check(&home, "home");
+    // The records of the page's data-source blocks, by block id (docs/data.md); core cards are not data sources.
+    let blocks: Vec<&str> = home["blocks"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(blocks, ["hot", "latest"], "{home}");
+    assert_eq!(home["blocks"]["hot"]["source"], "threads");
+    assert_eq!(home["blocks"]["hot"]["params"]["scope"], "site");
+    assert_eq!(home["blocks"]["latest"]["params"]["sort"], "created");
     assert_eq!(
         (home["fid"].clone(), home["page"].clone()),
         (Value::Null, 2.into())
@@ -435,9 +448,10 @@ async fn the_page_data_block_describes_the_page_and_the_site() {
     services.cleanup().await.unwrap();
 }
 
-/// Nothing about the viewer: a signed-in member gets the same block as an anonymous visitor.
+/// Nothing personal: no `me.*` source and nothing about the viewer's account. The blocks' records are what the page
+/// shows this viewer, so with nothing members-only or blocked a member gets the same block as an anonymous visitor.
 #[tokio::test]
-async fn the_page_data_block_has_nothing_about_the_viewer() {
+async fn the_page_data_block_has_nothing_personal() {
     let Site { app, services, .. } = site(None).await;
     let identity = Identity::new(
         services.db.clone(),
@@ -465,6 +479,14 @@ async fn the_page_data_block_has_nothing_about_the_viewer() {
             "{path} is rendered for the member"
         );
         assert_eq!(block_text(&anonymous), block_text(&member), "{path}");
+        let data = block(&member);
+        for (_, envelope) in data["blocks"].as_object().unwrap() {
+            assert!(
+                !envelope["source"].as_str().unwrap().starts_with("me."),
+                "{path}"
+            );
+        }
+        assert!(!block_text(&member).contains("\"csrf"), "{path}");
     }
     services.cleanup().await.unwrap();
 }

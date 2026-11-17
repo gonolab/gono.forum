@@ -1,0 +1,34 @@
+block-title-hot = 热门主题
+block-title-latest = 最新主题
+block-title-active = 最近活跃
+block-title-featured = 精华主题
+block-title-pinned = 置顶主题
+block-title-boards = 版块
+block-title-new-members = 最新用户
+block-title-ranks = 排行榜
+block-title-honors = 荣誉
+block-title-verified = 认证会员
+block-title-moderators = 版主
+block-title-stats = 站点统计
+block-title-links = 友情链接
+block-title-outline = 本帖导览
+block-title-notice = 公告
+block-title-navigation = 导航
+
+layout-error-unknown = { $path } 不是当前版本认识的内容
+layout-error-invalid = { $path } 的值不允许
+layout-error-missing = 缺少 { $path }
+layout-error-too-many = { $path } 的块太多：每个位置有各自的上限，每页最多 10 个块
+layout-error-duplicate = { $path } 和另一个块的 id 重复
+layout-error-not-here = { $path } 不能放在这个位置
+layout-error-too-long = { $path } 太长
+
+block-empty = 暂无内容
+block-rank-place = 名次
+block-rank-member = 会员
+block-rank-score = 分数
+block-stats-today = 今日
+block-board-threads = { $count } 个主题
+block-board-today = 今日 { $count }
+block-outline-page = 第 { $page } 页：{ $from }–{ $to } 楼
+block-moderator-trainee = 见习

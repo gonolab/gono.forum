@@ -1,0 +1,19 @@
+{#- threads as cards (docs/skins.md, "Views"): title, author and the first list thumbnail. #}
+<section class="panel panel--aside block-cards{% if block.keep %} panel--keep{% endif %}{{ block.hooks() }}"{{ block.attribute()|safe }}>
+  <h2 class="panel__title">{{ block.title }}</h2>
+  {%- if data.items.is_empty() %}
+  <p class="panel__note">{{ p.t.block_empty() }}</p>
+  {%- else %}
+  <ul class="block-cards__items">
+    {%- for thread in data.items %}
+    <li class="block-cards__item"{% if let Some(board) = thread.board %} data-board="{{ board.fid }}"{% endif %}>
+      {%- if let Some(thumb) = thread.thumbs.first() %}
+      <img class="block-cards__thumb" src="{{ crate::site::prefixed(thumb.src) }}" alt="" width="{{ thumb.width }}" height="{{ thumb.height }}" loading="lazy" decoding="async">
+      {%- endif %}
+      <a class="block-cards__title" href="{{ crate::site::prefixed(thread.href) }}">{{ thread.title }}</a>
+      <p class="block-cards__meta"><span translate="no">{{ thread.author.name }}</span> · <time datetime="{{ thread.created.at }}" title="{{ thread.created.title }}">{{ thread.created.text }}</time></p>
+    </li>
+    {%- endfor %}
+  </ul>
+  {%- endif %}
+</section>

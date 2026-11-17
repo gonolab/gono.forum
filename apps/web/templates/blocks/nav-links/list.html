@@ -1,0 +1,8 @@
+{#- The nav-links block (docs/skins.md, "Core blocks"): the entries of the header navigation. #}
+<nav class="panel{% if block.keep %} panel--keep{% endif %} block-nav{{ block.hooks() }}"{{ block.attribute()|safe }} aria-label="{{ p.t.frame_menu_forums() }}">
+  <ul class="block-nav__links">
+    {%- for link in data.links %}
+    <li><a href="{{ crate::site::href(link.href) }}"{% if link.active %} aria-current="page"{% endif %}>{{ link.label }}</a></li>
+    {%- endfor %}
+  </ul>
+</nav>

@@ -45,8 +45,17 @@ masthead_height = "52px"             # optional: the declared header height (--m
 avatar_shape = "member"              # circle, rounded or square fixes every avatar; member leaves it to members
 ```
 
-Unknown keys are errors. `[behaviors]` and `[layout]` are part of the contract but not supported yet: they must be
-empty. A skin brings no interface text: names and descriptions are written per language, everything else on the page
+Unknown keys are errors. `[behaviors]` is part of the contract but not supported yet: it must be empty. `[layout]` is
+the skin's default layout: places with their blocks, written like a layout document's `places` ("Places and blocks")
+and checked as strictly as a saved document, for example:
+
+```toml
+[layout]
+"home.aside" = [
+  { id = "me", source = "member-card" },
+  { id = "pinned", source = "threads", view = "mini-list", params = { sort = "pinned" }, title = { key = "block-title-pinned" } },
+]
+``` A skin brings no interface text: names and descriptions are written per language, everything else on the page
 is the core's. Built-in skins are the exception: their `skin.toml` writes `name` and `description` only in English,
 and the names and descriptions shown in every language are the messages `skin-builtin-<id>-name` and
 `skin-builtin-<id>-description` in `locales/<language>/skin.ftl` (listed in `skins::builtin_text`; a unit test keeps
@@ -213,7 +222,8 @@ Its body is JSON:
 ```
 
 An empty body means the built-in default with its own colors. `based_on` records the skin and version the choice was
-made from; `places` (the blocks of each place on a page) stays `null` until layouts can be edited. `colors` holds the
+made from; `places` holds the blocks of the places the document changes ("Places and blocks"), `null` while it
+changes none. `colors` holds the
 seed colors ([styles.md](styles.md), "Seed colors") and is left out while the skin's own colors are used; only the two
 seeds are stored, and the colors are derived from them for whichever skin is in use. Each domain may have an override
 document, `settings.domain_layout.<domain id>.{body,title,updated_at}`, with the same structure; keys it leaves out
@@ -256,6 +266,84 @@ The glyph names are `chat`, `megaphone`, `question`, `lightbulb`, `bug`, `wrench
 `newspaper`, `calendar`, `people`, `coffee`, `star`, `image`, `music`, `film`, `gamepad`, `palette`, `briefcase`,
 `tag`, `globe`, `pin`, `archive`, `heart`, `home`, `flag`, `shield`, `leaf`, `rocket`, `trophy` and `lock`. A board's
 uploaded icon image (`icon_aid`) is separate and unchanged.
+
+## Places and blocks
+
+A page has fixed places, and each place shows a list of blocks. A block is a data source ([data.md](data.md)) with
+its parameters and a view, or one of the core blocks below. A page takes the blocks of each place, place by place,
+from the first of: the domain's layout document, the site's, the skin's manifest (`[layout]`), and the core default
+layout, which shows what the templates showed before layouts (`layout.rs`, `core_default`).
+
+| Place | On | Where | Blocks | What it takes | Core default |
+| --- | --- | --- | --- | --- | --- |
+| `home.aside` | the home page, its later pages and search | the aside | 8 | every data source but `thread.outline`, every core block but `board-head` | `member-card`, hot threads, latest threads, `recent-local`, `site-overview`, `friend-links` |
+| `board.aside` | board pages | the aside | 8 | as `home.aside`; `current` means the board | `member-card`, the board's hot and latest threads |
+| `thread.aside` | thread pages | the aside | 6 | as `home.aside`, and `thread.outline` | `member-card` |
+| `page.head.home`, `page.head.board`, `page.head.thread` | those pages | the top of the main column (after the breadcrumb on thread pages), in `div.page-head` | 2 | `markdown`, `site.stats` in its `compact` view, and on board pages `board-head` | `board-head` on board pages, empty elsewhere |
+| `footer` | the pages with places | inside the footer, before the policy links, in `div.colophon__blocks` | 4 | `markdown`, `site.links`, `site.stats` | empty |
+| `side.nav` | the pages with places, under a skin with side navigation | the side navigation | 4 | `nav-boards`, `nav-links`, `markdown` | empty; shown only once skins can choose `frame.nav = "side"`, so not yet |
+
+A page shows at most 10 blocks across its places; the policy links and the "Built on Gono Forum" line are always the
+core's, and blocks only sit beside them. A board page whose head has no `board-head` block, and the home page, write
+their heading for screen readers only. Search results keep their own head and use `home.aside`.
+
+### Blocks
+
+```json
+{"id": "hot-week", "source": "threads", "params": {"scope": "current", "sort": "hot", "days": 7, "limit": 10},
+ "view": "mini-list", "title": {"key": "block-title-hot"}, "show": "all", "keep_on_phone": false}
+```
+
+| Field | Value |
+| --- | --- |
+| `id` | 1 to 32 lowercase letters, digits and hyphens, starting with a letter; unique in the document. |
+| `source` | A data source with views, or a core block. |
+| `params` | The source's parameters ([data.md](data.md)); `current` is the page's board or thread. Core blocks take none. |
+| `view` | One of the source's views; core blocks have one and may leave it out. |
+| `title` | `{"key": "block-title-…"}` (`block-title-hot`, `-latest`, `-active`, `-featured`, `-pinned`, `-boards`, `-new-members`, `-ranks`, `-honors`, `-verified`, `-moderators`, `-stats`, `-links`, `-outline`, `-notice`, `-navigation`), or `{"text": {"en": "…", …}}` by language tag, English required, at most 40 characters each. Data-source blocks and `markdown` take one, and need one in an aside; the core cards carry their own headings and take none. |
+| `show` | `all` (default), `guests` or `members`. |
+| `keep_on_phone` | `true` keeps the block when the aside folds away on phones (`panel--keep`). |
+| `body` | `markdown` only: the text by language tag, English required, at most 4 KB each, rendered and cleaned like posts. |
+
+Documents and skins are checked strictly when they are saved or imported: an unknown key, place, source, view or value,
+too many blocks for a place or a page, a repeated id, or a block in a place that does not take it refuses the whole
+layout, naming the field (`places.home.aside[2].view`). Pages read them leniently: a block that no longer passes (a
+view an upgrade removed, a board that was deleted) is skipped and logged as an error, never an error page, and the
+debug panel lists every block of the page with its time and the skipped ones with the reason.
+
+### Core blocks
+
+| Block | View | What it shows |
+| --- | --- | --- |
+| `member-card` | `card` | The signed-in member's card, or the sign-in card. |
+| `recent-local` | `list` | The visitor's recently viewed threads, which `site.js` fills from local storage. |
+| `site-overview` | `card` | The site statistics and the newest members. |
+| `friend-links` | `list` | The friend links and the link to apply; only on page 1 of the main domain's home page. |
+| `board-head` | `head` | A board page's head: name, icon, follow and filter controls, description, moderators, posting guide. |
+| `nav-boards` | `tree` | The board tree with the new-thread button. |
+| `nav-links` | `list` | The header navigation's entries. |
+| `markdown` | `prose` | Its `body` in the page's language. |
+
+### Views
+
+Each view is an Askama template, `templates/blocks/<source>/<view>.html`; the member sources share
+`templates/blocks/members/<view>.html`, which their own templates include.
+
+| Source | Views |
+| --- | --- |
+| `threads` | `mini-list` (titles; hot threads with their reply counts), `list` (with board, time and replies), `cards` (with the first thumbnail) |
+| `boards` | `tree`, `grid`, `directory` (with description, counts and the latest thread) |
+| `members.recent`, `members.honors`, `members.verified`, `moderators` | `avatars`, `list` |
+| `members.rank` | `avatars`, `list`, `table` |
+| `site.stats` | `figures`, `compact` |
+| `site.links` | `links` |
+| `thread.outline` | `timeline` (the dates), `progress` (the pages): links until a behavior module draws them |
+
+Every block's outer element carries `block block--<source> block--<view>` among its classes (the dot of a source name
+written as a hyphen, `block--site-stats`) and `data-block="<id>"`. Rows and tiles of threads and boards carry
+`data-board`, so the board variables ("Board colors and glyphs") reach them. The core default layout renders the
+same markup the templates wrote before layouts plus these two hooks and the `div.page-head` around a board head;
+`tests/default_layout_http.rs` compares it with HTML recorded from the old templates.
 
 ## Frame
 
@@ -419,8 +507,10 @@ Every page built on `layout/base.html` has one data block in its `<head>`:
 
 Read it with `JSON.parse(document.getElementById('gonof-page').textContent)`. Like the JSON-LD blocks, it is data and
 not a script, so the Content-Security-Policy allows it without a nonce; `<`, `>` and `&` in values are written as
-JSON escapes (`<`), so no value can end the element. It holds only what the page shows every visitor who may open
-it, never anything about the viewer: a signed-in member gets the same block as an anonymous visitor.
+JSON escapes (`<`), so no value can end the element. It holds only what the page shows, and nothing personal: no
+`me.*` data source and nothing a page shows only about its viewer. The records of the page's data-source blocks are
+those this visitor sees on the page (filtered by the boards they may read and the members they blocked, like every
+list), so a member's block can differ from an anonymous visitor's there.
 
 Version 1 has these fields, always all of them, `null` where a field does not apply. It only grows: a new field is
 added to every page, and removing or changing one means a new `v`.
@@ -435,6 +525,7 @@ added to every page, and removing or changing one means a new `v`.
 | `page` | The page number of a list, a thread or a member's tab. |
 | `thread` | On thread pages, `{"replies", "pages", "floors"}`: the reply count the head shows, the number of pages in the view being read (flat or nested), and the floors of this page in page order, `{"position", "pid", "at"}` each. The opening post comes first on every page; in the nested view each reply is followed by its nested replies. `position` is the `N` of `#floor-N`, `at` the post time in UTC as in `<time datetime>`. Hidden and withdrawn floors are listed too, as the page shows their placeholders. |
 | `site` | `{"name", "description", "language", "dir", "base", "credit_name", "index_name", "date_format"}`: this site's name (another domain's own name where it has one), its description, the interface language tag, `ltr` or `rtl`, the path prefix of a forum installed under a sub-path (empty at the root), the names of points and of the activity index, and the date style (`locale`, `ymd-dash`, `ymd-cn` or `mdy-slash`). Empty names and the description are filled with the language's defaults, as on the page. |
+| `blocks` | The page's data-source blocks by block id, each the envelope `/data/v1` would answer with these parameters ([data.md](data.md)), `current` resolved: on the home, board and thread pages; `{}` elsewhere. Core blocks are not data sources and are not listed. |
 
 The block describes the page as the server sent it. A boosted navigation (`hx-boost`) brings the new page's block
 with its head; a fragment swapped into the page, such as a reply posted with HTMX, does not change it.

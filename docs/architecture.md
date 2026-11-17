@@ -269,8 +269,13 @@ The templates also write hooks for stylesheets and scripts that are not part of 
 
 - **Page data block.** `layout/base.html` writes `<script type="application/json" id="gonof-page">` into every page's
   head (`router/page_data.rs`): the kind of page, its ids and page number, on thread pages the floors with their
-  positions, pids and times, and the site's name, language, direction, path prefix, points and index names and date
-  style. It carries nothing about the viewer, and its JSON is escaped like the JSON-LD blocks.
+  positions, pids and times, the site's name, language, direction, path prefix, points and index names and date
+  style, and the records of the page's data-source blocks. It carries nothing personal, and its JSON is escaped like
+  the JSON-LD blocks.
+- **Places and blocks.** The asides, page heads and footer of the home, board and thread pages are places that show
+  blocks: data sources with a view, or core cards (`layout.rs`, `router/blocks.rs`, `templates/blocks/`). The domain's
+  layout document, the site's, the skin's manifest and the core default layout decide them place by place; the core
+  default renders the pages as they were before layouts.
 - **Script events.** `site.js` dispatches `gonof:ready` on `document` when the page has loaded and `gonof:swap` after
   every HTMX swap has settled.
 - **Declared header height.** `--sticky-top` is the height the sticky header covers, declared in CSS; scroll margins,

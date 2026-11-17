@@ -246,7 +246,28 @@ async fn the_core_default_layout_renders_the_pages_as_before() {
     let mut differences = Vec::new();
     for (name, path, session) in pages {
         let html = page(&app, &path, session).await;
-        let current = without_block_hooks(&parts(&html));
+        let raw = parts(&html);
+        if !write {
+            // The hooks are really there, so the comparison below is not vacuous.
+            let hooks: &[&str] = match name {
+                "home" | "home-member" | "home-page-2" | "search" => &[
+                    " block block--member-card block--card\" data-block=\"member-card\"",
+                    " block block--threads block--mini-list\" data-block=\"hot\"",
+                    " block block--threads block--mini-list\" data-block=\"latest\"",
+                    " block block--site-overview block--card\" data-block=\"site-overview\"",
+                ],
+                "board" | "board-member" | "child-board" | "board-plain" => &[
+                    "<div class=\"page-head\">",
+                    " block block--board-head block--head\" data-block=\"board-head\"",
+                    " data-block=\"hot-board\"",
+                ],
+                _ => &[" block block--member-card block--card\" data-block=\"member-card-thread\""],
+            };
+            for hook in hooks {
+                assert!(raw.contains(hook), "{name}: {hook}");
+            }
+        }
+        let current = without_block_hooks(&raw);
         let file = reference(name);
         if write {
             std::fs::create_dir_all(file.parent().unwrap()).unwrap();

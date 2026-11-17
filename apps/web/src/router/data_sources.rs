@@ -71,10 +71,47 @@ impl Filters {
     }
 }
 
-/// The page a source is read for: the thread of a thread page, whose head `thread.outline` then need not read.
+/// What `current` means on a page: the board of a board page or of a thread page's thread, and the thread (whose head
+/// `thread.outline` then need not read).
 #[derive(Clone, Copy, Default)]
 pub(super) struct PageContext<'a> {
+    pub board: Option<&'a ForumRecord>,
     pub thread: Option<&'a Thread>,
+}
+
+/// Replaces `current` by the page's own board or thread; `None` when the page has none (a `moderators` block with
+/// `board: current` on the home page shows nothing).
+pub(super) fn resolve(params: Params, page: PageContext<'_>) -> Option<Params> {
+    let scope = |scope: Scope| match scope {
+        Scope::Current => Some(
+            page.board
+                .map_or(Scope::Site, |board| Scope::Board(board.fid)),
+        ),
+        other => Some(other),
+    };
+    let board = |target: Target| match target {
+        Target::Current => page.board.map(|board| Target::Id(board.fid)),
+        other => Some(other),
+    };
+    Some(match params {
+        Params::Threads(threads) => Params::Threads(params::Threads {
+            scope: scope(threads.scope)?,
+            ..threads
+        }),
+        Params::SiteStats { scope: value } => Params::SiteStats {
+            scope: scope(value)?,
+        },
+        Params::Moderators { board: target } => Params::Moderators {
+            board: board(target)?,
+        },
+        Params::ThreadOutline { tid } => Params::ThreadOutline {
+            tid: match tid {
+                Target::Current => Target::Id(i64::try_from(page.thread?.id).ok()?),
+                other => other,
+            },
+        },
+        other => other,
+    })
 }
 
 /// The boards of a scope: all of this site's listable boards, or one board with its readable child boards that the

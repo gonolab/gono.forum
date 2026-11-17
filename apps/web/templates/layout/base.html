@@ -119,7 +119,7 @@
 {% block content %}{% endblock %}
 </main>
 <footer class="colophon">
-  <div class="colophon__inner container">
+  <div class="colophon__inner container">{% if !p.places.footer.is_empty() %}<div class="colophon__blocks">{% for html in p.places.footer %}{{ html|safe }}{% endfor %}</div>{% endif %}
     <nav class="colophon__nav" aria-label="{{ p.t.frame_footer_nav() }}">
       <ul class="colophon__links">
         <li><a href="{{ crate::site::base() }}/rules">{{ p.t.frame_footer_rules() }}</a></li>

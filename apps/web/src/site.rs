@@ -254,6 +254,12 @@ pub fn main_only(path: &str) -> bool {
         })
 }
 
+/// An address that already carries the path prefix, such as a data-source record's `href` (docs/data.md), returned as
+/// it is: templates write it through here so that every address in them names how it gets its prefix.
+pub fn prefixed(href: &str) -> &str {
+    href
+}
+
 /// Put in front of in-site addresses hard-coded in templates: `href="{{ crate::site::base() }}/rules"`.
 pub fn base() -> Base {
     Base

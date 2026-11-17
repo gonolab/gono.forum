@@ -17,6 +17,7 @@ pub mod honors;
 pub mod i18n;
 pub mod identity;
 pub mod interaction;
+pub mod layout;
 pub mod links;
 pub mod login;
 pub mod mail;

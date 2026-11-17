@@ -1,7 +1,7 @@
 //! The page data block (docs/skins.md, "Page data"): one `<script type="application/json" id="gonof-page">` in the
 //! head of every page built on `layout/base.html`, for page scripts and skins. It carries only what the page itself
-//! shows every visitor who may open it (the page's ids, its floors' positions and times, the site's own words) and
-//! nothing about the viewer, so it never needs a per-member cache key.
+//! shows (the page's ids, its floors' positions and times, the site's own words, the records of its data-source
+//! blocks as this visitor sees them) and nothing personal: no `me.*` source, nothing a page shows only to its viewer.
 //!
 //! Version 1 only grows: a new field is added with a value on every page (`null` where it does not apply), and
 //! removing or changing a field means a new `v`.
@@ -83,6 +83,9 @@ struct Block<'a> {
     page: Option<usize>,
     thread: Option<&'a ThreadData>,
     site: Site<'a>,
+    /// The envelopes of the page's data-source blocks by block id (docs/data.md), as the blocks show them; empty on
+    /// pages without places.
+    blocks: &'a serde_json::Map<String, serde_json::Value>,
 }
 
 /// The site's own words and settings that scripts need to write text and dates like the server does.
@@ -169,6 +172,7 @@ impl PageData {
                 index_name: p.index_word(),
                 date_format: &settings.time.date_format,
             },
+            blocks: &p.places.data,
         };
         // Straight to text, not through `serde_json::Value`, so the fields keep the order declared above.
         match serde_json::to_string(&block) {

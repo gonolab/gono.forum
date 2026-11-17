@@ -1,0 +1,10 @@
+{#- boards as a grid (docs/skins.md, "Views"): tiles with the glyph, the name and, with counts, the thread count. #}
+<section class="panel panel--aside block-boards{% if block.keep %} panel--keep{% endif %}{{ block.hooks() }}"{{ block.attribute()|safe }}>
+  <h2 class="panel__title">{{ block.title }}</h2>
+  {%- include "partials/board_glyphs.html" %}
+  <ul class="block-boards__grid">
+    {%- for board in data.items %}
+    <li class="block-boards__tile" data-board="{{ board.fid }}"><a href="{{ crate::site::prefixed(board.href) }}">{% if let Some(glyph) = board.glyph %}<svg class="block-boards__glyph" aria-hidden="true" focusable="false"><use href="#board-glyph-{{ glyph }}"></use></svg>{% endif %}<span class="block-boards__name">{{ board.name }}</span>{% if let Some(counts) = board.counts %}<span class="block-boards__count">{{ p.t.block_board_threads(counts.threads) }}</span>{% endif %}</a></li>
+    {%- endfor %}
+  </ul>
+</section>

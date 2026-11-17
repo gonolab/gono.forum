@@ -1,0 +1,13 @@
+{#- threads as a mini list (docs/skins.md, "Views"): titles, and for hot threads the reply count and the empty note. Topic links end in /thread-{id}" and the cards carry no data-thread-id, row-title or aria-current: tests count those on the page. #}
+<section class="panel panel--aside{% if block.keep %} panel--keep{% endif %}{{ block.hooks() }}"{{ block.attribute()|safe }}>
+  <h2 class="panel__title">{{ block.title }}</h2>
+  <ol class="mini-list">
+    {%- for thread in data.items %}
+    <li><a href="{{ crate::site::prefixed(thread.href) }}"><span class="mini-list__title">{{ thread.title }}</span></a>{% if data.hot %}<span class="mini-list__count" aria-label="{{ p.t.common_reply_count(thread.replies) }}">{{ thread.replies }}</span>{% endif %}</li>
+    {%- else %}
+    {%- if data.hot %}
+    <li class="mini-list__empty">{{ p.t.common_hot_empty(data.days) }}</li>
+    {%- endif %}
+    {%- endfor %}
+  </ol>
+</section>

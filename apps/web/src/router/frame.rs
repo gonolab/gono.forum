@@ -65,6 +65,11 @@ pub(super) struct SiteFrame {
     pub preview_colors: bool,
     /// The board stylesheet (docs/skins.md, "Board colors and glyphs"); empty when no board has a color or glyph.
     pub board_style: Arc<crate::organization::style::BoardStyle>,
+    /// The places the site's layout document sets, or the administrator's draft of them while previewing it
+    /// (docs/skins.md, "Places and blocks").
+    pub site_places: Option<crate::layout::Places>,
+    /// The places this domain's override document sets, or its draft while previewing.
+    pub domain_places: Option<crate::layout::Places>,
 }
 
 /// Scope of multi-domain sites: forums readable by this visitor within the scope.
@@ -99,6 +104,8 @@ impl Default for SiteFrame {
             preview: false,
             preview_colors: false,
             board_style: Arc::default(),
+            site_places: None,
+            domain_places: None,
         }
     }
 }
@@ -279,6 +286,14 @@ impl SiteFrame {
             preview,
             preview_colors,
             board_style,
+            site_places: block.places.clone(),
+            domain_places: crate::site::other(|row| row.domain_id).and_then(|id| {
+                block
+                    .domain_places
+                    .iter()
+                    .find(|(domain, _)| *domain == id)
+                    .map(|(_, places)| places.clone())
+            }),
         })
     }
 

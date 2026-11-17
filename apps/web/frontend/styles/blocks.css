@@ -1,0 +1,233 @@
+/* Block views of the places (docs/skins.md, "Places and blocks"): the views the core default layout does not use.
+   The default look's blocks keep the classes they had before layouts (mini-list, person-card, site-stats, friend-links,
+   board-head), so nothing here applies to a site that has not changed its layout. */
+
+/* The page head's blocks, at the top of the main column; one block keeps the head's own layout. */
+.page-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  min-inline-size: 0;
+}
+
+/* Footer blocks beside the policy links and the "Built on Gono Forum" line, which the core always writes. */
+.colophon__blocks {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  inline-size: 100%;
+  min-inline-size: 0;
+}
+
+/* threads: list and cards. */
+.block-list__items,
+.block-cards__items,
+.block-members__list,
+.block-members__wall,
+.block-boards__tree,
+.block-boards__children,
+.block-boards__grid,
+.block-boards__directory,
+.block-outline__marks,
+.block-outline__pages,
+.block-nav__links {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.block-list__items,
+.block-cards__items,
+.block-boards__directory {
+  display: grid;
+  gap: 10px;
+}
+
+.block-list__item,
+.block-cards__item,
+.block-boards__entry {
+  min-inline-size: 0;
+}
+
+.block-list__title,
+.block-cards__title {
+  display: block;
+  font-size: 13.5px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.block-list__meta,
+.block-cards__meta,
+.block-boards__meta,
+.block-boards__desc {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.block-cards__thumb {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  max-block-size: 120px;
+  margin-block-end: 6px;
+  border-radius: var(--r-xs);
+  object-fit: cover;
+}
+
+/* boards: tree, grid and directory, with the board's glyph in the text color. */
+.block-boards__tree {
+  display: grid;
+  gap: 4px;
+}
+
+.block-boards__children {
+  display: grid;
+  gap: 2px;
+  margin-block-start: 2px;
+  padding-inline-start: 26px;
+  font-size: 13px;
+}
+
+.block-boards__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-inline-size: 0;
+  font-size: 13.5px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.block-boards__glyph {
+  flex: none;
+  inline-size: 18px;
+  block-size: 18px;
+}
+
+.block-boards__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.block-boards__tile > a {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  color: var(--text);
+}
+
+.block-boards__tile > a:hover {
+  background: var(--panel-hover);
+}
+
+.block-boards__count {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* members: avatar wall, list and leaderboard table. */
+.block-members__group {
+  margin: 10px 0 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.block-members__wall {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.block-members__wall .avatar {
+  inline-size: 32px;
+  block-size: 32px;
+}
+
+.block-members__list {
+  display: grid;
+  gap: 6px;
+}
+
+.block-members__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-inline-size: 0;
+  font-size: 13.5px;
+}
+
+.block-members__item .avatar {
+  flex: none;
+  inline-size: 24px;
+  block-size: 24px;
+}
+
+.block-members__name {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.block-members__note {
+  margin-inline-start: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.block-members__table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.block-members__table th,
+.block-members__table td {
+  padding: 4px 6px;
+  border-block-end: 1px solid var(--line-soft);
+  text-align: start;
+}
+
+.block-members__table th {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* site.stats in one line. */
+.block-stats--compact {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* thread.outline without a behavior module: dates and pages as links. */
+.block-outline__marks,
+.block-outline__pages {
+  display: grid;
+  gap: 2px;
+  font-size: 13px;
+}
+
+/* nav-boards and nav-links. */
+.block-nav__post {
+  margin-block-end: 10px;
+}
+
+.block-nav__links {
+  display: grid;
+  gap: 2px;
+  font-size: 13.5px;
+}
+
+.block-nav__links a[aria-current] {
+  color: var(--accent);
+  font-weight: 500;
+}
