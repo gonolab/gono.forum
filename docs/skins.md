@@ -47,7 +47,7 @@ page_head = "column"                 # "column", or "banner" for the page head a
 home = "threads"                     # "threads", or "boards" to open the home page with the board directory
 
 [behaviors]
-enabled = ["timeline", "progress"]   # built-in behavior modules to load (see "Behavior modules")
+enabled = ["timeline", "progress"]   # built-in modules: timeline, progress, autohide-header, docked-composer
 ```
 
 Unknown keys are errors, and so are behavior modules this core does not have or names listed twice. `[layout]` is
@@ -474,6 +474,8 @@ page is complete and works as before.
 | Module | What it does |
 | --- | --- |
 | `timeline` | Turns each `thread.outline` block in its `timeline` view into a scrubber: a vertical slider (`div.timeline`, the handle `.timeline__handle` with `role="slider"`) over every floor of the thread, between links to the first and last floor with their dates. It follows the floor being read, and dragging it or moving it with the keyboard (arrows by one floor, Page Up and Page Down by a page, Home and End) previews a floor with its date; letting go or Enter goes there, on this page by scrolling, else on its page of the flat view; Escape goes back. The block's page list stays in the markup, hidden on screen. The block sticks under the header beside the floors. Data: the block's outline record and the page's floors. |
+| `autohide-header` | The sticky header slides up while the reader scrolls down past twice its height and comes back as soon as they scroll up. While it is away `<html data-header-hidden>` is set and `--sticky-top` drops to the safe area, so sticky asides, the side navigation, anchor targets and the scripts that read the header height follow ("Sticky header"). It does not hide while focus or an open menu (`details`) is in the header, and focus moving into it brings it back. |
+| `docked-composer` | On thread pages where the reader can reply, the reply box (`#reply-editor`) docks at the bottom of the window behind a bar (`div.composer-dock`) with a button (`aria-expanded`, `aria-controls="reply-editor"`) that opens and closes it; `<html data-composer-dock>` is `open` or `closed`. The box keeps its place in the markup, so the editor and its forms work as before. Opening focuses the text field; Escape in the box or on the button closes it and returns focus to the button. Links to `#reply-editor` on the page open it, a page opened at `#reply-editor` or with a reply or quote under way starts with it open, and a published reply (`composer:published`) closes it. Locked threads and visitors who cannot reply keep the inline notice. |
 | `progress` | On thread pages, a thin bar under the header (`div.reading-progress`, hidden from screen readers) that fills as the reader moves through the thread; in each `thread.outline` block in its `progress` view, the floor being read out of all of them (`p.outline-progress` with a `<progress>` element) and the page that holds it marked `aria-current="page"` in the list. Data: the page's floors, and an outline record of the page for the thread's last floor (else the reply count). |
 
 ## The admin page
@@ -706,4 +708,5 @@ measured:
   `calc()`; the scripts then let the browser resolve it on a hidden probe element.
 
 A layout whose sticky area is not the top header declares its own `--masthead-h` (or `--sticky-top`), and the
-scripts and scroll margins follow.
+scripts and scroll margins follow. Under the `autohide-header` behavior module ("Behavior modules") `--sticky-top`
+drops to the safe area while the header is away.

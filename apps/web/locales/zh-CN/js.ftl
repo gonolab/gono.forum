@@ -109,3 +109,5 @@ js-timeline-value = 第 { $position } 层，共 { $last } 层，{ $date }
 js-timeline-value-plain = 第 { $position } 层，共 { $last } 层
 js-progress-label = 阅读进度
 js-progress-value = 第 { $position } 层，共 { $last } 层
+js-dock-open = 写回复
+js-dock-close = 收起回复框

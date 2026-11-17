@@ -1,6 +1,6 @@
 /* Behavior modules (docs/skins.md, "Behavior modules"): what the built-in scripts of static/js/behaviors/ add to a
    page. Nothing here matches the markup the server writes, so a page without a module, or without JavaScript, looks as
-   it did. Blocks: timeline, outline-progress, reading-progress. */
+   it did. Blocks: timeline, outline-progress, reading-progress, the hidden header (autohide-header), composer-dock. */
 
 /* ------------------------------------------------------------------ */
 /* timeline                                                            */
@@ -136,6 +136,78 @@
 
 :dir(rtl) .reading-progress__bar {
   transform-origin: right;
+}
+
+/* ------------------------------------------------------------------ */
+/* autohide-header                                                     */
+/* ------------------------------------------------------------------ */
+
+/* The script sets data-header-hidden while the reader scrolls down; the header slides up out of the window and the
+   room it declared (--sticky-top) shrinks to the safe area, so everything that sticks under it moves up too. */
+html[data-behaviors~="autohide-header"] .masthead {
+  transition: translate 0.2s var(--ease-out);
+}
+
+html[data-header-hidden] .masthead {
+  translate: 0 -100%;
+}
+
+:root[data-header-hidden] {
+  --sticky-top: var(--safe-top);
+}
+
+/* ------------------------------------------------------------------ */
+/* docked-composer                                                     */
+/* ------------------------------------------------------------------ */
+
+/* The reply box docked at the bottom of the window (data-composer-dock on <html>, open or closed), behind a bar with
+   the button that opens and closes it. The page leaves room for the bar, and the page jump buttons sit above it. */
+html[data-composer-dock] body {
+  padding-block-end: 60px;
+}
+
+.composer-dock {
+  position: fixed;
+  inset-inline: 0;
+  inset-block-end: 0;
+  z-index: 25;
+  display: flex;
+  justify-content: center;
+  box-sizing: border-box;
+  block-size: calc(60px + var(--safe-bottom));
+  padding-block: 12px calc(12px + var(--safe-bottom));
+  padding-inline: max(16px, var(--safe-left), var(--safe-right));
+  border-block-start: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: var(--shadow-medium);
+}
+
+html[data-composer-dock="closed"] #reply-editor {
+  display: none;
+}
+
+html[data-composer-dock="open"] #reply-editor {
+  position: fixed;
+  inset-inline: 0;
+  inset-block-end: calc(60px + var(--safe-bottom));
+  z-index: 25;
+  box-sizing: border-box;
+  inline-size: min(100%, 880px);
+  max-block-size: calc(100dvh - var(--sticky-top) - 72px - var(--safe-bottom));
+  margin-inline: auto;
+  padding: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-block-end: 0;
+  border-start-start-radius: var(--r);
+  border-start-end-radius: var(--r);
+  background: var(--panel);
+  box-shadow: var(--shadow-medium);
+}
+
+html[data-composer-dock] .page-jump {
+  inset-block-end: calc(84px + var(--safe-bottom));
 }
 
 @media (max-width: 760px) {

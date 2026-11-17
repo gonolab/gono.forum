@@ -151,3 +151,6 @@ js-timeline-value-plain = Floor { $position } of { $last }
 # The progress behavior module: the reading progress of a thread.
 js-progress-label = Reading progress
 js-progress-value = Floor { $position } of { $last }
+# The docked-composer behavior module: the button on the bar at the bottom of a thread page.
+js-dock-open = Write a reply
+js-dock-close = Hide the reply box

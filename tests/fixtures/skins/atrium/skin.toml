@@ -36,4 +36,4 @@ home = "boards"
 ]
 
 [behaviors]
-enabled = ["timeline", "progress"]
+enabled = ["timeline", "progress", "autohide-header", "docked-composer"]

@@ -177,7 +177,7 @@ impl Default for Frame {
 
 /// The built-in behavior modules a skin may turn on (docs/skins.md, "Behavior modules"): scripts compiled into the
 /// binary, `static/js/behaviors/<name>.js`.
-pub const BEHAVIORS: &[&str] = &["timeline", "progress"];
+pub const BEHAVIORS: &[&str] = &["timeline", "progress", "autohide-header", "docked-composer"];
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

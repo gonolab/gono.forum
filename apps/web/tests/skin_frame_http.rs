@@ -277,16 +277,16 @@ async fn behavior_modules_load_only_where_the_skin_and_the_page_allow() {
     use_skin(
         &site,
         "lively",
-        "[layout]\n\"thread.aside\" = [{ id = \"outline\", source = \"thread.outline\", view = \"timeline\", params = { tid = \"current\" }, title = { key = \"block-title-outline\" } }]\n[behaviors]\nenabled = [\"timeline\", \"progress\"]\n",
+        "[layout]\n\"thread.aside\" = [{ id = \"outline\", source = \"thread.outline\", view = \"timeline\", params = { tid = \"current\" }, title = { key = \"block-title-outline\" } }]\n[behaviors]\nenabled = [\"timeline\", \"progress\", \"autohide-header\", \"docked-composer\"]\n",
     )
     .await;
     let thread = site.get("/thread-103", None).await;
     assert!(
         thread
             .body
-            .contains(" data-behaviors=\"timeline progress\">")
+            .contains(" data-behaviors=\"timeline progress autohide-header docked-composer\">")
     );
-    for name in ["timeline", "progress"] {
+    for name in ["timeline", "progress", "autohide-header", "docked-composer"] {
         assert!(
             thread
                 .body
