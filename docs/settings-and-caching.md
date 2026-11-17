@@ -205,7 +205,7 @@ on `AppState` and is passed explicitly to every function that saves cached data.
 | `pins` | index of site-wide level-2 and level-3 pins | pinning, unpinning, hiding, accepted restorations, moving threads, board saves, merges |
 | `moderators` | moderator roster, for display and read-only checks (see [roles.md](roles.md)) | appointments, renames, board deletion, account deletion |
 | `honors` | honor group directory | honor group saves |
-| `forums` | readable boards, one slot for anonymous visitors and one for members, and the board stylesheet compiled from the members' copy ([skins.md](skins.md), "Board colors and glyphs") | board saves, ordering, deletion, merges |
+| `forums` | readable boards, one slot for anonymous visitors and one for members, and the board stylesheets compiled from the members' copy for the skins pages use ([skins.md](skins.md), "Board colors and glyphs") | board saves, ordering, deletion, merges |
 | `domains` | the domain table, read only while `settings.domains.enabled` is on | domain saves, the switch, the forum address, board saves and deletion |
 | `skins` | every skin of the three sources, checked and compiled ([skins.md](skins.md), "Sources"); built-in skins are checked once per process, imported ones on every load, the instance directory is read again only after the block is cleared; also the colored variants pages use (a skin with seed colors, compiled on first use, at most 32) | skin imports and deletes, "Rescan" at `/manage/skins` |
 
@@ -253,8 +253,9 @@ publish. Other rules:
   by the next beat, reaches no subscriber or cannot be sent counts as a disconnect, so a half-broken connection is
   replaced within about a minute.
 
-The board stylesheet (`/boards.css?v=<hash>`) is served from the `forums` block like a skin stylesheet: `public` for a
-year with the current hash, `no-cache` with any other. Skin stylesheets (`/skin/<id>.css?v=<hash>`, and
+The board stylesheet (`/boards.css?k=<skin>&v=<hash>`) is served from the `forums` block like a skin stylesheet, one per
+skin or colored variant (at most 32 kept): `public` for a year with the current hash when a page of the site uses that
+skin, `private` for a previewed one, `no-cache` with any other hash. Skin stylesheets (`/skin/<id>.css?v=<hash>`, and
 `?c=<seeds>&v=<hash>` for a skin with seed colors) are not cached by the server beyond the `skins` block, which holds them compiled; browsers keep the one with the current hash for a
 year (`public` when a page of the site uses the skin, or the skin with those colors, `private` otherwise, so a
 previewed skin or colors stay out of shared caches). Colors that no page uses are compiled only for the administrator

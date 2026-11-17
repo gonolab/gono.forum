@@ -82,21 +82,7 @@ async fn stylesheet(
     let in_use = block.as_ref().map_or_else(Vec::new, |block| {
         skins::selection::in_use(block.layout.as_ref(), &block.domain_layouts)
     });
-    let active = match seeds {
-        None => {
-            id == skins::DEFAULT_ID
-                || block.as_ref().is_some_and(|block| {
-                    block
-                        .layout
-                        .iter()
-                        .chain(block.domain_layouts.iter().map(|(_, layout)| layout))
-                        .any(|layout| layout.skin.as_deref() == Some(id))
-                })
-        }
-        Some(seeds) => in_use
-            .iter()
-            .any(|(skin, colors)| skin == id && *colors == Some(seeds)),
-    };
+    let active = used(block.as_deref(), id, seeds);
     let base = match catalog.as_ref().and_then(|catalog| catalog.get(id)) {
         Some(skin) => skin.clone(),
         None if id == skins::DEFAULT_ID => skins::DEFAULT_SKIN.clone(),
@@ -161,34 +147,88 @@ async fn stylesheet(
         .into_response()
 }
 
+/// Whether a page of the site uses the skin `id` with `seeds` (or without, for `None`): the site's or a domain's
+/// choice, and the built-in default, which pages fall back to. What no page uses is served `private`.
+fn used(
+    block: Option<&crate::cache::SettingsBlock>,
+    id: &str,
+    seeds: Option<skins::seed::Seeds>,
+) -> bool {
+    match seeds {
+        None => {
+            id == skins::DEFAULT_ID
+                || block.is_some_and(|block| {
+                    block
+                        .layout
+                        .iter()
+                        .chain(block.domain_layouts.iter().map(|(_, layout)| layout))
+                        .any(|layout| layout.skin.as_deref() == Some(id))
+                })
+        }
+        Some(seeds) => block.is_some_and(|block| {
+            skins::selection::in_use(block.layout.as_ref(), &block.domain_layouts)
+                .iter()
+                .any(|(skin, colors)| skin == id && *colors == Some(seeds))
+        }),
+    }
+}
+
 #[derive(Default, Deserialize)]
 struct BoardStyleQuery {
+    /// The stylesheet hash of the skin (or colored variant) the board colors are fitted to.
+    #[serde(default)]
+    k: String,
     #[serde(default)]
     v: String,
 }
 
-/// `/boards.css` (docs/skins.md, "Board colors and glyphs"): the same for everyone, served without a session. The
+/// `/boards.css` (docs/skins.md, "Board colors and glyphs"): the board colors fitted to the skin whose stylesheet
+/// hash is `k`, served without a session. A skin or colored variant the catalog holds is compiled when needed, public
+/// when a page of the site uses it and private otherwise (a preview); one a page of this process compiled lately and
+/// the catalog does not keep is private; any other `k` gets the stylesheet of the built-in default skin. The
 /// current version is kept for a year; any other `v` gets the current stylesheet with `no-cache`, so a page cached
 /// from before a board save still has one.
 async fn board_stylesheet(
     State(state): State<Arc<AppState>>,
     Query(query): Query<BoardStyleQuery>,
 ) -> Response {
-    let ttl = match state.global.settings(&state.db).await {
-        Ok(block) => block.settings.cache_ttl(),
-        Err(_) => 0,
-    };
-    let style = match state.global.board_style(&state.db, ttl).await {
-        Ok(style) => style,
+    let block = state.global.settings(&state.db).await.ok();
+    let ttl = block.as_ref().map_or(0, |block| block.settings.cache_ttl());
+    let style = async {
+        let catalog = state.global.skins(&state.db, &state.skins_dir, ttl).await?;
+        if let Some(skin) = catalog.by_hash(&query.k) {
+            let public = used(block.as_deref(), skin.id(), skin.seeds);
+            return Ok((
+                state.global.board_style(&state.db, ttl, &skin).await?,
+                public,
+            ));
+        }
+        if let Some(style) = state
+            .global
+            .board_style_kept(&state.db, ttl, &query.k)
+            .await?
+        {
+            return Ok((style, false));
+        }
+        let style = state
+            .global
+            .board_style(&state.db, ttl, &skins::DEFAULT_SKIN)
+            .await?;
+        Ok::<_, anyhow::Error>((style, false))
+    }
+    .await;
+    let (style, public) = match style {
+        Ok(found) => found,
         Err(error) => {
             tracing::error!(%error, "the board stylesheet could not be compiled");
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
     };
-    let cache = if !style.is_empty() && query.v == style.version {
-        "public, max-age=31536000, immutable"
-    } else {
-        "no-cache"
+    let current = !style.is_empty() && query.k == style.skin && query.v == style.version;
+    let cache = match (current, public) {
+        (true, true) => "public, max-age=31536000, immutable",
+        (true, false) => "private, max-age=31536000, immutable",
+        (false, _) => "no-cache",
     };
     (
         [

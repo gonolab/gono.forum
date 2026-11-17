@@ -388,8 +388,10 @@ struct Inner {
     honors: Slot<Vec<crate::honors::Honor>>,
     /// Readable forums: `[anonymous, member]`, each the result of the `organization::forums` SQL query.
     forums: [Slot<Vec<crate::organization::ForumRecord>>; 2],
-    /// The board stylesheet compiled from the member copy of the readable forums, cleared with them.
-    board_style: Slot<crate::organization::style::BoardStyle>,
+    /// The board stylesheets compiled from the member copy of the readable forums, one per skin (or colored
+    /// variant) pages used, by the skin's `version_hash`, with the forums each was compiled from; at most
+    /// [`BOARD_STYLES`], the oldest dropped first, and all cleared with the forums.
+    board_styles: Mutex<Vec<BoardStyleEntry>>,
     /// The latest thread of each board (data source `boards`): `[anonymous, members]`, keyed by the list version and
     /// the boards the view may read.
     board_last_posts: [Slot<(BoardPostsKey, BoardPosts)>; 2],
@@ -435,7 +437,24 @@ impl Drop for Inner {
     }
 }
 
+/// A kept board stylesheet: the skin's stylesheet hash, the forums it was compiled from, the stylesheet.
+type BoardStyleEntry = (
+    String,
+    Arc<Vec<crate::organization::ForumRecord>>,
+    Arc<crate::organization::style::BoardStyle>,
+);
+
+/// The most board stylesheets kept, like the colored skin variants (`skins::catalog`).
+const BOARD_STYLES: usize = 32;
+
 impl Inner {
+    fn clear_board_styles(&self) {
+        self.board_styles
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
+    }
+
     fn clear(&self, block: Block) {
         match block {
             Block::Settings => self.settings.clear(),
@@ -457,7 +476,7 @@ impl Inner {
                 for slot in &self.forums {
                     slot.clear();
                 }
-                self.board_style.clear();
+                self.clear_board_styles();
             }
             Block::Domains => self.domains.clear(),
             Block::Skins => {
@@ -484,7 +503,7 @@ impl Inner {
         for slot in &self.forums {
             slot.clear();
         }
-        self.board_style.clear();
+        self.clear_board_styles();
         for slot in &self.board_last_posts {
             slot.clear();
         }
@@ -559,7 +578,7 @@ impl GlobalCache {
                 moderators: Slot::new(),
                 honors: Slot::new(),
                 forums: [Slot::new(), Slot::new()],
-                board_style: Slot::new(),
+                board_styles: Mutex::new(Vec::new()),
                 board_last_posts: [Slot::new(), Slot::new()],
                 domains: Slot::new(),
                 skins: Slot::new(),
@@ -980,25 +999,56 @@ impl GlobalCache {
         .await
     }
 
-    /// The board stylesheet (docs/skins.md, "Board colors and glyphs"), compiled from the forums signed-in members
-    /// can read and kept until the forums block is cleared.
+    /// The board stylesheet (docs/skins.md, "Board colors and glyphs") for `skin`, compiled from the forums
+    /// signed-in members can read and kept, per skin, until the forums change or the forums block is cleared.
     pub async fn board_style(
         &self,
         db: &Database,
         ttl: u64,
+        skin: &crate::skins::Skin,
     ) -> anyhow::Result<Arc<crate::organization::style::BoardStyle>> {
+        let forums = self.forums(db, true, ttl).await?;
+        if let Some(style) = self.board_style_of(&skin.version_hash, &forums) {
+            return Ok(style);
+        }
+        let style = Arc::new(crate::organization::style::compile(&forums, skin));
+        let mut memo = self
+            .inner
+            .board_styles
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        memo.retain(|(key, _, _)| *key != skin.version_hash);
+        memo.push((skin.version_hash.clone(), forums, style.clone()));
+        if memo.len() > BOARD_STYLES {
+            memo.remove(0);
+        }
+        Ok(style)
+    }
+
+    /// The board stylesheet kept for the skin whose stylesheet hash is `key`, while the forums are still the ones it
+    /// was compiled from; `/boards.css` answers with it, a colored variant being previewed included.
+    pub async fn board_style_kept(
+        &self,
+        db: &Database,
+        ttl: u64,
+        key: &str,
+    ) -> anyhow::Result<Option<Arc<crate::organization::style::BoardStyle>>> {
+        let forums = self.forums(db, true, ttl).await?;
+        Ok(self.board_style_of(key, &forums))
+    }
+
+    fn board_style_of(
+        &self,
+        key: &str,
+        forums: &Arc<Vec<crate::organization::ForumRecord>>,
+    ) -> Option<Arc<crate::organization::style::BoardStyle>> {
         self.inner
-            .board_style
-            .get(
-                "board-style",
-                ttl == 0,
-                |_| ttl,
-                || async {
-                    let forums = self.forums(db, true, ttl).await?;
-                    Ok(crate::organization::style::compile(&forums))
-                },
-            )
-            .await
+            .board_styles
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .find(|(own, from, _)| own == key && Arc::ptr_eq(from, forums))
+            .map(|(_, _, style)| style.clone())
     }
 
     /// The latest thread of each board for the `boards` data source (docs/data.md): kept per view (`members` or

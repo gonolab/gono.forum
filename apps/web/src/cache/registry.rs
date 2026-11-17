@@ -136,7 +136,8 @@ pub const LINKS: Entry = Entry::block("links", &["links.home", "links.directory"
 pub const PINS: Entry = Entry::block("pins", &["pins"]);
 pub const MODERATORS: Entry = Entry::block("moderators", &["moderators"]);
 pub const HONORS: Entry = Entry::block("honors", &["honors"]);
-/// The board stylesheet (`board-style`) is derived from the member copy and cleared with the block.
+/// The board stylesheets (`board-style`, one per skin pages use) are derived from the member copy and cleared with the
+/// block.
 pub const FORUMS: Entry = Entry::block(
     "forums",
     &["forums-public", "forums-members", "board-style"],

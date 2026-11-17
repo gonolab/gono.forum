@@ -56,7 +56,11 @@ fn linked(html: &str) -> Option<String> {
     let at = html.find("data-board-style>")?;
     let tag = &html[html[..at].rfind("<link").unwrap()..at];
     let href = &tag[tag.find("href=\"").unwrap() + 6..];
-    Some(href[..href.find('"').unwrap()].to_owned())
+    Some(
+        href[..href.find('"').unwrap()]
+            .replace("&#38;", "&")
+            .replace("&amp;", "&"),
+    )
 }
 
 #[tokio::test]
@@ -105,7 +109,8 @@ async fn a_board_color_and_glyph_reach_the_board_stylesheet() {
 
     let home = site.get("/", None).await;
     let href = linked(&home.body).expect("pages link the board stylesheet");
-    assert!(href.starts_with("/boards.css?v="), "{href}");
+    assert!(href.starts_with("/boards.css?k="), "{href}");
+    assert!(href.contains("&v="), "{href}");
     let member_home = site.get("/", Some(&site.member)).await;
     assert_eq!(linked(&member_home.body).as_deref(), Some(href.as_str()));
 
@@ -135,10 +140,18 @@ async fn a_board_color_and_glyph_reach_the_board_stylesheet() {
     assert!(style.body.contains(&format!(
         ":root[data-theme=\"dark\"] [data-board=\"{daily}\"]"
     )));
-    // Another version gets the current stylesheet without being kept.
-    let old = site.get("/boards.css?v=000000000000", None).await;
-    assert_eq!(old.header(header::CACHE_CONTROL), "no-cache");
-    assert_eq!(old.body, style.body);
+    // Another version, or an address from before skins had their own, gets the current stylesheet without being
+    // kept; a skin no page uses gets the built-in default's.
+    let skin = &href[href.find("k=").unwrap() + 2..href.find("&v=").unwrap()];
+    for other in [
+        format!("/boards.css?k={skin}&v=000000000000"),
+        "/boards.css?v=000000000000".to_owned(),
+        "/boards.css?k=000000000000&v=000000000000".to_owned(),
+    ] {
+        let old = site.get(&other, None).await;
+        assert_eq!(old.header(header::CACHE_CONTROL), "no-cache", "{other}");
+        assert_eq!(old.body, style.body, "{other}");
+    }
 
     // Unknown glyphs and colors that are not #rrggbb are refused and change nothing.
     for extra in [
@@ -182,5 +195,117 @@ async fn a_board_color_and_glyph_reach_the_board_stylesheet() {
     assert_eq!(empty.status, StatusCode::OK);
     assert_eq!(empty.body, "");
     assert_eq!(empty.header(header::CACHE_CONTROL), "no-cache");
+    site.services.cleanup().await.unwrap();
+}
+
+/// Writes the instance skin `id` with two palettes, one with dark grounds (the default) and one with light ones, and
+/// makes it the site's skin.
+async fn grounded_skin(site: &Site, id: &str) {
+    let dir = site.services.root.join(format!("skins/{id}"));
+    std::fs::create_dir_all(dir.join("palettes")).unwrap();
+    // The night palette's text is light on its dark grounds, so the footer line keeps its contrast.
+    std::fs::write(
+        dir.join("palettes/night.json"),
+        r##"{"shared": {}, "light": {"--panel": "#111827", "--bg": "#0b1120", "--text-strong": "#ffffff", "--text": "#f1f5f9", "--text-muted": "#cbd5e1"}, "dark": {}}"##,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("palettes/day.json"),
+        r##"{"shared": {}, "light": {"--panel": "#ffffff", "--bg": "#f8fafc"}, "dark": {}}"##,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("skin.toml"),
+        format!(
+            "contract = 1\nid = \"{id}\"\nversion = \"1.0.0\"\nname = {{ en = \"Grounds\" }}\n[palettes]\ndefault = \"night\"\nvariants = [\"day\"]\n"
+        ),
+    )
+    .unwrap();
+    gono_forum_web::test_support::set_setting(
+        site.db(),
+        "settings.layout.body",
+        &format!("{{\"v\":1,\"skin\":\"{id}\"}}"),
+    )
+    .await
+    .unwrap();
+    site.services.global.refresh_all().await.unwrap();
+}
+
+#[tokio::test]
+async fn board_colors_are_fitted_to_the_skin_in_use() {
+    let site = Site::new(false).await;
+    let daily = site.fid("daily").await;
+    // A dark blue reads on the core scheme's white panels as it is.
+    let saved = save(&site, daily, &[("color_on", "1"), ("color", "#1e3a8a")]).await;
+    assert_eq!(saved.status, StatusCode::SEE_OTHER, "{}", saved.body);
+    let core = site
+        .get(&linked(&site.get("/", None).await.body).unwrap(), None)
+        .await;
+    let rule = |css: &str, prefix: &str| -> String {
+        let start = css
+            .find(&format!(
+                "{prefix}[data-board=\"{daily}\"] {{ --board-color: "
+            ))
+            .unwrap_or_else(|| panic!("{prefix}: {css}"));
+        let color = &css[start..];
+        let color = &color[color.find("--board-color: ").unwrap() + 15..];
+        color[..7].to_owned()
+    };
+    assert_eq!(rule(&core.body, ""), "#1e3a8a");
+
+    // Under a skin whose default palette has dark panels it is lifted to stand out, per palette.
+    grounded_skin(&site, "grounds").await;
+    let home = site.get("/", None).await;
+    assert!(home.body.contains("data-skin=\"grounds\""));
+    let href = linked(&home.body).unwrap();
+    assert_ne!(Some(href.clone()), linked(&core.body));
+    let style = site.get(&href, None).await;
+    assert_eq!(
+        style.header(header::CACHE_CONTROL),
+        "public, max-age=31536000, immutable"
+    );
+    let night = rule(&style.body, ":root[data-palette=\"night\"] ");
+    let day = rule(&style.body, ":root[data-palette=\"day\"] ");
+    assert_eq!(day, "#1e3a8a", "the day palette's white panels keep it");
+    assert_ne!(night, "#1e3a8a", "the night palette's dark panels lift it");
+    assert!(style.body.contains(&format!(
+        ":root[data-palette=\"night\"][data-theme=\"dark\"] [data-board=\"{daily}\"]"
+    )));
+
+    // Previewed seed colors get their own board colors, served only privately.
+    let preview = site
+        .post(
+            "/manage/appearance/colors/preview",
+            &site.admin,
+            &[("primary", "#be123c"), ("secondary", "#64748b")],
+        )
+        .await;
+    assert_eq!(preview.status, StatusCode::SEE_OTHER, "{}", preview.body);
+    let sealed = preview
+        .headers
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .map(|value| value.to_str().unwrap().to_owned())
+        .find(|value| value.starts_with("gonof_skin_preview="))
+        .map(|value| value[..value.find(';').unwrap()].to_owned())
+        .unwrap();
+    let previewed = site
+        .get_with(
+            "/",
+            None,
+            &[(
+                "cookie",
+                &format!("gonof_session={}; {sealed}", site.admin.0),
+            )],
+        )
+        .await;
+    let own = linked(&previewed.body).unwrap();
+    assert_ne!(own, href, "the colored variant has its own board colors");
+    let private = site.get(&own, None).await;
+    assert_eq!(
+        private.header(header::CACHE_CONTROL),
+        "private, max-age=31536000, immutable"
+    );
+    assert!(private.body.contains(&format!("[data-board=\"{daily}\"]")));
     site.services.cleanup().await.unwrap();
 }

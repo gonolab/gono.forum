@@ -254,18 +254,21 @@ or `#rrggbb` in lower case; `glyph`, empty or a glyph name, `organization/glyphs
 do not change the default look: the core stylesheets do not use them; a skin does.
 
 - **Variables.** While at least one board has a color or a glyph, every page links the board stylesheet
-  `/boards.css?v=<hash>` after `forum.css` (`<link … data-board-style>`). It sets, on the `data-board="<fid>"` hook of
-  list rows and board blocks, inside the `core` cascade layer:
+  `/boards.css?k=<skin>&v=<hash>` after `forum.css` (`<link … data-board-style>`), compiled for the page's skin
+  (`k` is the hash of the skin's stylesheet, so a colored variant has its own). It sets, on the `data-board="<fid>"`
+  hook of list rows, board blocks and the board head, inside the `core` cascade layer:
 
   | Variable | Value |
   | --- | --- |
-  | `--board-color` | The board's color, moved in lightness only as far as needed for 3:1 against the core scheme's `--panel` and `--bg`, separately in light and dark mode (dark values under `[data-theme="dark"]` and in `@media (prefers-color-scheme: dark)` for the system theme). |
+  | `--board-color` | The board's color, moved in lightness only as far as needed for 3:1 against the `--panel` and `--bg` of the skin's palette (with the seed colors derived into it, when the page has them), separately in light and dark mode (dark values under `[data-theme="dark"]` and in `@media (prefers-color-scheme: dark)` for the system theme). A skin with several palettes gets the values of each under `:root[data-palette="<name>"]`. |
   | `--board-on-color` | Text for `--board-color` as a fill: white or the light mode's ink, with 4.5:1. |
   | `--board-glyph` | The board's glyph as an SVG image with black strokes, for `mask-image: var(--board-glyph)`. |
 
   A board without a color has no `--board-color`, so a skin writes a fallback: `var(--board-color, var(--accent))`.
-  The grounds are the core scheme's whatever the skin, so a skin with very different grounds sets its own board
-  colors. The stylesheet is served without a session, `public` for a year with the current hash.
+  The stylesheet is served without a session and kept for a year with the current hash: `public` for a skin (or
+  colored variant) a page of the site uses, `private` for one only a preview shows. Any other `k` gets the built-in
+  default skin's board colors with `no-cache`. The process keeps the stylesheets of up to 32 skins and compiles them
+  again when the boards change.
 - **Symbols.** Pages that draw glyphs include `partials/board_glyphs.html` once, which defines
   `#board-glyph-<name>` symbols drawn like every other icon (docs/styles.md, "Icons"); markup uses them as
   `<svg><use href="#board-glyph-<name>"></use></svg>`.

@@ -181,6 +181,21 @@ impl Catalog {
         variant
     }
 
+    /// The usable skin or kept colored variant whose stylesheet hash is `hash` (`Skin::version_hash`).
+    pub fn by_hash(&self, hash: &str) -> Option<Arc<Skin>> {
+        self.usable()
+            .find(|skin| skin.version_hash == hash)
+            .cloned()
+            .or_else(|| {
+                self.variants
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .iter()
+                    .find(|variant| variant.version_hash == hash)
+                    .cloned()
+            })
+    }
+
     /// How many colored variants this catalog has compiled so far.
     pub fn compiled(&self) -> u64 {
         self.compiled.load(Ordering::Relaxed)

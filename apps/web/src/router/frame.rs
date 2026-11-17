@@ -288,7 +288,7 @@ impl SiteFrame {
             });
         let board_style = state
             .global
-            .board_style(&state.db, ttl)
+            .board_style(&state.db, ttl, &skin)
             .await
             .map_err(IdentityError::Internal)?;
         // The page frame is the only place this request fetches site settings, so the time basis is written into the
