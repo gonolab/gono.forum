@@ -272,7 +272,7 @@ callers read the database.
 | Entry | Holds | Invalidated by | Lifetime |
 | --- | --- | --- | --- |
 | `thread-list` | anonymous thread lists | list version (content revision and new-post watermark) | list |
-| `sidebar-topics` | sidebar hot and latest cards | list version and a list-lifetime segment | list |
+| `sidebar-topics` | the hot and latest cards of pages without places (the member area, leaderboards, links, verified members, member search) | list version and a list-lifetime segment | list |
 | `forum-pins` | anonymous pin block on a board's first page | list version | list |
 | `feed-items` | feed entries, by scope, boards and language | list version | list |
 | `floors` | anonymous reply pages | content revision and thread revision | page |

@@ -134,6 +134,11 @@ bounds.
 
 ## Sidebars, the pinned block and feeds
 
+The asides of the home and board pages show hot and latest threads as `threads` blocks of their layout ([data.md](data.md);
+[skins.md](skins.md), "Places and blocks"), read by `content::sources` with the statements below and cached in
+`data-threads`; the member area and the other pages with these two cards keep `content::layered_sidebar_for_viewer`
+(`sidebar-topics`).
+
 - **Hot threads** (`content::hot_topics`): `gonof_thread_global_active` takes the range `lastpost >= now − hot days`,
   filters `displayorder >= 0`, `replies > 0`, the scope and the viewer in the index, then sorts by `replies DESC,
   tid DESC`, a filesort over the threads active in the window (bounded by the display settings).
