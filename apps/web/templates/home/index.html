@@ -20,8 +20,8 @@
 
   <div class="layout{% if p.active_slug.is_empty() %} layout--stack{% endif %}">
     <div class="layout__main listing__main">
-      {#- The page head's blocks (docs/skins.md, "Places and blocks"), the board head of a board page by default. A page whose head has no board-head block keeps its heading for screen readers. #}
-      {%- if !p.places.head.is_empty() %}<div class="page-head">{% for html in p.places.head %}{{ html|safe }}{% endfor %}</div>{% endif %}
+      {#- The page head's blocks (docs/skins.md, "Places and blocks"), the board head of a board page by default; layout/base.html writes them instead under a skin that shows them as a banner. A page whose head has no board-head block keeps its heading for screen readers. #}
+      {%- if !p.places.head.is_empty() && !p.head_banner() %}<div class="page-head">{% for html in p.places.head %}{{ html|safe }}{% endfor %}</div>{% endif %}
       {%- if let Some(html) = search_head %}{{ html|safe }}
       {%- else if p.places.board_head %}
       {%- else if heading.is_empty() %}

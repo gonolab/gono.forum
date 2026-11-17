@@ -48,7 +48,7 @@ In `index.css` order; later files win at equal specificity.
 | `views.css` | Smaller page parts: the text column of policy pages, data tables, conversations, notification titles, attachment quotas, member search |
 | `prose.css` | Rendered post bodies (also on policy pages, previews and the admin content view): `prose`, code blocks, spoilers, in-site thread cards, video placeholders, emoji zoom; the thread title block |
 | `components.css` | The shared components (see "Shared components"), buttons, panels, tags, pagination, avatars, and the spacing between blocks in the main column |
-| `blocks.css` | The views of layout blocks the core default layout does not use, the page head and the footer's block area ([skins.md](skins.md), "Places and blocks") |
+| `blocks.css` | The views of layout blocks the core default layout does not use, the page head (also as a banner) and the footer's block area ([skins.md](skins.md), "Places and blocks") |
 | `frame.css` | The page frame: skip link, header, "More", drawer, notices, footer, page width, the header navigation tiers, and the side navigation of skins that choose it |
 | `thread.css` | Thread page: head, floors, interaction buttons, tips, highlighted replies, replies, reply box, moderator tools |
 | `home.css` | Listing pages (home, board, search): `listing`, `board-strip`, `crumbs`, `board-head`, `pane` |
@@ -116,6 +116,7 @@ differs.
 | `--tag-<kind>-bg`, `--tag-<kind>-text` | Thread tags (see "Tag colors") |
 | `--avatar-bg`, `--avatar-text`, `--avatar-green-*`, `--avatar-amber-*` | Initials tiles for members without an avatar |
 | `--inverse`, `--inverse-text`, `--backdrop`, `--selection` | The skip link, the drawer backdrop, text selection |
+| `--hero-bg`, `--hero-text` | The page head as a banner, under skins that choose it ([skins.md](skins.md), "Page head banner"); by default `--panel-alt` and `--text-strong` |
 | `--shadow-base`, `--shadow-medium` | Panels and cards; menus, the drawer and other raised surfaces |
 
 ## Seed colors

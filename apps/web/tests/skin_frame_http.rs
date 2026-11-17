@@ -188,3 +188,51 @@ async fn a_skin_without_side_navigation_blocks_is_unusable() {
     assert!(home.body.contains(" data-nav=\"top\""));
     site.services.cleanup().await.unwrap();
 }
+
+#[tokio::test]
+async fn a_banner_page_head_opens_the_main_region() {
+    let site = Site::new(true).await;
+    use_skin(
+        &site,
+        "band",
+        "[frame]\npage_head = \"banner\"\n[layout]\n\"page.head.home\" = [{ id = \"hello\", source = \"markdown\", body = { en = \"Hello **there**\" } }]\n",
+    )
+    .await;
+    let banner = "<main class=\"site-main site-main--hero\" id=\"main\" tabindex=\"-1\">\n<div class=\"page-hero\"><div class=\"page-hero__inner container\"><div class=\"page-head page-head--banner\">";
+    let home = site.get("/", None).await;
+    assert!(home.body.contains(banner), "{}", home.body);
+    let hero = &home.body[home.body.find(banner).unwrap()..];
+    assert!(hero.contains("data-block=\"hello\""));
+    assert!(hero.contains("<strong>there</strong>"));
+    // The rest of the page keeps the page width, and the main column no longer opens with the head.
+    assert!(hero.contains("</div></div></div>\n<div class=\"container\">"));
+    let column = &home.body[home.body.find("layout__main").unwrap()..];
+    assert!(!column.contains("class=\"page-head"));
+    // A board page's head, the board head by default, goes into the banner with its heading.
+    let board = site.get("/showcase", None).await;
+    let hero = &board.body[board.body.find(banner).unwrap()..];
+    assert!(hero.find("data-block=\"board-head\"").unwrap() < hero.find("layout__main").unwrap());
+    assert_eq!(board.body.matches("<h1").count(), 1);
+    // A page without head blocks has no banner.
+    let thread = site.get("/thread-103", None).await;
+    assert!(
+        thread
+            .body
+            .contains("<main class=\"container site-main\" id=\"main\" tabindex=\"-1\">")
+    );
+    assert!(!thread.body.contains("page-hero"));
+    // Beside side navigation the banner spans the main column.
+    use_skin(
+        &site,
+        "bandside",
+        &SIDE.replace(
+            "header_boards = false",
+            "header_boards = false\npage_head = \"banner\"",
+        ),
+    )
+    .await;
+    let board = site.get("/showcase", None).await;
+    assert!(board.body.contains("<main class=\"site-main site-frame__main\" id=\"main\" tabindex=\"-1\">\n<div class=\"page-hero\"><div class=\"page-hero__inner\"><div class=\"page-head page-head--banner\">"));
+    assert!(!board.body.contains("<div class=\"container\">"));
+    site.services.cleanup().await.unwrap();
+}

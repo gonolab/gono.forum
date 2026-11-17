@@ -1032,6 +1032,13 @@ impl PageMeta<'_> {
         self.page_data.fid() == Some(*fid)
     }
 
+    /// The page head's blocks go into a band across the page under the header (docs/skins.md, "Page head banner"):
+    /// the skin chooses `frame.page_head = "banner"` and the page has head blocks.
+    fn head_banner(&self) -> bool {
+        self.skin.manifest.frame.page_head == crate::skins::manifest::PageHead::Banner
+            && !self.places.head.is_empty()
+    }
+
     /// `<html data-nav>`: `side` where the page shows the side navigation, else `top`.
     fn nav_attribute(&self) -> &'static str {
         if self.side { "side" } else { "top" }

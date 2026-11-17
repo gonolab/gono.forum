@@ -54,6 +54,22 @@ pub enum Nav {
     Side,
 }
 
+/// Where the page head's blocks go (docs/skins.md, "Page head banner"): the top of the main column, or a band across
+/// the page under the header.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PageHead {
+    #[default]
+    Column,
+    Banner,
+}
+
+impl PageHead {
+    fn is_column(&self) -> bool {
+        *self == Self::Column
+    }
+}
+
 /// Who decides the avatar shape (docs/skins.md, "Frame"): a fixed shape, or the site default and each member's
 /// choice.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,6 +104,9 @@ pub struct Frame {
     pub masthead_height: Option<String>,
     #[serde(default = "Frame::member")]
     pub avatar_shape: AvatarShape,
+    /// Left out of the stored form while it is the default, so manifests written before it keep their bytes.
+    #[serde(default, skip_serializing_if = "PageHead::is_column")]
+    pub page_head: PageHead,
 }
 
 impl Frame {
@@ -117,6 +136,7 @@ impl Default for Frame {
             header_boards: true,
             masthead_height: None,
             avatar_shape: AvatarShape::Member,
+            page_head: PageHead::Column,
         }
     }
 }

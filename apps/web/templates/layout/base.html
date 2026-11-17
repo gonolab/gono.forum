@@ -116,15 +116,28 @@
 </div>
 {%- endif %}
 {#- Under a skin with side navigation (docs/skins.md, "Side navigation") the side.nav blocks and the main region share
-    the page width; frame.css folds the side navigation into the header drawer from 1099px down. #}
+    the page width; frame.css folds the side navigation into the header drawer from 1099px down. Under a skin that
+    shows the page head as a banner ("Page head banner") the head's blocks open the main region: across the page, or
+    across the main column beside side navigation. #}
 {%- if p.side %}
 <div class="site-frame container">
   <div class="side-nav" data-side-nav>{% for html in p.side_nav() %}{{ html|safe }}{% endfor %}</div>
 <main class="site-main site-frame__main" id="main" tabindex="-1">
+{%- else if p.head_banner() %}
+<main class="site-main site-main--hero" id="main" tabindex="-1">
 {%- else %}
 <main class="container site-main" id="main" tabindex="-1">
 {%- endif %}
+{%- if p.head_banner() %}
+<div class="page-hero"><div class="page-hero__inner{% if !p.side %} container{% endif %}"><div class="page-head page-head--banner">{% for html in p.places.head %}{{ html|safe }}{% endfor %}</div></div></div>
+{%- if !p.side %}
+<div class="container">
+{%- endif %}
+{%- endif %}
 {% block content %}{% endblock %}
+{%- if p.head_banner() && !p.side %}
+</div>
+{%- endif %}
 </main>
 {%- if p.side %}
 </div>

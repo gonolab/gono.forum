@@ -10,6 +10,55 @@
   min-inline-size: 0;
 }
 
+/* The page head as a banner (docs/skins.md, "Page head banner"): under a skin with frame.page_head = "banner", a band
+   in the hero colors that opens the main region, across the page (its content aligned with the page width) or, beside
+   side navigation, across the main column. Text inside takes the hero's text color, and the blocks lose their card
+   look so they read as part of the band. */
+.site-main--hero {
+  padding-block-start: 0;
+}
+
+.page-hero {
+  --text-strong: var(--hero-text);
+  --text: var(--hero-text);
+  --text-muted: var(--hero-text);
+  --link: var(--hero-text);
+  --link-hover: var(--hero-text);
+  border-block-end: 1px solid var(--line);
+  background: var(--hero-bg);
+  color: var(--hero-text);
+}
+
+.site-main--hero > .page-hero {
+  margin-block-end: 20px;
+}
+
+.site-frame__main > .page-hero {
+  margin-block-end: var(--gap);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+
+.page-hero__inner {
+  padding-block: 28px;
+}
+
+.site-frame__main > .page-hero > .page-hero__inner {
+  padding-inline: 24px;
+}
+
+.page-head--banner > .panel {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.page-head--banner a:not(.button) {
+  text-decoration: underline;
+}
+
 /* Footer blocks beside the policy links and the "Built on Gono Forum" line, which the core always writes. */
 .colophon__blocks {
   display: grid;
@@ -238,4 +287,18 @@
 .block-nav .block-boards__tree a[aria-current] {
   color: var(--accent);
   font-weight: 500;
+}
+
+@media (max-width: 760px) {
+  .page-hero__inner {
+    padding-block: 18px;
+  }
+
+  .site-main--hero > .page-hero {
+    margin-block-end: 12px;
+  }
+
+  .site-frame__main > .page-hero > .page-hero__inner {
+    padding-inline: 14px;
+  }
 }

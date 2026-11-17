@@ -1,10 +1,10 @@
 # A test fixture for the frame of external skins (docs/skins.md, "Frame"): side navigation instead of the header's
-# boards. Inspired by the NodeBB research prototype "Atrium" (branch claude/nodebb-css-research-0bf3f0); see skin.css.
+# boards and the page head as a banner. Inspired by the NodeBB research prototype "Atrium" (branch claude/nodebb-css-research-0bf3f0); see skin.css.
 contract = 1
 id = "atrium"
 version = "1.0.0"
 name = { en = "Atrium" }
-description = { en = "Side navigation without the header's boards (test fixture)" }
+description = { en = "Side navigation and a banner head (test fixture)" }
 author = "Gono Forum tests"
 license = "MIT OR Apache-2.0"
 
@@ -15,9 +15,15 @@ default = "main"
 nav = "side"
 header_boards = false
 avatar_shape = "circle"
+page_head = "banner"
 
 [layout]
-# The note's Simplified Chinese text is written as escapes: "New here? Read the rules first."
+"page.head.home" = [
+  { id = "welcome", source = "markdown", body = { en = "**Welcome.** Pick a board on the left, or read the latest threads below.", zh-CN = "**\u6b22\u8fce\u3002** \u4ece\u5de6\u8fb9\u9009\u4e00\u4e2a\u7248\u5757\uff0c\u6216\u8005\u770b\u4e0b\u9762\u7684\u6700\u65b0\u4e3b\u9898\u3002" } },
+  { id = "head-stats", source = "site.stats", view = "compact", params = { scope = "site" } },
+]
+# Simplified Chinese texts are written as escapes: "Welcome. Pick a board on the left, or read the latest threads
+# below." and "New here? Read the rules first."
 "side.nav" = [
   { id = "side-boards", source = "nav-boards" },
   { id = "side-note", source = "markdown", title = { key = "block-title-notice" }, body = { en = "New here? Read the **rules** first.", zh-CN = "\u65b0\u6765\u7684\uff1f\u5148\u8bfb\u4e00\u4e0b**\u7248\u89c4**\u3002" } },

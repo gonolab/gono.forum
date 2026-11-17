@@ -37,7 +37,9 @@
     "--code-block-bg": "var(--panel-alt)",
     "--code-block-text": "var(--text)",
     "--quote-border": "var(--line)",
-    "--quote-text": "var(--text-muted)"
+    "--quote-text": "var(--text-muted)",
+    "--hero-bg": "var(--panel-alt)",
+    "--hero-text": "var(--text-strong)"
   },
   "light": {
     "--bg": "#f7f8fb",

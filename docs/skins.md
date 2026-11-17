@@ -43,6 +43,7 @@ nav = "top"                          # "top", or "side" for side navigation (see
 header_boards = true                 # false leaves the header's boards out; only with nav = "side"
 masthead_height = "52px"             # optional: the declared header height (--masthead-h), 40 to 120 px
 avatar_shape = "member"              # circle, rounded or square fixes every avatar; member leaves it to members
+page_head = "column"                 # "column", or "banner" for the page head as a band (see "Page head banner")
 ```
 
 Unknown keys are errors. `[behaviors]` is part of the contract but not supported yet: it must be empty. `[layout]` is
@@ -151,7 +152,7 @@ named colors or `transparent` are evaluated, translucent ones laid over the grou
 - Text 4.5:1: `--text-strong`, `--text`, `--text-muted` and `--text-subtle` on `--bg`, `--panel`, `--panel-alt`,
   `--panel-hover`, `--input-bg` and `--secondary-bg`; `--primary-text` on `--primary-bg` and `--primary-hover`;
   `--secondary-text` on `--secondary-bg`; `--input-text` and `--input-placeholder` on `--input-bg`; `--link` on `--bg`
-  and `--panel`.
+  and `--panel`; `--hero-text` on `--hero-bg`.
 - Controls 3:1: `--input-border` on `--input-bg`, `--panel` and `--bg`; `--focus-ring` on `--bg` and `--panel`.
 
 ### Built on Gono Forum
@@ -279,7 +280,7 @@ layout, which shows what the templates showed before layouts (`layout.rs`, `core
 | `home.aside` | the home page, its later pages and search | the aside | 8 | every data source but `thread.outline`, every core block but `board-head` | `member-card`, hot threads, latest threads, `recent-local`, `site-overview`, `friend-links` |
 | `board.aside` | board pages | the aside | 8 | as `home.aside`; `current` means the board | `member-card`, the board's hot and latest threads |
 | `thread.aside` | thread pages | the aside | 6 | as `home.aside`, and `thread.outline` | `member-card` |
-| `page.head.home`, `page.head.board`, `page.head.thread` | those pages | the top of the main column (after the breadcrumb on thread pages), in `div.page-head` | 2 | `markdown`, `site.stats` in its `compact` view, and on board pages `board-head` | `board-head` on board pages, empty elsewhere |
+| `page.head.home`, `page.head.board`, `page.head.thread` | those pages | the top of the main column (after the breadcrumb on thread pages), in `div.page-head`; a band opening the main region under a skin with `frame.page_head = "banner"` ("Page head banner") | 2 | `markdown`, `site.stats` in its `compact` view, and on board pages `board-head` | `board-head` on board pages, empty elsewhere |
 | `footer` | the pages with places | inside the footer, before the policy links, in `div.colophon__blocks` | 4 | `markdown`, `site.links`, `site.stats` | empty |
 | `side.nav` | every page but the admin area, under a skin with side navigation | the side navigation ("Side navigation") | 4 | `nav-boards`, `nav-links`, `markdown` | empty |
 
@@ -385,6 +386,25 @@ the column appears on every page built on `layout/base.html` except the admin ar
   place, or only blocks with `show: "members"` for an anonymous visitor) shows the top navigation with the header's
   boards, as does the admin area. `data-nav` says which the page shows.
 - **Width.** `--side-nav-w` (200px) is the column's width; a built-in skin keeps it.
+
+### Page head banner
+
+With `frame.page_head = "banner"` the blocks of a page's `page.head.*` place leave the main column and open the main
+region as a band in the hero colors, `--hero-bg` and `--hero-text` (by default the core scheme's `--panel-alt` and
+`--text-strong`; checked like text, 4.5:1). Under the top navigation the band spans the whole page width and its
+content keeps the page width; beside side navigation it spans the main column:
+
+```html
+<main class="site-main site-main--hero" id="main" tabindex="-1">
+<div class="page-hero"><div class="page-hero__inner container"><div class="page-head page-head--banner">…</div></div></div>
+<div class="container">…the page…</div>
+</main>
+```
+
+Inside the band the text roles (`--text-strong`, `--text`, `--text-muted`, `--link`) take the hero's text color and
+the blocks lose their card look. A page without head blocks (by default every page but board pages) has no band, and
+its markup is the same as under `column`. The band stays inside `<main>`, so the skip link and the page's heading
+work as before.
 
 When the skin fixes the avatar shape, a member's reading settings say so; their own choice is kept and applies again
 under a skin that leaves the shape to them.

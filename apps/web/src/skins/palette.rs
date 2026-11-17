@@ -437,6 +437,7 @@ pub(crate) fn pairs() -> Vec<(&'static str, &'static str, f64)> {
         ("--input-placeholder", "--input-bg", 4.5),
         ("--link", "--bg", 4.5),
         ("--link", "--panel", 4.5),
+        ("--hero-text", "--hero-bg", 4.5),
         ("--input-border", "--input-bg", 3.0),
         ("--input-border", "--panel", 3.0),
         ("--input-border", "--bg", 3.0),
