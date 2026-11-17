@@ -1264,15 +1264,15 @@ async fn settings_page_web_and_api_report_the_rules() {
         )
         .await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
-    assert_eq!(body["error"]["code"], "quota");
+    assert_eq!(body["code"], "quota");
     let path = format!("/api/v1/threads/{tid}/replies");
     let (status, body) = h.api(&path, &veteran_key, r#"{"body":"API reply"}"#).await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
     let (status, body) = h.api(&path, &veteran_key, r#"{"body":"API reply"}"#).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
-    assert_eq!(body["error"]["code"], "validation");
+    assert_eq!(body["code"], "validation");
     assert_eq!(
-        body["error"]["message"],
+        body["error"],
         "You recently posted the same text. Please do not post it again"
     );
     let newbie_key = secret(newbie).await;
@@ -1284,9 +1284,9 @@ async fn settings_page_web_and_api_report_the_rules() {
         )
         .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
-    assert_eq!(body["error"]["code"], "forbidden");
+    assert_eq!(body["code"], "forbidden");
     assert_eq!(
-        body["error"]["message"],
+        body["error"],
         "You can post links to other sites 7 days after signing up"
     );
     h.f.cleanup().await.unwrap();
@@ -1369,11 +1369,8 @@ async fn news_links_and_bios_over_the_web_and_api() {
         )
         .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
-    assert_eq!(body["error"]["code"], "forbidden");
-    assert_eq!(
-        body["error"]["message"],
-        Lang::EN.editor_error_links_days(3)
-    );
+    assert_eq!(body["code"], "forbidden");
+    assert_eq!(body["error"], Lang::EN.editor_error_links_days(3));
     assert_eq!(
         scalar(&h.f.db, "SELECT COUNT(*) FROM gonof_forum_news").await,
         0

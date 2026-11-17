@@ -88,7 +88,8 @@ pub(super) fn routes() -> Router<Arc<AppState>> {
     router
 }
 
-/// Uniform JSON error: `{"error":{"code","message"}}`.
+/// Uniform JSON error, the same as `/data/v1`'s (docs/api.md, "Responses"): `{"code","error"}`, the stable code and
+/// the text for people.
 pub(super) struct ApiError {
     status: StatusCode,
     code: &'static str,
@@ -147,7 +148,7 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let mut response = json_response(
             self.status,
-            json!({"error": {"code": self.code, "message": self.message}}),
+            json!({"code": self.code, "error": self.message}),
         );
         if self.status == StatusCode::UNAUTHORIZED {
             response.headers_mut().insert(

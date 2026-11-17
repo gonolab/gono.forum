@@ -99,10 +99,10 @@ Every response is JSON with `Content-Type: application/json; charset=utf-8` and 
 successful response is the object described for each endpoint. An error looks like this:
 
 ```json
-{"error": {"code": "invalid_token", "message": "The token is invalid, turned off or expired"}}
+{"code": "invalid_token", "error": "The token is invalid, turned off or expired"}
 ```
 
-`code` is stable and is what programs should check. `message` is for people: it is written in the site's language (or
+`code` is stable and is what programs should check. `error` is for people: it is written in the site's language (or
 the domain's) and may change. `401` responses carry `WWW-Authenticate: Bearer realm="gonof"`; `429` and `503`
 responses carry `Retry-After` in seconds.
 
@@ -403,7 +403,7 @@ card: `{"tid": 1204, "choices": [1, 3]}`. Each member votes once and cannot chan
 `{"tid": 1205, "entered": true}`, or `"entered": false` if you had already entered. The author cannot enter their own
 lottery.
 
-When an activity refuses one of these actions, the answer is `422 activity_rejected` with the reason in `message`.
+When an activity refuses one of these actions, the answer is `422 activity_rejected` with the reason in `error`.
 Reviewing entrants, drawing early and managing redemption codes are done on the website.
 
 ## For administrators

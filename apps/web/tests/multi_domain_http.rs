@@ -262,7 +262,7 @@ async fn domain_load_failure_stops_scoped_routes_and_recovers_after_repair() {
     let api = f.get(DEMO2, "/api/v1/forums", false).await;
     assert_eq!(api.status, StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&api.body).unwrap()["error"]["code"],
+        serde_json::from_str::<serde_json::Value>(&api.body).unwrap()["code"],
         "internal"
     );
     assert_eq!(f.get(DEMO2, "/healthz", false).await.status, StatusCode::OK);

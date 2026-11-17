@@ -990,7 +990,7 @@ async fn member_api_accepts_visibility_and_rejects_unknown_values() {
             )
             .await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{bad}: {error}");
-        assert_eq!(error["error"]["code"], "validation");
+        assert_eq!(error["code"], "validation");
     }
     assert_eq!(
         f.scalar("SELECT COUNT(*) FROM gonof_forum_thread WHERE subject='VISAPI4480 invalid'")

@@ -361,7 +361,13 @@ async fn bearer_tokens_are_the_only_credential_and_failures_are_throttled() {
     );
     assert_eq!(header(&headers, header::CACHE_CONTROL), "no-store");
     assert!(header(&headers, header::CONTENT_TYPE).starts_with("application/json"));
-    assert_eq!(body["error"]["code"], "invalid_token");
+    assert_eq!(body["code"], "invalid_token");
+    // The error is two fields: the stable code and the text for people (docs/api.md, "Responses").
+    assert_eq!(body.as_object().unwrap().len(), 2, "{body}");
+    assert!(
+        body["error"].as_str().is_some_and(|text| !text.is_empty()),
+        "{body}"
+    );
     assert!(headers.get(header::SET_COOKIE).is_none());
 
     let cookie = format!("gonof_session={}", grant.session_token);
@@ -379,13 +385,13 @@ async fn bearer_tokens_are_the_only_credential_and_failures_are_throttled() {
         StatusCode::UNAUTHORIZED,
         "a cookie session cannot call the JSON API"
     );
-    assert_eq!(body["error"]["code"], "invalid_token");
+    assert_eq!(body["code"], "invalid_token");
 
     let (status, _, body) = f
         .api("GET", "/api/v1/me", Some("not-a-token"), None, &[])
         .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
-    assert_eq!(body["error"]["code"], "invalid_token");
+    assert_eq!(body["code"], "invalid_token");
 
     let (status, headers, body) = f.api("GET", "/api/v1/me", Some(&secret), None, &[]).await;
     assert_eq!(status, StatusCode::OK);
@@ -411,7 +417,7 @@ async fn bearer_tokens_are_the_only_credential_and_failures_are_throttled() {
         StatusCode::UNAUTHORIZED,
         "the token stops working as soon as the API is turned off"
     );
-    assert_eq!(body["error"]["code"], "invalid_token");
+    assert_eq!(body["code"], "invalid_token");
 
     // A disabled token counts against the per-IP failure quota just like a random token; once over the limit, every
     // request from the same IP gets 429.
@@ -435,7 +441,7 @@ async fn bearer_tokens_are_the_only_credential_and_failures_are_throttled() {
     let (_, fresh) = f.key(MEMBER).await;
     let (status, headers, body) = f.api("GET", "/api/v1/me", Some(&fresh), None, &[]).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(body["error"]["code"], "rate_limited");
+    assert_eq!(body["code"], "rate_limited");
     assert_eq!(header(&headers, header::RETRY_AFTER), "300");
     f.services.cleanup_ref().await.unwrap();
 }
@@ -507,7 +513,7 @@ async fn threads_and_replies_publish_through_the_shared_transaction() {
         )
         .await;
     assert_eq!(status, StatusCode::CONFLICT);
-    assert_eq!(conflict["error"]["code"], "conflict");
+    assert_eq!(conflict["code"], "conflict");
     assert_eq!(
         f.scalar(&format!(
             "SELECT COUNT(*) FROM gonof_forum_thread WHERE authorid={MEMBER}"
@@ -580,7 +586,7 @@ async fn threads_and_replies_publish_through_the_shared_transaction() {
         )
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(body["error"]["code"], "validation");
+    assert_eq!(body["code"], "validation");
 
     let missing = [
         (
@@ -602,7 +608,7 @@ async fn threads_and_replies_publish_through_the_shared_transaction() {
     for (method, path, body) in missing {
         let (status, _, value) = f.api(method, &path, Some(&secret), Some(body), &[]).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "{path}: {value}");
-        assert_eq!(value["error"]["code"], "not_found");
+        assert_eq!(value["code"], "not_found");
     }
 
     let (status, _, body) = f
@@ -615,7 +621,7 @@ async fn threads_and_replies_publish_through_the_shared_transaction() {
         )
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(body["error"]["code"], "bad_request");
+    assert_eq!(body["code"], "bad_request");
     let (status, _, body) = f
         .api(
             "POST",
@@ -626,7 +632,7 @@ async fn threads_and_replies_publish_through_the_shared_transaction() {
         )
         .await;
     assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
-    assert_eq!(body["error"]["code"], "unsupported_media_type");
+    assert_eq!(body["code"], "unsupported_media_type");
     let (status, _, body) = f
         .api(
             "POST",
@@ -637,7 +643,7 @@ async fn threads_and_replies_publish_through_the_shared_transaction() {
         )
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(body["error"]["code"], "validation");
+    assert_eq!(body["code"], "validation");
     let (status, _, body) = f
         .api(
             "POST",
@@ -648,7 +654,7 @@ async fn threads_and_replies_publish_through_the_shared_transaction() {
         )
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(body["error"]["code"], "bad_request");
+    assert_eq!(body["code"], "bad_request");
 
     let by_id = format!(
         r#"{{"forum":{},"title":"By forum number","body":"Body"}}"#,
@@ -749,7 +755,7 @@ async fn authors_edit_their_threads_and_replies_with_version_checks() {
         )
         .await;
     assert_eq!(status, StatusCode::CONFLICT);
-    assert_eq!(conflict["error"]["code"], "conflict");
+    assert_eq!(conflict["code"], "conflict");
 
     let (status, _, edited) = f
         .api(
@@ -890,7 +896,7 @@ async fn authors_edit_their_threads_and_replies_with_version_checks() {
         StatusCode::NOT_FOUND,
         "someone else's content can neither be edited nor revealed: {body}"
     );
-    assert_eq!(body["error"]["code"], "not_found");
+    assert_eq!(body["code"], "not_found");
     let (status, ..) = f
         .api(
             "PATCH",
@@ -920,7 +926,7 @@ async fn authors_edit_their_threads_and_replies_with_version_checks() {
         StatusCode::FORBIDDEN,
         "past the edit window: {body}"
     );
-    assert_eq!(body["error"]["code"], "forbidden");
+    assert_eq!(body["code"], "forbidden");
     assert_eq!(post_message(&f.db, reply_pid).await, "New reply");
     f.services.cleanup_ref().await.unwrap();
 }
@@ -988,10 +994,7 @@ async fn ended_activities_still_replay_their_publication() {
         )
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
-    assert_eq!(
-        refused["error"]["message"],
-        Lang::EN.activity_error_deadline()
-    );
+    assert_eq!(refused["error"], Lang::EN.activity_error_deadline());
     f.services.cleanup_ref().await.unwrap();
 }
 
@@ -1099,7 +1102,7 @@ async fn activities_publish_and_participate_through_the_api() {
         .api("POST", &accept_path, Some(&other), Some(&accept_body), &[])
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{denied}");
-    assert_eq!(denied["error"]["code"], "activity_rejected");
+    assert_eq!(denied["code"], "activity_rejected");
     let key = [("idempotency-key", "accept-1")];
     let (status, _, accepted) = f
         .api(
@@ -1252,11 +1255,8 @@ async fn activities_publish_and_participate_through_the_api() {
         )
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{reused}");
-    assert_eq!(reused["error"]["code"], "activity_rejected");
-    assert_eq!(
-        reused["error"]["message"],
-        Lang::EN.activity_error_request_reused()
-    );
+    assert_eq!(reused["code"], "activity_rejected");
+    assert_eq!(reused["error"], Lang::EN.activity_error_request_reused());
     let (_, _, card) = f
         .api(
             "GET",
@@ -1279,7 +1279,7 @@ async fn activities_publish_and_participate_through_the_api() {
             .api("POST", &vote_path, Some(&secret), Some(body), &[])
             .await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}: {value}");
-        assert_eq!(value["error"]["code"], "activity_rejected");
+        assert_eq!(value["code"], "activity_rejected");
     }
 
     // Red packet: a reply automatically claims one share.
@@ -1374,8 +1374,8 @@ async fn activities_publish_and_participate_through_the_api() {
             .api("POST", "/api/v1/threads", Some(&secret), Some(&body), &[])
             .await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}: {value}");
-        assert_eq!(value["error"]["code"], "validation");
-        assert!(value["error"]["message"].as_str().unwrap().contains(fragment), "{value}");
+        assert_eq!(value["code"], "validation");
+        assert!(value["error"].as_str().unwrap().contains(fragment), "{value}");
     }
     assert_eq!(
         f.scalar(&frozen(MEMBER)).await,
@@ -1513,7 +1513,7 @@ async fn favorites_and_likes_set_explicit_states() {
         )
         .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
-    assert_eq!(body["error"]["code"], "not_found");
+    assert_eq!(body["code"], "not_found");
 
     let path = format!("/api/v1/posts/{}/like", f.first_pid);
     let (status, _, body) = f.api("PUT", &path, Some(&secret), None, &[]).await;
@@ -1554,7 +1554,7 @@ async fn favorites_and_likes_set_explicit_states() {
         StatusCode::FORBIDDEN,
         "members cannot like their own posts"
     );
-    assert_eq!(body["error"]["code"], "forbidden");
+    assert_eq!(body["code"], "forbidden");
 
     let key = [("idempotency-key", "favorite-1")];
     let (status, ..) = f
@@ -1581,7 +1581,7 @@ async fn favorites_and_likes_set_explicit_states() {
         StatusCode::CONFLICT,
         "one idempotency key cannot be used for the opposite action"
     );
-    assert_eq!(body["error"]["code"], "conflict");
+    assert_eq!(body["code"], "conflict");
     f.services.cleanup_ref().await.unwrap();
 }
 
@@ -1608,7 +1608,7 @@ async fn account_state_site_switch_read_only_and_body_limit_are_enforced() {
         StatusCode::FORBIDDEN,
         "a member without a verified email cannot post: {body}"
     );
-    assert_eq!(body["error"]["code"], "forbidden");
+    assert_eq!(body["code"], "forbidden");
     f.execute(&format!(
         "UPDATE gonof_common_member SET emailstatus=1 WHERE uid={MEMBER}"
     ))
@@ -1620,7 +1620,7 @@ async fn account_state_site_switch_read_only_and_body_limit_are_enforced() {
     .await;
     let (status, _, body) = f.api("GET", "/api/v1/me", Some(&secret), None, &[]).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
-    assert_eq!(body["error"]["code"], "account_restricted");
+    assert_eq!(body["code"], "account_restricted");
     f.execute(&format!(
         "UPDATE gonof_common_member SET freeze=0 WHERE uid={MEMBER}"
     ))
@@ -1631,7 +1631,7 @@ async fn account_state_site_switch_read_only_and_body_limit_are_enforced() {
         .api("POST", "/api/v1/threads", Some(&secret), Some(input), &[])
         .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
-    assert_eq!(body["error"]["code"], "read_only");
+    assert_eq!(body["code"], "read_only");
     let (status, ..) = f.api("GET", "/api/v1/me", Some(&secret), None, &[]).await;
     assert_eq!(
         status,
@@ -1645,7 +1645,7 @@ async fn account_state_site_switch_read_only_and_body_limit_are_enforced() {
     .await;
     let (status, _, body) = f.api("GET", "/api/v1/me", Some(&secret), None, &[]).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
-    assert_eq!(body["error"]["code"], "api_disabled");
+    assert_eq!(body["code"], "api_disabled");
     f.settings(|settings| settings.api.enabled = true).await;
 
     let huge = format!(
@@ -1656,7 +1656,7 @@ async fn account_state_site_switch_read_only_and_body_limit_are_enforced() {
         .api("POST", "/api/v1/threads", Some(&secret), Some(&huge), &[])
         .await;
     assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
-    assert_eq!(body["error"]["code"], "payload_too_large");
+    assert_eq!(body["code"], "payload_too_large");
 
     let (status, _, body) = f
         .api("POST", "/api/v1/threads", Some(&secret), Some(input), &[])
@@ -1699,7 +1699,7 @@ async fn per_key_limits_cover_all_requests_and_write_requests_separately() {
         )
         .await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(body["error"]["code"], "rate_limited");
+    assert_eq!(body["code"], "rate_limited");
     assert_eq!(header(&headers, header::RETRY_AFTER), "60");
     for _ in 0..2 {
         let (status, ..) = f.api("GET", "/api/v1/me", Some(&secret), None, &[]).await;
@@ -1707,7 +1707,7 @@ async fn per_key_limits_cover_all_requests_and_write_requests_separately() {
     }
     let (status, _, body) = f.api("GET", "/api/v1/me", Some(&secret), None, &[]).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(body["error"]["code"], "rate_limited");
+    assert_eq!(body["code"], "rate_limited");
     f.services.cleanup_ref().await.unwrap();
 }
 
@@ -1978,20 +1978,20 @@ async fn json_api_paths_never_reach_html_handlers() {
             header(&headers, header::CONTENT_TYPE).starts_with("application/json"),
             "{method} {path}: {body}"
         );
-        assert_eq!(body["error"]["code"], "not_found", "{method} {path}");
+        assert_eq!(body["code"], "not_found", "{method} {path}");
     }
     let (status, _, body) = f
         .api("GET", "/api/v1/threads", Some(&secret), None, &[])
         .await;
     assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
-    assert_eq!(body["error"]["code"], "method_not_allowed");
+    assert_eq!(body["code"], "method_not_allowed");
     let (status, _, body) = f.api("GET", "/api/v1/unknown", None, None, &[]).await;
     assert_eq!(
         status,
         StatusCode::NOT_FOUND,
         "an unknown path without authentication also returns JSON"
     );
-    assert_eq!(body["error"]["code"], "not_found");
+    assert_eq!(body["code"], "not_found");
 
     // Existing HTMX endpoints are unaffected: an anonymous submission of the full form still gets an HTML error page,
     // not JSON.
@@ -2071,7 +2071,7 @@ async fn bearer_scheme_is_case_insensitive() {
             )
             .await;
         assert_eq!(status, StatusCode::UNAUTHORIZED, "{case}");
-        assert_eq!(body["error"]["code"], "invalid_token", "{case}");
+        assert_eq!(body["code"], "invalid_token", "{case}");
     }
     f.services.cleanup_ref().await.unwrap();
 }
@@ -2339,7 +2339,7 @@ async fn lottery_prizes_and_one_click_entry_through_the_api() {
     let enter = format!("/api/v1/threads/{tid}/enter");
     let (status, _, rejected) = f.api("POST", &enter, Some(&other), Some("{}"), &[]).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{rejected}");
-    assert_eq!(rejected["error"]["code"], "activity_rejected", "{rejected}");
+    assert_eq!(rejected["code"], "activity_rejected", "{rejected}");
     let (status, _, entered) = f
         .api(
             "POST",
