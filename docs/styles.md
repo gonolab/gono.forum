@@ -49,6 +49,7 @@ In `index.css` order; later files win at equal specificity.
 | `prose.css` | Rendered post bodies (also on policy pages, previews and the admin content view): `prose`, code blocks, spoilers, in-site thread cards, video placeholders, emoji zoom; the thread title block |
 | `components.css` | The shared components (see "Shared components"), buttons, panels, tags, pagination, avatars, and the spacing between blocks in the main column |
 | `blocks.css` | The views of layout blocks the core default layout does not use, the page head (also as a banner) and the footer's block area ([skins.md](skins.md), "Places and blocks") |
+| `behaviors.css` | What the behavior modules a skin turns on add to pages ([skins.md](skins.md), "Behavior modules"); none of it matches the server's markup |
 | `frame.css` | The page frame: skip link, header, "More", drawer, notices, footer, page width, the header navigation tiers, and the side navigation of skins that choose it |
 | `thread.css` | Thread page: head, floors, interaction buttons, tips, highlighted replies, replies, reply box, moderator tools |
 | `home.css` | Listing pages (home, board, search): `listing`, `board-strip`, `crumbs`, `board-head`, `pane` |

@@ -45,9 +45,12 @@ masthead_height = "52px"             # optional: the declared header height (--m
 avatar_shape = "member"              # circle, rounded or square fixes every avatar; member leaves it to members
 page_head = "column"                 # "column", or "banner" for the page head as a band (see "Page head banner")
 home = "threads"                     # "threads", or "boards" to open the home page with the board directory
+
+[behaviors]
+enabled = ["timeline", "progress"]   # built-in behavior modules to load (see "Behavior modules")
 ```
 
-Unknown keys are errors. `[behaviors]` is part of the contract but not supported yet: it must be empty. `[layout]` is
+Unknown keys are errors, and so are behavior modules this core does not have or names listed twice. `[layout]` is
 the skin's default layout: places with their blocks, written like a layout document's `places` ("Places and blocks")
 and checked as strictly as a saved document, for example:
 
@@ -57,7 +60,9 @@ and checked as strictly as a saved document, for example:
   { id = "me", source = "member-card" },
   { id = "pinned", source = "threads", view = "mini-list", params = { sort = "pinned" }, title = { key = "block-title-pinned" } },
 ]
-``` A skin brings no interface text: names and descriptions are written per language, everything else on the page
+```
+
+A skin brings no interface text: names and descriptions are written per language, everything else on the page
 is the core's. Built-in skins are the exception: their `skin.toml` writes `name` and `description` only in English,
 and the names and descriptions shown in every language are the messages `skin-builtin-<id>-name` and
 `skin-builtin-<id>-description` in `locales/<language>/skin.ftl` (listed in `skins::builtin_text`; a unit test keeps
@@ -341,7 +346,7 @@ Each view is an Askama template, `templates/blocks/<source>/<view>.html`; the me
 | `members.rank` | `avatars`, `list`, `table` |
 | `site.stats` | `figures`, `compact` |
 | `site.links` | `links` |
-| `thread.outline` | `timeline` (the dates), `progress` (the pages): links until a behavior module draws them |
+| `thread.outline` | `timeline` (the pages, each with the date it begins; the `timeline` module draws a scrubber over them), `progress` (the pages with their floors; the `progress` module adds the floor being read) |
 
 Every block's outer element carries `block block--<source> block--<view>` among its classes (the dot of a source name
 written as a hyphen, `block--site-stats`) and `data-block="<id>"`. Rows and tiles of threads and boards carry
@@ -361,6 +366,7 @@ The skin's manifest and the request's choice are written on `<html>`:
 | `data-nav` | `side` when the page shows the side navigation ("Side navigation"), else `top`. |
 | `data-header-boards` | `true` when the header shows its board navigation: always beside the top navigation, and beside the side navigation unless the skin sets `frame.header_boards = false`. |
 | `data-avatar-shape` | `circle` or `square` when the skin fixes that shape; when it leaves the shape to members, `circle` for a member who chose round avatars. Absent for the default rounded corners. |
+| `data-behaviors` | The behavior modules the page loads, space-separated ("Behavior modules"); absent when it loads none. |
 
 ### Side navigation
 
@@ -446,6 +452,29 @@ under a skin that leaves the shape to them.
 A boosted navigation (`hx-boost`) replaces the body and merges the head but keeps `<html>`; `site.js` copies these
 attributes from the new page in the same step as the new skin stylesheet arrives, so moving between pages with
 different skins (`/manage/skins` always uses the default) never pairs one skin's stylesheet with another's palette.
+
+## Behavior modules
+
+Behavior modules are scripts compiled into the binary (`static/js/behaviors/<name>.js`) that a skin turns on in its
+manifest, `[behaviors] enabled`; skins bring no scripts of their own, and the administrator chooses modules only by
+choosing the skin. Each one only enhances the page: without JavaScript, or under a skin that does not enable it, the
+page is complete and works as before.
+
+- **Loading.** A page loads the skin's modules as deferred scripts after `site.js`, with `data-behavior="<name>"`, and
+  lists them in `<html data-behaviors>`. The admin area, sign-in, sign-up, two-step verification, password and email
+  pages, account security, and the other pages a personal style stays off load none (`custom_style::applies`).
+- **Data.** Modules read the page data block ("Page data") and, where they need more, `/data/v1`; they start at
+  `gonof:ready` and again after a boosted navigation (`gonof:swap` with the body as its target), and read the header
+  height from `--sticky-top` (`window.gonofStickyTop()`).
+- **Access.** Every control a module adds is reachable by keyboard and named for screen readers, and scrolling and
+  movement follow `prefers-reduced-motion` (`site.css` switches transitions and animations off).
+- **Markup.** What a module adds is listed below; `behaviors.css` styles it, and none of it is in the server's HTML.
+  A block a module has enhanced carries `data-enhanced="<name>"`.
+
+| Module | What it does |
+| --- | --- |
+| `timeline` | Turns each `thread.outline` block in its `timeline` view into a scrubber: a vertical slider (`div.timeline`, the handle `.timeline__handle` with `role="slider"`) over every floor of the thread, between links to the first and last floor with their dates. It follows the floor being read, and dragging it or moving it with the keyboard (arrows by one floor, Page Up and Page Down by a page, Home and End) previews a floor with its date; letting go or Enter goes there, on this page by scrolling, else on its page of the flat view; Escape goes back. The block's page list stays in the markup, hidden on screen. The block sticks under the header beside the floors. Data: the block's outline record and the page's floors. |
+| `progress` | On thread pages, a thin bar under the header (`div.reading-progress`, hidden from screen readers) that fills as the reader moves through the thread; in each `thread.outline` block in its `progress` view, the floor being read out of all of them (`p.outline-progress` with a `<progress>` element) and the page that holds it marked `aria-current="page"` in the list. Data: the page's floors, and an outline record of the page for the thread's last floor (else the reply count). |
 
 ## The admin page
 

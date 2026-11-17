@@ -1,9 +1,9 @@
-{#- thread.outline as a timeline (docs/skins.md, "Views"): without a behavior module, the dates as links to their floors. #}
+{#- thread.outline as a timeline (docs/skins.md, "Views"): without the timeline behavior module, the pages as links with the date each one starts; the module draws a scrubber over them from the page data. #}
 <section class="panel panel--aside block-outline{% if block.keep %} panel--keep{% endif %}{{ block.hooks() }}"{{ block.attribute()|safe }} data-outline-tid="{{ data.tid }}">
   <h2 class="panel__title">{{ block.title }}</h2>
-  <ol class="block-outline__marks">
-    {%- for mark in data.dates %}
-    <li><a href="{{ crate::site::prefixed(mark.href) }}"><time datetime="{{ mark.at.at }}" title="{{ mark.at.title }}">{{ mark.at.text }}</time></a></li>
+  <ol class="block-outline__pages">
+    {%- for mark in data.pages %}
+    <li><a href="{{ crate::site::prefixed(mark.href) }}">{{ mark.label }}</a> · <time class="block-outline__date" datetime="{{ mark.at.at }}" title="{{ mark.at.title }}">{{ mark.at.text }}</time></li>
     {%- endfor %}
   </ol>
 </section>

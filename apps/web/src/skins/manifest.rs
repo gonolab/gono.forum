@@ -175,6 +175,10 @@ impl Default for Frame {
     }
 }
 
+/// The built-in behavior modules a skin may turn on (docs/skins.md, "Behavior modules"): scripts compiled into the
+/// binary, `static/js/behaviors/<name>.js`.
+pub const BEHAVIORS: &[&str] = &["timeline", "progress"];
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Behaviors {
@@ -383,8 +387,17 @@ impl Manifest {
                 });
             }
         }
-        if !self.behaviors.enabled.is_empty() {
+        // Only the modules this core has; a name from a newer core is not supported here.
+        let enabled = &self.behaviors.enabled;
+        if enabled
+            .iter()
+            .any(|name| !BEHAVIORS.contains(&name.as_str()))
+        {
             error(Problem::ManifestUnsupported {
+                field: "behaviors.enabled".into(),
+            });
+        } else if (1..enabled.len()).any(|i| enabled[..i].contains(&enabled[i])) {
+            error(Problem::ManifestValue {
                 field: "behaviors.enabled".into(),
             });
         }
@@ -558,9 +571,22 @@ avatar_shape = "circle"
             problems(&format!("{base}[frame]\nhome = \"gallery\"\n"))[..],
             [Problem::ManifestSyntax { .. }]
         ));
+        // Behavior modules: only built-in ones, each once.
+        assert_eq!(
+            problems(&format!(
+                "{base}[behaviors]\nenabled = [\"timeline\", \"progress\"]\n"
+            )),
+            []
+        );
         assert!(matches!(
-            problems(&format!("{base}[behaviors]\nenabled = [\"timeline\"]\n"))[..],
+            problems(&format!("{base}[behaviors]\nenabled = [\"confetti\"]\n"))[..],
             [Problem::ManifestUnsupported { .. }]
+        ));
+        assert!(matches!(
+            problems(&format!(
+                "{base}[behaviors]\nenabled = [\"timeline\", \"timeline\"]\n"
+            ))[..],
+            [Problem::ManifestValue { .. }]
         ));
         assert!(matches!(
             &problems(&format!("{base}[layout]\nhome = 1\n"))[..],

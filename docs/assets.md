@@ -68,7 +68,7 @@ All interface icons are inline SVG drawn for this project. They are part of the 
 | `apps/web/static/js/vendor/htmx.min.js` | htmx 2.0.10, `dist/htmx.min.js` from the npm package `htmx.org` | 0BSD, text in [licenses/htmx-0BSD.txt](licenses/htmx-0BSD.txt) | `4b2fd977b3ae23ae06329f0168486647c60413405200c0a10fb5e6f8d3700998` |
 | `apps/web/static/js/vendor/head-support.js` | The htmx head-support extension, `head-support.js` from the npm package `htmx-ext-head-support` 2.0.4 | 0BSD, as declared in the package's `package.json`, copied to [licenses/htmx-ext-head-support-package.json](licenses/htmx-ext-head-support-package.json) | `207f449ba70ad0d384b1734288ddae8493d26737bd74d8510829c0be5b737568` |
 | `apps/web/static/js/composer.js` (build output, git-ignored) | The editor: `apps/web/frontend/composer*.js`, `lottery-prizes.js` and `red-packet.js` bundled by `npm run build:editor` with `@lezer/common` 1.5.2, `@lezer/highlight` 1.2.3 and `@lezer/markdown` 1.7.2, as locked in `package-lock.json` | Project code: MIT OR Apache-2.0; the `@lezer` packages: MIT, texts in [licenses/composer-bundle-LICENSES.txt](licenses/composer-bundle-LICENSES.txt) | changes with each build |
-| `apps/web/static/js/site.js`, `navigation.js`, `debug.js` | The site's own scripts | MIT OR Apache-2.0 | |
+| `apps/web/static/js/site.js`, `navigation.js`, `debug.js`, `behaviors/*.js` | The site's own scripts (`behaviors/`: the behavior modules skins turn on) | MIT OR Apache-2.0 | |
 
 `/static/i18n/<language>.js` is generated from the translation files, not read from disk, and is project code too.
 The build and test tools in `package.json` (esbuild, Playwright) are not shipped.

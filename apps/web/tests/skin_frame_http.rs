@@ -266,3 +266,58 @@ async fn a_skin_may_open_the_home_page_with_the_board_directory() {
     );
     site.services.cleanup().await.unwrap();
 }
+
+#[tokio::test]
+async fn behavior_modules_load_only_where_the_skin_and_the_page_allow() {
+    let site = Site::new(true).await;
+    // The default skin loads none.
+    let thread = site.get("/thread-103", None).await;
+    assert!(!thread.body.contains("data-behaviors"));
+    assert!(!thread.body.contains("/static/js/behaviors/"));
+    use_skin(
+        &site,
+        "lively",
+        "[layout]\n\"thread.aside\" = [{ id = \"outline\", source = \"thread.outline\", view = \"timeline\", params = { tid = \"current\" }, title = { key = \"block-title-outline\" } }]\n[behaviors]\nenabled = [\"timeline\", \"progress\"]\n",
+    )
+    .await;
+    let thread = site.get("/thread-103", None).await;
+    assert!(
+        thread
+            .body
+            .contains(" data-behaviors=\"timeline progress\">")
+    );
+    for name in ["timeline", "progress"] {
+        assert!(
+            thread
+                .body
+                .contains(&format!("/static/js/behaviors/{name}.js?v=")),
+            "{name}"
+        );
+    }
+    // Without the module the timeline block is the list of pages, each with the date it begins.
+    let start = thread.body.find("data-block=\"outline\"").unwrap();
+    let block = &thread.body[start..start + thread.body[start..].find("</section>").unwrap()];
+    assert!(block.contains("<ol class=\"block-outline__pages\">"));
+    assert!(block.contains("href=\"/thread-103?view=flat\""));
+    assert!(block.contains("<time class=\"block-outline__date\" datetime=\""));
+    // The page data block carries the outline the module draws.
+    let data_start = thread.body.find("id=\"gonof-page\">").unwrap();
+    let data =
+        &thread.body[data_start..data_start + thread.body[data_start..].find("</script>").unwrap()];
+    assert!(data.contains("\"source\":\"thread.outline\""), "{data}");
+    // Not in the admin area, on sign-in or account security pages.
+    for (path, session) in [
+        ("/manage", Some(&site.admin)),
+        ("/login", None),
+        ("/my/account", Some(&site.member)),
+    ] {
+        let page = site.get(path, session).await;
+        assert_eq!(page.status, StatusCode::OK, "{path}");
+        assert!(!page.body.contains("/static/js/behaviors/"), "{path}");
+        assert!(!page.body.contains("data-behaviors"), "{path}");
+    }
+    // Other front pages load them too.
+    let home = site.get("/", None).await;
+    assert!(home.body.contains("/static/js/behaviors/timeline.js"));
+    site.services.cleanup().await.unwrap();
+}

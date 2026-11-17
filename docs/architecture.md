@@ -254,7 +254,9 @@ stylesheets. Colors come from one set of design tokens (`frontend/styles/themes/
 system themes; the server writes them, merged with the skin's palettes (and derived from two seed colors when the
 administrator set them), into the skin's stylesheet. Layout uses
 logical properties (`margin-inline-start`, not `margin-left`) so that right-to-left languages mirror correctly.
-Scripts are small, framework-free and optional: htmx plus a few enhancements and the editor.
+Scripts are small, framework-free and optional: htmx plus a few enhancements and the editor, and the behavior
+modules a skin may turn on (`static/js/behaviors/`, [skins.md](skins.md), "Behavior modules"), which also only
+enhance the page.
 
 **Skins** ([skins.md](skins.md)) change the look without a build: a manifest, palettes over the core scheme and a
 checked stylesheet. They come from the binary (`apps/web/skins/`), from the database (imported at `/manage/skins`)

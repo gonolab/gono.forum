@@ -1,0 +1,150 @@
+/* Behavior modules (docs/skins.md, "Behavior modules"): what the built-in scripts of static/js/behaviors/ add to a
+   page. Nothing here matches the markup the server writes, so a page without a module, or without JavaScript, looks as
+   it did. Blocks: timeline, outline-progress, reading-progress. */
+
+/* ------------------------------------------------------------------ */
+/* timeline                                                            */
+/* ------------------------------------------------------------------ */
+
+/* A vertical rail over every floor of the thread, the handle at the floor being read (--timeline-at, 0 to 1, set by
+   the script), the first and last dates at its ends. It sticks under the header beside the floors. */
+.layout__aside:has(> .block--thread-outline[data-enhanced="timeline"]) {
+  align-self: stretch;
+}
+
+.block--thread-outline[data-enhanced="timeline"] {
+  position: sticky;
+  inset-block-start: calc(var(--sticky-top) + 15px);
+}
+
+.timeline {
+  --timeline-at: 0;
+  display: grid;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.timeline__end {
+  justify-self: start;
+  color: var(--text-muted);
+}
+
+.timeline__end:hover {
+  color: var(--link-hover);
+}
+
+.timeline__track {
+  position: relative;
+  block-size: 200px;
+  margin-inline-start: 4px;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.timeline__rail {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: 3px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.timeline__fill {
+  block-size: calc(var(--timeline-at) * 100%);
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.timeline__handle {
+  position: absolute;
+  inset-inline: -2px 0;
+  inset-block-start: calc(var(--timeline-at) * (100% - 40px));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  box-sizing: border-box;
+  block-size: 40px;
+  padding-inline-start: 12px;
+  border-inline-start: 7px solid var(--accent);
+  border-radius: 2px;
+  line-height: 1.4;
+  transition: inset-block-start 0.12s var(--ease-out);
+}
+
+.timeline__handle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.timeline.is-previewing .timeline__handle {
+  transition: none;
+}
+
+.timeline__position {
+  color: var(--text-strong);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline__date {
+  color: var(--text-muted);
+}
+
+/* ------------------------------------------------------------------ */
+/* progress                                                            */
+/* ------------------------------------------------------------------ */
+
+/* In the outline's progress block: the floor being read out of all of them, and its page marked in the list. */
+.outline-progress {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.outline-progress__meter {
+  inline-size: 100%;
+  block-size: 6px;
+  accent-color: var(--accent);
+}
+
+.block--thread-outline .block-outline__pages a[aria-current] {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* A thin bar under the header that fills across the page as the reader moves through the thread (--progress, 0 to
+   1). Decoration only: screen readers get the block's <progress>. */
+.reading-progress {
+  position: fixed;
+  inset-inline: 0;
+  inset-block-start: var(--sticky-top);
+  z-index: 20;
+  block-size: 3px;
+  pointer-events: none;
+}
+
+.reading-progress__bar {
+  block-size: 100%;
+  background: var(--accent);
+  transform: scaleX(var(--progress, 0));
+  transform-origin: left;
+  transition: transform 0.12s linear;
+}
+
+:dir(rtl) .reading-progress__bar {
+  transform-origin: right;
+}
+
+@media (max-width: 760px) {
+  /* The aside follows the floors on phones, so the timeline does not stick there. */
+  .block--thread-outline[data-enhanced="timeline"] {
+    position: static;
+  }
+
+  .timeline__track {
+    block-size: 160px;
+  }
+}

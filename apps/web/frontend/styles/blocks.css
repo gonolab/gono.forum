@@ -77,7 +77,6 @@
 .block-boards__children,
 .block-boards__grid,
 .block-boards__directory,
-.block-outline__marks,
 .block-outline__pages,
 .block-nav__links {
   margin: 0;
@@ -260,12 +259,15 @@
   color: var(--text-muted);
 }
 
-/* thread.outline without a behavior module: dates and pages as links. */
-.block-outline__marks,
+/* thread.outline without a behavior module: the pages as links, in the timeline view with the date each begins. */
 .block-outline__pages {
   display: grid;
   gap: 2px;
   font-size: 13px;
+}
+
+.block-outline__date {
+  color: var(--text-muted);
 }
 
 /* nav-boards and nav-links. */

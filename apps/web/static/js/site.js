@@ -134,7 +134,7 @@
 // and avatar shape the stylesheets select on (docs/skins.md, "Frame"). Take them from the new page in the same tick
 // as head-support adds its skin stylesheet, so a page with another skin (such as /manage/skins, which always uses
 // the default) never pairs one skin's stylesheet with another's palette name.
-const frameAttributes = ['data-skin', 'data-skin-source', 'data-palette', 'data-nav', 'data-header-boards', 'data-avatar-shape'];
+const frameAttributes = ['data-skin', 'data-skin-source', 'data-palette', 'data-nav', 'data-header-boards', 'data-avatar-shape', 'data-behaviors'];
 document.addEventListener('htmx:afterSwap', event => {
   if (!event.detail?.boosted) return;
   const tag = (event.detail.xhr?.responseText || '').match(/<html\b[^>]*>/i);
@@ -188,6 +188,8 @@ window.addEventListener('hashchange', flashTargetFloor);
 // measured from the header, so a layout without the top header can declare its own. The stylesheet registers it as a
 // length, so it reads back resolved ("61px"); a browser without @property returns the calc() as written, and a probe
 // element lets the browser resolve that.
+// Also for the behavior modules (docs/skins.md, "Behavior modules").
+window.gonofStickyTop = () => stickyTop();
 function stickyTop() {
   const value = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sticky-top'));
   if (Number.isFinite(value)) return value;

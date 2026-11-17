@@ -555,6 +555,9 @@ struct PageMeta<'a> {
     places: blocks::Placed,
     /// The page shows the side navigation (docs/skins.md, "Side navigation"): see [`blocks::shows_side_nav`].
     side: bool,
+    /// The page may load the skin's behavior modules (docs/skins.md, "Behavior modules"): not in the admin area, on
+    /// sign-in, two-step or account security pages, or the other pages a personal style stays off.
+    behaviors: bool,
     /// The side navigation's blocks, rendered once when the page's frame is written ([`PageMeta::side_nav`]).
     side_nav: std::sync::OnceLock<Vec<String>>,
 }
@@ -1014,6 +1017,7 @@ fn meta<'a>(
         places: blocks::Placed::default(),
         side,
         side_nav: std::sync::OnceLock::new(),
+        behaviors: custom_style::applies(path),
     }
 }
 
@@ -1037,6 +1041,20 @@ impl PageMeta<'_> {
     fn head_banner(&self) -> bool {
         self.skin.manifest.frame.page_head == crate::skins::manifest::PageHead::Banner
             && !self.places.head.is_empty()
+    }
+
+    /// The behavior modules this page loads: the skin's `[behaviors] enabled`, on pages that allow them.
+    fn behaviors(&self) -> &[String] {
+        if self.behaviors {
+            &self.skin.manifest.behaviors.enabled
+        } else {
+            &[]
+        }
+    }
+
+    /// `<html data-behaviors>`: the loaded modules, space-separated.
+    fn behaviors_attribute(&self) -> String {
+        self.behaviors().join(" ")
     }
 
     /// `<html data-nav>`: `side` where the page shows the side navigation, else `top`.

@@ -140,3 +140,14 @@ js-video-title = YouTube video
 # not allow copying and the SQL is selected instead.
 js-debug-copied = Copied
 js-debug-copy-selected = SQL selected; press ⌘C / Ctrl+C to copy it
+# The timeline behavior module (docs/skins.md, "Behavior modules"): the slider over a thread's floors.
+js-timeline-label = Floor in this thread
+js-timeline-hint = Arrow keys move one floor, Page Up and Page Down one page, Home and End to the first and last floor. Enter goes there; Escape goes back.
+# The number shown on the slider's handle.
+js-timeline-short = { $position } / { $last }
+# Read by screen readers as the slider's value; $date is the date shown near that floor.
+js-timeline-value = Floor { $position } of { $last }, { $date }
+js-timeline-value-plain = Floor { $position } of { $last }
+# The progress behavior module: the reading progress of a thread.
+js-progress-label = Reading progress
+js-progress-value = Floor { $position } of { $last }

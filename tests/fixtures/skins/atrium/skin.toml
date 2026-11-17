@@ -1,5 +1,5 @@
 # A test fixture for the frame of external skins (docs/skins.md, "Frame"): side navigation instead of the header's
-# boards, the page head as a banner and the board directory home. Inspired by the NodeBB research prototype "Atrium" (branch claude/nodebb-css-research-0bf3f0); see skin.css.
+# boards, the page head as a banner, the board directory home and the behavior modules. Inspired by the NodeBB research prototype "Atrium" (branch claude/nodebb-css-research-0bf3f0); see skin.css.
 contract = 1
 id = "atrium"
 version = "1.0.0"
@@ -25,7 +25,15 @@ home = "boards"
 ]
 # Simplified Chinese texts are written as escapes: "Welcome. Pick a board on the left, or read the latest threads
 # below." and "New here? Read the rules first."
+"thread.aside" = [
+  { id = "me-thread", source = "member-card" },
+  { id = "outline", source = "thread.outline", view = "timeline", params = { tid = "current" }, title = { key = "block-title-outline" } },
+  { id = "outline-pages", source = "thread.outline", view = "progress", params = { tid = "current" }, title = { key = "block-title-outline" } },
+]
 "side.nav" = [
   { id = "side-boards", source = "nav-boards" },
   { id = "side-note", source = "markdown", title = { key = "block-title-notice" }, body = { en = "New here? Read the **rules** first.", zh-CN = "\u65b0\u6765\u7684\uff1f\u5148\u8bfb\u4e00\u4e0b**\u7248\u89c4**\u3002" } },
 ]
+
+[behaviors]
+enabled = ["timeline", "progress"]

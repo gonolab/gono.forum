@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="{{ p.t.tag() }}"{% if p.t.is_rtl() %} dir="rtl"{% endif %} data-base="{{ crate::site::base() }}" data-skin="{{ p.skin.id() }}" data-skin-source="{{ p.skin.source.as_str() }}" data-palette="{{ p.palette }}" data-nav="{{ p.nav_attribute() }}" data-header-boards="{{ p.header_boards() }}"{% if let Some(shape) = p.avatar_shape %} data-avatar-shape="{{ shape }}"{% endif %}>
+<html lang="{{ p.t.tag() }}"{% if p.t.is_rtl() %} dir="rtl"{% endif %} data-base="{{ crate::site::base() }}" data-skin="{{ p.skin.id() }}" data-skin-source="{{ p.skin.source.as_str() }}" data-palette="{{ p.palette }}" data-nav="{{ p.nav_attribute() }}" data-header-boards="{{ p.header_boards() }}"{% if let Some(shape) = p.avatar_shape %} data-avatar-shape="{{ shape }}"{% endif %}{% if !p.behaviors().is_empty() %} data-behaviors="{{ p.behaviors_attribute() }}"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -59,6 +59,10 @@
   <link rel="stylesheet" href="{{ crate::site::base() }}/static/css/debug.css?v={{ p.asset_version }}">
   <script src="{{ crate::site::base() }}/static/js/debug.js?v={{ p.asset_version }}" defer></script>
   {% endif %}
+  {%- for name in p.behaviors() %}
+  {#- The skin's behavior modules (docs/skins.md, "Behavior modules"): built-in scripts that only enhance the page. #}
+  <script src="{{ crate::site::base() }}/static/js/behaviors/{{ name }}.js?v={{ p.asset_version }}" defer data-behavior="{{ name }}"></script>
+  {%- endfor %}
   <script src="{{ crate::site::base() }}/static/js/vendor/htmx.min.js?v={{ p.asset_version }}" defer></script>
   <script src="{{ crate::site::base() }}/static/js/vendor/head-support.js?v={{ p.asset_version }}" defer></script>
 </head>

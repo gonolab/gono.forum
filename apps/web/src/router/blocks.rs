@@ -148,17 +148,13 @@ pub(super) struct MembersData {
 pub(super) struct OutlineLink {
     pub label: String,
     pub href: String,
-}
-
-pub(super) struct OutlineDate {
+    /// The time of the page's first floor.
     pub at: records::Time,
-    pub href: String,
 }
 
 pub(super) struct OutlineData {
     pub tid: i64,
     pub pages: Vec<OutlineLink>,
-    pub dates: Vec<OutlineDate>,
 }
 
 pub(super) struct LinksData {
@@ -848,14 +844,7 @@ fn source_body(state: &AppState, params: &Params, output: records::Output) -> Bo
                     .map(|mark| OutlineLink {
                         label: t.block_outline_page(mark.page, mark.from, mark.to),
                         href: href(mark.page, None),
-                    })
-                    .collect(),
-                dates: outline
-                    .iter()
-                    .flat_map(|outline| &outline.date_marks)
-                    .map(|mark| OutlineDate {
-                        at: mark.at.clone(),
-                        href: href(mark.page, Some(mark.position)),
+                        at: mark.first_at.clone(),
                     })
                     .collect(),
             })
