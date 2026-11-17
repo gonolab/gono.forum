@@ -49,14 +49,21 @@ const BUTTON_PADDING: f32 = 22.0;
 /// 16 / 14 and another 5% for the weight.
 const BRAND_SCALE: f32 = 16.0 / 14.0 * 1.05;
 
+/// Under side navigation the drawer toggle also shows in the header from 1099px down (`frame.css`; docs/skins.md,
+/// "Side navigation"): its 36px and the 12px gap after it come off the budgets of the tiers below 1100.
+const DRAWER: f32 = 48.0;
+/// The lowest tier without the drawer toggle under side navigation.
+const DRAWER_UNTIL: u16 = 1100;
+
 /// The texts on the header that compete with the navigation for room: the brand text, the visitor's two buttons
-/// and the label of "More".
+/// and the label of "More", and whether the drawer toggle shows below 1100px (side navigation).
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Header<'a> {
     pub brand: &'a str,
     pub log_in: &'a str,
     pub register: &'a str,
     pub more: &'a str,
+    pub drawer: bool,
 }
 
 impl Header<'_> {
@@ -68,6 +75,7 @@ impl Header<'_> {
         log_in: "\u{767b}\u{5f55}",
         register: "\u{6ce8}\u{518c}",
         more: "\u{66f4}\u{591a}",
+        drawer: false,
     };
 
     /// How much more room this header's brand text and buttons take than the measured one (negative when
@@ -110,12 +118,19 @@ fn width(label: &str) -> f32 {
     (text(label) + PADDING).max(MIN_WIDTH)
 }
 
-/// The budgets of this header: the measured ones moved by [`Header::extra`].
+/// The budgets of this header: the measured ones moved by [`Header::extra`], and by the drawer toggle below 1100px
+/// under side navigation.
 fn tiers(header: &Header) -> impl Iterator<Item = (u16, f32)> {
     let extra = header.extra();
-    TIERS
-        .into_iter()
-        .map(move |(tier, budget)| (tier, budget - extra))
+    let drawer = header.drawer;
+    TIERS.into_iter().map(move |(tier, budget)| {
+        let toggle = if drawer && tier < DRAWER_UNTIL {
+            DRAWER
+        } else {
+            0.0
+        };
+        (tier, budget - extra - toggle)
+    })
 }
 
 /// Fills in `fit` for each item by the rules above: the lowest viewport tier at which it stays in the header;
@@ -341,6 +356,7 @@ mod tests {
             log_in: "Log in",
             register: "Sign up",
             more: "More",
+            drawer: false,
         };
         let extra = english.extra();
         // Measured on 2026-11-11: brand 116.78 against 88, buttons 61.8 + 71.69 against 50 + 50.
@@ -365,5 +381,36 @@ mod tests {
         fit(&mut links, &english);
         assert!(links.iter().any(|link| link.fit > 901));
         assert_eq!(links[0].fit, 901);
+    }
+
+    /// Under side navigation the drawer toggle takes 48px from the tiers below 1100, and none from the others.
+    #[test]
+    fn the_drawer_toggle_of_side_navigation_narrows_the_lower_tiers() {
+        let side = Header {
+            drawer: true,
+            ..Header::MEASURED
+        };
+        let budgets: Vec<(u16, f32)> = tiers(&side).collect();
+        assert_eq!(
+            budgets,
+            [(901, 377.0), (1000, 476.0), (1100, 624.0), (1200, 724.0)]
+        );
+        // Seven two-character boards fit at 901 in the measured header, but not beside the drawer toggle.
+        let links = |count: usize| -> Vec<NavigationLink> {
+            (0..count)
+                .map(|index| NavigationLink {
+                    label: [DAILY, COOL, HOSTING, RELEASES][index % 4].to_owned(),
+                    href: format!("/b{index}"),
+                    active: false,
+                    fit: 0,
+                })
+                .collect()
+        };
+        let mut top = links(7);
+        fit(&mut top, &Header::MEASURED);
+        assert!(top.iter().all(|link| link.fit == 901));
+        let mut beside = links(7);
+        fit(&mut beside, &side);
+        assert!(beside.iter().any(|link| link.fit > 901));
     }
 }

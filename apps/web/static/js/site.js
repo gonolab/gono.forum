@@ -57,15 +57,18 @@
       if (restoreFocus) menu.querySelector('summary').focus();
     }
   });
+  // The drawer is the navigation from 900px down, and from 1099px down beside side navigation, where the side
+  // navigation folds into it (docs/skins.md, "Side navigation").
+  const drawerShown = () => matchMedia(document.documentElement.dataset.nav === 'side' ? '(max-width: 1099px)' : '(max-width: 900px)').matches;
   document.addEventListener('toggle', event => {
     const menu = event.target;
-    if (menu.matches?.('.mobile-nav') && menu.isConnected && menu.open && matchMedia('(max-width: 900px)').matches) {
+    if (menu.matches?.('.mobile-nav') && menu.isConnected && menu.open && drawerShown()) {
       menu.querySelector('[data-close-menu]').focus();
     }
   }, true);
   document.addEventListener('keydown', (event) => {
     const menu = document.querySelector('.mobile-nav[open]');
-    if (event.key === 'Tab' && menu && matchMedia('(max-width: 900px)').matches) {
+    if (event.key === 'Tab' && menu && drawerShown()) {
       const controls = [...menu.querySelectorAll('.drawer a[href], .drawer button')].filter(element => !element.disabled && element.getClientRects().length);
       const first = controls[0], last = controls[controls.length - 1];
       if (first && (!controls.includes(document.activeElement) || (event.shiftKey && document.activeElement === first) || (!event.shiftKey && document.activeElement === last))) {

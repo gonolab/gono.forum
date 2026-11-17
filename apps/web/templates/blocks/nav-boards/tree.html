@@ -1,14 +1,14 @@
-{#- The nav-boards block (docs/skins.md, "Core blocks"): the board tree with the new-thread button. #}
+{#- The nav-boards block (docs/skins.md, "Core blocks"): the board tree with the new-thread button; the board of the page (or of its thread) is aria-current. #}
 <nav class="panel{% if block.keep %} panel--keep{% endif %} block-nav{{ block.hooks() }}"{{ block.attribute()|safe }} aria-label="{{ p.t.frame_menu_forums() }}">
   <a class="button block-nav__post" data-compose-entry href="{{ crate::site::href(p.post_href()) }}" hx-boost="false">{{ p.t.frame_new_thread() }}</a>
   {%- include "partials/board_glyphs.html" %}
   <ul class="block-boards__tree">
     {%- for board in data.items %}
-    <li data-board="{{ board.fid }}"><a class="block-boards__name" href="{{ crate::site::prefixed(board.href) }}">{% if let Some(glyph) = board.glyph %}<svg class="block-boards__glyph" aria-hidden="true" focusable="false"><use href="#board-glyph-{{ glyph }}"></use></svg>{% endif %}{{ board.name }}</a>
+    <li data-board="{{ board.fid }}"><a class="block-boards__name" href="{{ crate::site::prefixed(board.href) }}"{% if p.is_current_board(board.fid) %} aria-current="page"{% endif %}>{% if let Some(glyph) = board.glyph %}<svg class="block-boards__glyph" aria-hidden="true" focusable="false"><use href="#board-glyph-{{ glyph }}"></use></svg>{% endif %}{{ board.name }}</a>
       {%- if !board.children.is_empty() %}
       <ul class="block-boards__children">
         {%- for child in board.children %}
-        <li data-board="{{ child.fid }}"><a href="{{ crate::site::prefixed(child.href) }}">{{ child.name }}</a></li>
+        <li data-board="{{ child.fid }}"><a href="{{ crate::site::prefixed(child.href) }}"{% if p.is_current_board(child.fid) %} aria-current="page"{% endif %}>{{ child.name }}</a></li>
         {%- endfor %}
       </ul>
       {%- endif %}

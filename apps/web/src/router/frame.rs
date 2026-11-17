@@ -47,6 +47,10 @@ pub(super) struct SiteFrame {
     /// "All forums" (`/forums`) at the end of the header navigation, lowest priority, see
     /// [`super::nav_fit::fit_tail`].
     pub directory: NavigationLink,
+    /// The header navigation and "All forums" fitted beside the drawer toggle, which side navigation shows from
+    /// 1099px down (docs/skins.md, "Side navigation"); `None` unless the skin has side navigation and keeps the
+    /// header's boards.
+    pub side_navigation: Option<(Vec<NavigationLink>, NavigationLink)>,
     /// The signed-in member's own forum hides and blocks, already expanded over parent-child links by `forums`; empty
     /// for anonymous visitors.
     pub forum_filters: ForumFilters,
@@ -99,6 +103,7 @@ impl Default for SiteFrame {
             brands: Arc::default(),
             navigation: Vec::new(),
             directory: directory_link(),
+            side_navigation: None,
             forum_filters: ForumFilters::default(),
             reading: crate::reading::Reading::blank(),
             skin: crate::skins::DEFAULT_SKIN.clone(),
@@ -257,12 +262,26 @@ impl SiteFrame {
             log_in,
             register,
             more,
+            drawer: false,
         };
         super::nav_fit::fit(&mut navigation, &header);
         let mut directory = directory_link();
         super::nav_fit::fit_tail(&navigation, &mut directory, &header);
         let (skin, palette, preview, preview_colors, draft) =
             skin(state, &block, viewer_uid, ttl).await;
+        let side_navigation = (skin.manifest.frame.nav == crate::skins::manifest::Nav::Side
+            && skin.manifest.frame.header_boards)
+            .then(|| {
+                let header = super::nav_fit::Header {
+                    drawer: true,
+                    ..header
+                };
+                let mut links = navigation.clone();
+                super::nav_fit::fit(&mut links, &header);
+                let mut tail = directory_link();
+                super::nav_fit::fit_tail(&links, &mut tail, &header);
+                (links, tail)
+            });
         let board_style = state
             .global
             .board_style(&state.db, ttl)
@@ -310,6 +329,7 @@ impl SiteFrame {
             brands,
             navigation,
             directory,
+            side_navigation,
             forum_filters,
             reading,
             skin,

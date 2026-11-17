@@ -234,3 +234,8 @@
   color: var(--accent);
   font-weight: 500;
 }
+
+.block-nav .block-boards__tree a[aria-current] {
+  color: var(--accent);
+  font-weight: 500;
+}

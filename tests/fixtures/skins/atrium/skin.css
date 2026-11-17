@@ -1,0 +1,65 @@
+/* Atrium: a test fixture, not a built-in skin. It exercises the frame a skin can choose (docs/skins.md, "Frame"):
+   side navigation in place of the header's boards. Blocks: side navigation. */
+
+/* ------------------------------------------------------------------ */
+/* Side navigation                                                     */
+/* ------------------------------------------------------------------ */
+
+/* The side.nav blocks as flat groups rather than cards. */
+.side-nav > .panel {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.side-nav .block-boards__tree,
+.side-nav .block-nav__links {
+  gap: 2px;
+}
+
+.side-nav .block-boards__name,
+.side-nav .block-nav__links a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-block: 6px;
+  padding-inline: 10px;
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.side-nav .block-boards__name:hover,
+.side-nav .block-nav__links a:hover {
+  background: var(--panel-hover);
+}
+
+.side-nav .block-nav__links a[aria-current],
+.side-nav .block-boards__tree a[aria-current] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.side-nav .block-boards__children {
+  padding-inline-start: 34px;
+}
+
+.side-nav .block-boards__children a {
+  color: var(--text-muted);
+}
+
+.side-nav .block-nav__post {
+  display: flex;
+  justify-content: center;
+  margin-block-end: 12px;
+}
+
+.side-nav .block-markdown {
+  padding-block-start: 12px;
+  padding-inline: 10px;
+  border-block-start: 1px solid var(--line);
+  color: var(--text-muted);
+  font-size: 13px;
+}

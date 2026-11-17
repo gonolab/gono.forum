@@ -553,6 +553,10 @@ struct PageMeta<'a> {
     custom_style: String,
     /// The rendered blocks of the page's places (docs/skins.md, "Places and blocks"); empty on pages without places.
     places: blocks::Placed,
+    /// The page shows the side navigation (docs/skins.md, "Side navigation"): see [`blocks::shows_side_nav`].
+    side: bool,
+    /// The side navigation's blocks, rendered once when the page's frame is written ([`PageMeta::side_nav`]).
+    side_nav: std::sync::OnceLock<Vec<String>>,
 }
 
 /// The friend links card in the home page sidebar: up to 12 name texts plus the "All links" and "Apply for a link"
@@ -809,7 +813,12 @@ struct HomeTemplate<'a> {
 /// a child forum both count as the parent forum. When the navigation document names the child forum itself, a
 /// match on it takes precedence and the parent forum is no longer highlighted as well.
 fn highlighted(state: &AppState, slug: &str) -> Vec<NavigationLink> {
-    let mut navigation = state.frame.navigation.clone();
+    highlighted_in(state, &state.frame.navigation, slug)
+}
+
+/// [`highlighted`] over a given copy of the navigation (the one fitted beside side navigation's drawer toggle).
+fn highlighted_in(state: &AppState, links: &[NavigationLink], slug: &str) -> Vec<NavigationLink> {
+    let mut navigation = links.to_vec();
     if slug.is_empty() {
         return navigation;
     }
@@ -839,7 +848,6 @@ fn meta<'a>(
     slug: &str,
     query: &str,
 ) -> PageMeta<'a> {
-    let navigation = highlighted(state, slug);
     let session = state.viewer.session.as_ref();
     let is_admin = session.is_some_and(|s| s.member.is_admin);
     let is_staff = session.is_some_and(|s| s.member.is_staff());
@@ -848,6 +856,13 @@ fn meta<'a>(
     } else {
         state.frame.skin.clone()
     };
+    let side = blocks::shows_side_nav(state, &skin, path);
+    // Beside side navigation the drawer toggle shows from 1099px down, so the header's boards were fitted with less
+    // room (docs/skins.md, "Side navigation").
+    let (navigation, directory) = match &state.frame.side_navigation {
+        Some((links, directory)) if side => (highlighted_in(state, links, slug), directory),
+        _ => (highlighted(state, slug), &state.frame.directory),
+    };
     PageMeta {
         metrics: crate::metrics::current(),
         database: state.db.backend().label(),
@@ -855,7 +870,7 @@ fn meta<'a>(
         navigation,
         directory: NavigationLink {
             active: path == "/forums",
-            ..state.frame.directory.clone()
+            ..directory.clone()
         },
         indexable: state.frame.settings.seo.indexing
             && state.viewer.session.is_none()
@@ -997,10 +1012,37 @@ fn meta<'a>(
         }),
         custom_style: custom_style::href(state, path),
         places: blocks::Placed::default(),
+        side,
+        side_nav: std::sync::OnceLock::new(),
     }
 }
 
 impl PageMeta<'_> {
+    /// The rendered blocks of the side navigation; empty when the page keeps the top navigation.
+    fn side_nav(&self) -> &[String] {
+        if !self.side {
+            return &[];
+        }
+        self.side_nav.get_or_init(|| blocks::side_nav(self))
+    }
+
+    /// Whether `fid` is the board of this board page or of this thread page's thread, for `aria-current` in board
+    /// trees.
+    fn is_current_board(&self, fid: &i64) -> bool {
+        self.page_data.fid() == Some(*fid)
+    }
+
+    /// `<html data-nav>`: `side` where the page shows the side navigation, else `top`.
+    fn nav_attribute(&self) -> &'static str {
+        if self.side { "side" } else { "top" }
+    }
+
+    /// Whether the header shows the board navigation: always beside the top navigation, and beside the side
+    /// navigation unless the skin leaves it out (`frame.header_boards`).
+    fn header_boards(&self) -> bool {
+        !self.side || self.skin.manifest.frame.header_boards
+    }
+
     /// The site's name for its points in this request's language (`settings.site.credit_name`, filled with the
     /// language's default by the page frame, docs/architecture.md, "Languages"): the `{ $credit }` of translations.
     fn credit(&self) -> &str {

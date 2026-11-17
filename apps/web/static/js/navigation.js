@@ -109,6 +109,20 @@
   document.addEventListener('htmx:afterSettle', () => {
     requestAnimationFrame(() => { if (!reloading) { ready = true; save(); } });
   });
+  // A boosted navigation replaces the side navigation (docs/skins.md, "Side navigation") with the new page's copy,
+  // scrolled to the top; keep where the reader had scrolled it, so the column does not jump on every click.
+  let sideScroll = null;
+  document.addEventListener('htmx:beforeSwap', event => {
+    if (event.detail?.boosted && event.detail.target === document.body) {
+      sideScroll = document.querySelector('[data-side-nav]')?.scrollTop ?? null;
+    }
+  });
+  document.addEventListener('htmx:afterSwap', event => {
+    if (sideScroll === null || event.detail?.target !== document.body) return;
+    const side = document.querySelector('[data-side-nav]');
+    if (side) side.scrollTop = sideScroll;
+    sideScroll = null;
+  });
 
   const cancel = () => { cancelled = true; };
   for (const event of ['wheel', 'touchstart', 'keydown', 'pointerdown']) {

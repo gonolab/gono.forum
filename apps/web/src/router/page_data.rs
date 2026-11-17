@@ -109,6 +109,11 @@ struct Site<'a> {
 }
 
 impl PageData {
+    /// The board of a board page, or of a thread page's thread.
+    pub(super) fn fid(&self) -> Option<i64> {
+        self.fid
+    }
+
     /// A thread list: the home page, a board page or the search results, at `page`. `fid` is the board of a board
     /// page.
     pub(super) fn list(kind: Kind, fid: Option<i64>, page: usize) -> Self {

@@ -39,8 +39,8 @@ default = "main"                     # palettes/main.json
 variants = []                        # other palettes the administrator may choose
 
 [frame]
-nav = "top"                          # only "top" for now
-header_boards = true                 # only true for now
+nav = "top"                          # "top", or "side" for side navigation (see "Side navigation")
+header_boards = true                 # false leaves the header's boards out; only with nav = "side"
 masthead_height = "52px"             # optional: the declared header height (--masthead-h), 40 to 120 px
 avatar_shape = "member"              # circle, rounded or square fixes every avatar; member leaves it to members
 ```
@@ -133,7 +133,7 @@ keep the site safe and the "Built on Gono Forum" line block them, and the rest a
 | The post actions stay visible: no `opacity` or `visibility` on `actions-bar` | Blocks | Warns |
 | Media queries only `max-width` at 900, 760, 700, 640, 480 or 420 px, `prefers-reduced-motion` and media types | Blocks | Warns |
 | Logical properties: no `left`, `width`, `margin-left` and the like | Blocks | Warns |
-| The fixed values of the style guide: weights 400, 500 and 600; radii 0, 4, 6, 8, 12, 9999 px and 50%; borders 0, 1 and 2 px; body text 15px with a line height of 1.75; the design variables (`--r*`, `--container`, `--sidebar-w`, `--gap`, `--post-image-max`, `--masthead-h`, `--sticky-top`, `--safe-*`) | Blocks | Warns |
+| The fixed values of the style guide: weights 400, 500 and 600; radii 0, 4, 6, 8, 12, 9999 px and 50%; borders 0, 1 and 2 px; body text 15px with a line height of 1.75; the design variables (`--r*`, `--container`, `--sidebar-w`, `--side-nav-w`, `--gap`, `--post-image-max`, `--masthead-h`, `--sticky-top`, `--safe-*`) | Blocks | Warns |
 | Selectors that depend on `aria-label`, `title` or child positions (`:nth-child()`, `:first-child`, …) rather than the classes listed below | Blocks | Warns |
 | Contrast (see below) | Blocks | Warns |
 | A built-in skin's `skin.toml` writing a name or description in a language other than English, or no `skin-builtin-<id>-*` messages for its id | Blocks | — |
@@ -281,9 +281,10 @@ layout, which shows what the templates showed before layouts (`layout.rs`, `core
 | `thread.aside` | thread pages | the aside | 6 | as `home.aside`, and `thread.outline` | `member-card` |
 | `page.head.home`, `page.head.board`, `page.head.thread` | those pages | the top of the main column (after the breadcrumb on thread pages), in `div.page-head` | 2 | `markdown`, `site.stats` in its `compact` view, and on board pages `board-head` | `board-head` on board pages, empty elsewhere |
 | `footer` | the pages with places | inside the footer, before the policy links, in `div.colophon__blocks` | 4 | `markdown`, `site.links`, `site.stats` | empty |
-| `side.nav` | the pages with places, under a skin with side navigation | the side navigation | 4 | `nav-boards`, `nav-links`, `markdown` | empty; shown only once skins can choose `frame.nav = "side"`, so not yet |
+| `side.nav` | every page but the admin area, under a skin with side navigation | the side navigation ("Side navigation") | 4 | `nav-boards`, `nav-links`, `markdown` | empty |
 
-A page shows at most 10 blocks across its places; the policy links and the "Built on Gono Forum" line are always the
+A page shows at most 10 blocks across its places (a layout is refused when the places of one page, `side.nav`
+included, hold more); the policy links and the "Built on Gono Forum" line are always the
 core's, and blocks only sit beside them. A board page whose head has no `board-head` block, and the home page, write
 their heading for screen readers only. Search results keep their own head and use `home.aside`.
 
@@ -320,7 +321,7 @@ debug panel lists every block of the page with its time and the skipped ones wit
 | `site-overview` | `card` | The site statistics and the newest members. |
 | `friend-links` | `list` | The friend links and the link to apply; only on page 1 of the main domain's home page. |
 | `board-head` | `head` | A board page's head: name, icon, follow and filter controls, description, moderators, posting guide. |
-| `nav-boards` | `tree` | The board tree with the new-thread button. |
+| `nav-boards` | `tree` | The board tree with the new-thread button; the board of the page, or of the thread, is `aria-current="page"`. |
 | `nav-links` | `list` | The header navigation's entries. |
 | `markdown` | `prose` | Its `body` in the page's language. |
 
@@ -354,9 +355,36 @@ The skin's manifest and the request's choice are written on `<html>`:
 | `data-skin` | The skin's id. |
 | `data-skin-source` | `builtin`, `imported` or `instance`. |
 | `data-palette` | The palette in use. |
-| `data-nav` | `frame.nav`: `top`. |
-| `data-header-boards` | `frame.header_boards`: `true`. |
+| `data-nav` | `side` when the page shows the side navigation ("Side navigation"), else `top`. |
+| `data-header-boards` | `true` when the header shows its board navigation: always beside the top navigation, and beside the side navigation unless the skin sets `frame.header_boards = false`. |
 | `data-avatar-shape` | `circle` or `square` when the skin fixes that shape; when it leaves the shape to members, `circle` for a member who chose round avatars. Absent for the default rounded corners. |
+
+### Side navigation
+
+A skin with `frame.nav = "side"` moves the navigation into a column at the start of the page, beside the main region,
+under the full-width header. The column shows the blocks of the `side.nav` place ("Places and blocks"), so the skin's
+`[layout]` must give it at least one; `nav-boards`, `nav-links` and `markdown` take no data beyond the page frame, so
+the column appears on every page built on `layout/base.html` except the admin area (which keeps its module menu):
+
+```html
+<div class="site-frame container">
+  <div class="side-nav" data-side-nav>…the side.nav blocks…</div>
+<main class="site-main site-frame__main" id="main" tabindex="-1">…</main>
+</div>
+```
+
+- **Header.** The header stays at the top across the whole width. With `frame.header_boards = false` it leaves out its
+  board navigation (`.masthead__boards`); otherwise it keeps it, and `router/nav_fit.rs` leaves room for the drawer
+  toggle in the width tiers below 1100px.
+- **Narrow screens.** From 1099px down the column folds away and the header's drawer button shows, as it does from
+  900px down under the top navigation; the drawer (a `<details>` element, so it opens without JavaScript) lists the
+  boards as before. `site.js` treats the drawer as the navigation up to that width.
+- **Sticking.** The column sticks under the header (`inset-block-start: var(--sticky-top)`) and scrolls on its own when
+  it is taller than the window; `navigation.js` keeps its scroll position across boosted navigation.
+- **Falling back.** A page whose `side.nav` has no block for this visitor (an administrator's layout that empties the
+  place, or only blocks with `show: "members"` for an anonymous visitor) shows the top navigation with the header's
+  boards, as does the admin area. `data-nav` says which the page shows.
+- **Width.** `--side-nav-w` (200px) is the column's width; a built-in skin keeps it.
 
 When the skin fixes the avatar shape, a member's reading settings say so; their own choice is kept and applies again
 under a skin that leaves the shape to them.
@@ -584,8 +612,8 @@ measured:
 - `--sticky-top` is `--masthead-h` plus the safe area above it (`--safe-top`): the height the header covers. It is
   registered with `@property` as a length, so `getComputedStyle(document.documentElement).getPropertyValue('--sticky-top')`
   returns the resolved value, such as `61px`.
-- Anchor targets (floors, the reply box, panels) take it as their `scroll-margin-block-start`, plus 11px, and sticky
-  asides as their top offset, plus 15px.
+- Anchor targets (floors, the reply box, panels) take it as their `scroll-margin-block-start`, plus 11px, sticky
+  asides as their top offset, plus 15px, and the side navigation as its top offset.
 - `site.js` (the reading-position tracker of thread pages) and `navigation.js` (scroll restoration of lists) read
   `--sticky-top` instead of measuring where the header ends. A browser without `@property` returns the declared
   `calc()`; the scripts then let the browser resolve it on a hidden probe element.

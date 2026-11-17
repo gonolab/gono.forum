@@ -378,7 +378,7 @@ pub(super) async fn fetch(
             let stats = match scope {
                 Scope::Board(fid) => {
                     let forum = state.frame.forum_by_fid(fid).ok_or(FetchError::NotFound)?;
-                    let count = statistics.total(family_slugs(state, forum));
+                    let count = statistics.total(family_slugs(&state.frame, forum));
                     records::Stats {
                         threads: Some(count.threads),
                         replies: None,
@@ -458,11 +458,10 @@ pub(super) async fn fetch(
 const MAX_GROUPS: usize = 10;
 
 /// The slugs of a board and, for a top-level board, its readable child boards: what board statistics add up.
-fn family_slugs<'a>(state: &'a AppState, forum: &'a ForumRecord) -> Vec<&'a str> {
+fn family_slugs<'a>(frame: &'a super::frame::SiteFrame, forum: &'a ForumRecord) -> Vec<&'a str> {
     std::iter::once(forum.slug.as_str())
         .chain(
-            state
-                .frame
+            frame
                 .forums
                 .iter()
                 .filter(|child| forum.parent_fid.is_none() && child.parent_fid == Some(forum.fid))
@@ -565,7 +564,6 @@ async fn boards_records(
     params: params::Boards,
 ) -> Result<Output, FetchError> {
     let frame = &state.frame;
-    let shown = |forum: &&ForumRecord| !frame.forum_filters.is_blocked(forum.fid);
     let parent = match params.parent {
         Parent::Top => None,
         Parent::Board(fid) => Some(
@@ -575,12 +573,6 @@ async fn boards_records(
                 .ok_or(FetchError::NotFound)?,
         ),
     };
-    let listed: Vec<&ForumRecord> = frame
-        .forums
-        .iter()
-        .filter(|forum| forum.parent_fid == parent.map(|parent| parent.fid))
-        .filter(shown)
-        .collect();
     let statistics = if params.counts {
         Some(state.forum_statistics().await?)
     } else {
@@ -588,8 +580,7 @@ async fn boards_records(
     };
     let last_posts = if params.last_post {
         let members = state.viewer.session.is_some();
-        let boards: Vec<(i64, bool)> = listed
-            .iter()
+        let boards: Vec<(i64, bool)> = listed(frame, parent)
             .map(|forum| (forum.fid, forum.parent_fid.is_none()))
             .collect();
         let fids: Vec<i64> = frame.forums.iter().map(|forum| forum.fid).collect();
@@ -605,8 +596,46 @@ async fn boards_records(
     } else {
         Vec::new()
     };
-    let items = listed
-        .iter()
+    Ok(Output::new(Records::Boards(board_items(
+        frame,
+        filters,
+        parent,
+        statistics.as_ref(),
+        &last_posts,
+    ))))
+}
+
+/// The boards under `parent` (the top-level boards for `None`) the visitor sees, in display order: not blocked.
+fn listed<'a>(
+    frame: &'a super::frame::SiteFrame,
+    parent: Option<&'a ForumRecord>,
+) -> impl Iterator<Item = &'a ForumRecord> {
+    frame.forums.iter().filter(move |forum| {
+        forum.parent_fid == parent.map(|parent| parent.fid)
+            && !frame.forum_filters.is_blocked(forum.fid)
+    })
+}
+
+/// The top-level boards with their child boards as the side navigation's board tree shows them: what the page frame
+/// holds for this visitor, without counts or last posts, so no statement runs.
+pub(super) fn nav_boards(frame: &super::frame::SiteFrame) -> Vec<records::BoardRecord> {
+    let filters = Filters {
+        blocked: Vec::new(),
+        listable: Vec::new(),
+    };
+    board_items(frame, &filters, None, None, &[])
+}
+
+/// The records of the boards under `parent`, with the counts and last posts already read.
+fn board_items(
+    frame: &super::frame::SiteFrame,
+    filters: &Filters,
+    parent: Option<&ForumRecord>,
+    statistics: Option<&content::ForumStatistics>,
+    last_posts: &[(i64, Thread)],
+) -> Vec<records::BoardRecord> {
+    let shown = |forum: &&ForumRecord| !frame.forum_filters.is_blocked(forum.fid);
+    listed(frame, parent)
         .map(|forum| {
             let members_only = forum.visibility == "members"
                 || parent.is_some_and(|parent| parent.visibility == "members");
@@ -631,10 +660,9 @@ async fn boards_records(
                 access: if members_only { "members" } else { "public" },
                 // Board statistics count public content only, so boards anonymous visitors cannot read have none.
                 counts: statistics
-                    .as_ref()
                     .filter(|_| frame.anonymous_readable(forum))
                     .map(|statistics| {
-                        let count = statistics.total(family_slugs(state, forum));
+                        let count = statistics.total(family_slugs(frame, forum));
                         records::BoardCounts {
                             threads: count.threads,
                             today: count.today,
@@ -686,8 +714,7 @@ async fn boards_records(
                 children: children.into_iter().map(BoardRef::of).collect(),
             }
         })
-        .collect();
-    Ok(Output::new(Records::Boards(items)))
+        .collect()
 }
 
 /// At most this many page and date marks together.

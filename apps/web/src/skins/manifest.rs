@@ -302,13 +302,19 @@ impl Manifest {
                 field: "palettes".into(),
             });
         }
-        if self.frame.nav != Nav::Top {
-            error(Problem::ManifestUnsupported {
-                field: "frame.nav".into(),
-            });
+        // Side navigation shows the blocks of `side.nav`, so the skin's own layout must give it some; the header's
+        // board navigation may only be left out when the side navigation takes its place (docs/skins.md, "Frame").
+        if self.frame.nav == Nav::Side
+            && !self
+                .places_value()
+                .and_then(|layout| layout.get(crate::layout::Place::SideNav.name()))
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|blocks| !blocks.is_empty())
+        {
+            error(Problem::ManifestSideNav);
         }
-        if !self.frame.header_boards {
-            error(Problem::ManifestUnsupported {
+        if !self.frame.header_boards && self.frame.nav != Nav::Side {
+            error(Problem::ManifestValue {
                 field: "frame.header_boards".into(),
             });
         }
@@ -455,9 +461,27 @@ avatar_shape = "circle"
             problems(&base.replacen("[palettes]", "min_forum = \"99.0.0\"\n[palettes]", 1))[..],
             [Problem::ManifestMinForum { .. }]
         ));
+        // Side navigation needs blocks in side.nav; the header boards may only be left out under it.
         assert!(matches!(
             problems(&format!("{base}[frame]\nnav = \"side\"\n"))[..],
-            [Problem::ManifestUnsupported { .. }]
+            [Problem::ManifestSideNav]
+        ));
+        let side_nav = "[layout]\n\"side.nav\" = [{ id = \"boards\", source = \"nav-boards\" }]\n";
+        assert_eq!(
+            problems(&format!(
+                "{base}[frame]\nnav = \"side\"\nheader_boards = false\n{side_nav}"
+            )),
+            []
+        );
+        assert!(matches!(
+            problems(&format!(
+                "{base}[frame]\nnav = \"side\"\n[layout]\n\"side.nav\" = []\n"
+            ))[..],
+            [Problem::ManifestSideNav]
+        ));
+        assert!(matches!(
+            &problems(&format!("{base}[frame]\nheader_boards = false\n"))[..],
+            [Problem::ManifestValue { field }] if field == "frame.header_boards"
         ));
         assert!(matches!(
             problems(&format!("{base}[behaviors]\nenabled = [\"timeline\"]\n"))[..],

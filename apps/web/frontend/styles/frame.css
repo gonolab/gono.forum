@@ -1,4 +1,4 @@
-/* Page frame: skip-link, container, site-main, masthead (brand, logo, boards, board-list, board, search, tools, action, notifications), forum-more, theme-switch, account-nav, account-menu, mobile-nav, drawer-toggle, drawer, banner-row, banner, colophon. */
+/* Page frame: skip-link, container, site-main, masthead (brand, logo, boards, board-list, board, search, tools, action, notifications), forum-more, theme-switch, account-nav, account-menu, mobile-nav, drawer-toggle, drawer, banner-row, banner, colophon, site-frame, side-nav. */
 
 /* ------------------------------------------------------------------ */
 /* Page skeleton                                                       */
@@ -970,6 +970,90 @@ html[data-theme="dark"] .theme-switch__dark {
 /* Author display rules above would otherwise override the hidden attribute (site.js removes it). */
 :is(.theme-switch, .drawer__close, .drawer__button)[hidden] {
   display: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Side navigation (skins with frame.nav = "side")                     */
+/* ------------------------------------------------------------------ */
+
+/* base.html writes these only for a skin with side navigation (docs/skins.md, "Side navigation"): the side.nav blocks
+   in a column at the start of the page width, beside the main region, under the full-width header. */
+.site-frame {
+  display: grid;
+  grid-template-columns: var(--side-nav-w) minmax(0, 1fr);
+  gap: var(--gap);
+  align-items: start;
+  flex: 1 0 auto;
+}
+
+/* Sticks under the header and scrolls on its own when it is taller than the window; navigation.js keeps its scroll
+   position across boosted navigation. */
+.side-nav {
+  position: sticky;
+  inset-block-start: var(--sticky-top);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--gap);
+  align-content: start;
+  box-sizing: border-box;
+  min-inline-size: 0;
+  max-block-size: calc(100dvh - var(--sticky-top));
+  padding-block: 20px 40px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* From 1099px down the side navigation folds into the header drawer, as the header navigation does from 900px: the
+   drawer toggle shows here already, and router/nav_fit.rs leaves it room in the tiers below 1100. The drawer rules
+   repeat those of the 900px breakpoint with no extra specificity (:where), so the narrower breakpoints below still
+   adjust them. */
+@media (max-width: 1099px) {
+  .site-frame {
+    display: block;
+  }
+
+  .side-nav {
+    display: none;
+  }
+
+  :where(html[data-nav="side"]) .mobile-nav {
+    display: block;
+    flex: none;
+  }
+
+  :where(html[data-nav="side"]) .mobile-nav[open] > .drawer {
+    position: absolute;
+    inset-block-start: 100%;
+    inset-inline: 0;
+    z-index: 20;
+    max-block-size: calc(100dvh - 56px - var(--safe-top));
+    border-block-end: 1px solid var(--line);
+    box-shadow: var(--shadow-medium);
+  }
+
+  :where(html[data-nav="side"][data-js="true"]) .mobile-nav[open]::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: var(--backdrop);
+  }
+
+  :where(html[data-nav="side"][data-js="true"]) .mobile-nav[open] > .drawer {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    inset-inline-end: auto;
+    z-index: 31;
+    inline-size: min(320px, 86vw);
+    max-block-size: none;
+    padding-block: calc(12px + var(--safe-top)) calc(16px + var(--safe-bottom));
+    border-block-end: 0;
+  }
+
+  html[data-nav="side"][data-js="true"]:has(.mobile-nav[open]) {
+    overflow: hidden;
+  }
 }
 
 /* ------------------------------------------------------------------ */

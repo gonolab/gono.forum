@@ -49,7 +49,7 @@ In `index.css` order; later files win at equal specificity.
 | `prose.css` | Rendered post bodies (also on policy pages, previews and the admin content view): `prose`, code blocks, spoilers, in-site thread cards, video placeholders, emoji zoom; the thread title block |
 | `components.css` | The shared components (see "Shared components"), buttons, panels, tags, pagination, avatars, and the spacing between blocks in the main column |
 | `blocks.css` | The views of layout blocks the core default layout does not use, the page head and the footer's block area ([skins.md](skins.md), "Places and blocks") |
-| `frame.css` | The page frame: skip link, header, "More", drawer, notices, footer, page width, and the header navigation tiers |
+| `frame.css` | The page frame: skip link, header, "More", drawer, notices, footer, page width, the header navigation tiers, and the side navigation of skins that choose it |
 | `thread.css` | Thread page: head, floors, interaction buttons, tips, highlighted replies, replies, reply box, moderator tools |
 | `home.css` | Listing pages (home, board, search): `listing`, `board-strip`, `crumbs`, `board-head`, `pane` |
 | `profile.css` | Member profile, follow and block, policy pages (`reader-layout`, `policy-nav`) |
@@ -189,6 +189,7 @@ roles, `tag--honor` the warning roles and `tag--state` (frozen or deleting accou
 | `--r-xs`, `--r-sm`, `--r-input`, `--r`, `--r-pill` | 4, 6, 8, 12, 9999 px | Corner radii: tags; navigation items; inputs and full-width buttons; panels; buttons, chips and the search box |
 | `--container` | 1200px | Maximum page width |
 | `--sidebar-w` | 260px | Aside column width |
+| `--side-nav-w` | 200px | Side navigation column width, under skins with `frame.nav = "side"` |
 | `--gap` | 20px | Gap between the main column and the aside, and between aside cards |
 | `--post-image-max` | 720px | Widest image in a post body |
 | `--font-sans` | system UI fonts, with CJK fallbacks | Interface and post text |
@@ -216,8 +217,9 @@ Styles are written for wide screens and narrowed with `@media (max-width: …)` 
 | 480px | Six-figure tallies become three columns; list thumbnails shrink |
 | 420px | Board chips in list rows are hidden; form controls are 16px; the header drops the notifications link and the account caret |
 
-Do not add other widths. The only exception is the header navigation, which `frame.css` switches at 1199, 1099 and
-999px (see "Header navigation widths"). Queries for `prefers-reduced-motion` and `print` are fine; dark mode comes from
+Do not add other widths. The only exception is the navigation: the header navigation switches at 1199, 1099 and 999px
+(see "Header navigation widths"), and the side navigation of skins with `frame.nav = "side"` folds into the drawer at
+1099px ([skins.md](skins.md), "Side navigation"). Queries for `prefers-reduced-motion` and `print` are fine; dark mode comes from
 the color scheme build, not from `prefers-color-scheme` rules in the stylesheets.
 
 ## Header navigation widths
@@ -236,6 +238,9 @@ The estimate is only right while the CSS matches the constants in `nav_fit.rs`:
 - `.masthead__action` (the visitor's log-in and sign-up buttons): `padding-inline: 10px` and a 1px border.
 - `.masthead__brand`: 16px, weight 600.
 - `.masthead__search`: a fixed 150px box wherever the header navigation shows.
+
+- Beside side navigation ([skins.md](skins.md), "Side navigation") the drawer toggle (36px, then the 12px gap) also
+  shows from 1099px down, so the tiers below 1100 lose 48px there.
 
 Change one of these and you must change the constants in `nav_fit.rs` as well, and measure the budgets in `TIERS`
 again on the visitor's header. The build copies these sizes into the `guards` layer for built-in skins
@@ -415,7 +420,8 @@ Redis or a remote host. The pages are listed in `tests/e2e/support/pages.js`, an
   `.local/visual/<label>/<language>/<viewport>/`, where the label is `GONOF_VISUAL_LABEL` (default `latest`).
 - With `GONOF_E2E_SKIN` set to a skin pack (`gono-forum-cli skin pack <dir> --output=<file>`), both sites import it
   through `/manage/skins`, confirming its warnings, and use it before the checks and screenshots run. The Ledger test
-  fixture (`tests/fixtures/skins/ledger`) is an imported skin with warnings to try this with.
+  fixture (`tests/fixtures/skins/ledger`) is an imported skin with warnings to try this with; the Atrium fixture
+  (`tests/fixtures/skins/atrium`) also chooses the frame a skin can change ([skins.md](skins.md), "Frame").
 - With `GONOF_E2E_COLORS` set to two seed colors (`#0f766e,#f97316`), both sites save them at Appearance › Colors
   (after the skin of `GONOF_E2E_SKIN`, if any), so the checks and screenshots run with the derived palettes.
 - `node scripts/visual-compare.mjs before after` builds `.local/visual/compare-before-after.html` from two labelled

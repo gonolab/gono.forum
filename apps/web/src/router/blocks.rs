@@ -287,13 +287,13 @@ pub(super) fn render(p: &PageMeta<'_>, block: &BlockView) -> askama::Result<Stri
     }
 }
 
-/// The rendered blocks of a page, by where they go.
+/// The rendered blocks of a page, by where they go. The side navigation is part of the frame and rendered by
+/// [`side_nav`] on every page that shows it.
 #[derive(Default)]
 pub(super) struct Placed {
     pub aside: Vec<String>,
     pub head: Vec<String>,
     pub footer: Vec<String>,
-    pub side: Vec<String>,
     /// The page head shows the board-head block, so the page writes no heading of its own.
     pub board_head: bool,
     /// The envelopes of the page's data-source blocks, for the page data block.
@@ -305,8 +305,7 @@ impl Placed {
         match place {
             Place::HomeAside | Place::BoardAside | Place::ThreadAside => &mut self.aside,
             Place::HeadHome | Place::HeadBoard | Place::HeadThread => &mut self.head,
-            Place::Footer => &mut self.footer,
-            Place::SideNav => &mut self.side,
+            Place::Footer | Place::SideNav => &mut self.footer,
         }
     }
 }
@@ -324,6 +323,101 @@ pub(super) fn blocks_of(state: &AppState, place: Place) -> &[Block] {
     .0
 }
 
+/// Whether this page shows the side navigation (docs/skins.md, "Side navigation"): the page's skin chooses
+/// `frame.nav = "side"`, the page is not in the admin area (which keeps its own module menu), and `side.nav` has a
+/// block this visitor sees. Otherwise the page keeps the top navigation.
+pub(super) fn shows_side_nav(state: &AppState, skin: &crate::skins::Skin, path: &str) -> bool {
+    let signed_in = state.viewer.session.is_some();
+    skin.manifest.frame.nav == crate::skins::manifest::Nav::Side
+        && !(path == "/manage" || path.starts_with("/manage/"))
+        && side_blocks(&state.frame, skin)
+            .iter()
+            .any(|block| block.show.shows(signed_in))
+}
+
+/// The blocks of `side.nav` for `skin`: the draft or documents, then the skin's own layout.
+fn side_blocks<'a>(
+    frame: &'a super::frame::SiteFrame,
+    skin: &'a crate::skins::Skin,
+) -> &'a [Block] {
+    layout::resolve(
+        Place::SideNav,
+        frame.domain_places.as_ref(),
+        frame.site_places.as_ref(),
+        skin.places.as_ref(),
+    )
+    .0
+}
+
+/// The side navigation's blocks, rendered (docs/skins.md, "Side navigation"). They take no data beyond the page
+/// frame (the visitor's boards, the header navigation, Markdown), so every page can show them; a block that fails to
+/// render is skipped and logged. Recorded for the debug panel like a page's places.
+pub(super) fn side_nav(p: &PageMeta<'_>) -> Vec<String> {
+    let t = p.t;
+    let profile = crate::debug::trace::current();
+    let mut rendered = Vec::new();
+    for block in side_blocks(p.frame, &p.skin) {
+        let started = Instant::now();
+        let body = if !block.show.shows(p.authenticated) {
+            Err(LayoutSkip::Audience)
+        } else {
+            match block.kind {
+                Kind::Core(Core::NavBoards) => Ok(Body::NavBoards(BoardsData {
+                    items: data_sources::nav_boards(p.frame),
+                })),
+                Kind::Core(Core::NavLinks) => Ok(Body::NavLinks(NavLinksData {
+                    links: p.navigation.clone(),
+                })),
+                Kind::Core(Core::Markdown) => Ok(Body::Markdown(MarkdownData {
+                    html: crate::markdown::render(
+                        block.body.as_ref().map_or("", |body| body.get(t.tag())),
+                        &std::collections::BTreeMap::new(),
+                        None,
+                    ),
+                })),
+                // side.nav takes nothing else (`Place::accepts`).
+                _ => Err(LayoutSkip::Failed),
+            }
+        };
+        let outcome = body.and_then(|body| {
+            let view = BlockView {
+                id: block.id.clone(),
+                source: block.kind.name(),
+                view: block.view,
+                keep: block.keep_on_phone,
+                title: block
+                    .title
+                    .as_ref()
+                    .map(|title| title.text(t))
+                    .unwrap_or_default(),
+                body,
+                hooked: true,
+            };
+            render(p, &view).map_err(|error| {
+                tracing::error!(block = %block.id, %error, "a block failed to render; skipped");
+                LayoutSkip::Failed
+            })
+        });
+        let skipped = match outcome {
+            Ok(html) => {
+                rendered.push(html);
+                None
+            }
+            Err(skip) => Some(skip),
+        };
+        if let Some(profile) = &profile {
+            profile.record_layout(
+                Place::SideNav.name(),
+                &block.id,
+                block.kind.name(),
+                started.elapsed(),
+                skipped,
+            );
+        }
+    }
+    rendered
+}
+
 /// Why a block shows nothing.
 enum Skip {
     Kind(LayoutSkip),
@@ -337,12 +431,11 @@ pub(super) async fn place(
     mut page: Page<'_>,
 ) -> Result<Placed, anyhow::Error> {
     let signed_in = state.viewer.session.is_some();
-    let side = state.frame.skin.manifest.frame.nav == crate::skins::manifest::Nav::Side;
     let sources = page
         .kind
         .places()
         .into_iter()
-        .filter(|place| *place != Place::SideNav || side)
+        .filter(|place| *place != Place::SideNav)
         .flat_map(|place| blocks_of(state, place))
         .any(|block| matches!(block.kind, Kind::Source(_) | Kind::Core(Core::NavBoards)));
     let blocked = match (page.blocked.take(), &state.viewer.session) {
@@ -357,7 +450,8 @@ pub(super) async fn place(
     let mut placed = Placed::default();
     let mut shown = 0;
     for place in page.kind.places() {
-        if place == Place::SideNav && !side {
+        // The side navigation belongs to the frame ([`side_nav`]).
+        if place == Place::SideNav {
             continue;
         }
         for block in blocks_of(state, place) {

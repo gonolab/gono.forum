@@ -1,0 +1,24 @@
+# A test fixture for the frame of external skins (docs/skins.md, "Frame"): side navigation instead of the header's
+# boards. Inspired by the NodeBB research prototype "Atrium" (branch claude/nodebb-css-research-0bf3f0); see skin.css.
+contract = 1
+id = "atrium"
+version = "1.0.0"
+name = { en = "Atrium" }
+description = { en = "Side navigation without the header's boards (test fixture)" }
+author = "Gono Forum tests"
+license = "MIT OR Apache-2.0"
+
+[palettes]
+default = "main"
+
+[frame]
+nav = "side"
+header_boards = false
+avatar_shape = "circle"
+
+[layout]
+# The note's Simplified Chinese text is written as escapes: "New here? Read the rules first."
+"side.nav" = [
+  { id = "side-boards", source = "nav-boards" },
+  { id = "side-note", source = "markdown", title = { key = "block-title-notice" }, body = { en = "New here? Read the **rules** first.", zh-CN = "\u65b0\u6765\u7684\uff1f\u5148\u8bfb\u4e00\u4e0b**\u7248\u89c4**\u3002" } },
+]

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="{{ p.t.tag() }}"{% if p.t.is_rtl() %} dir="rtl"{% endif %} data-base="{{ crate::site::base() }}" data-skin="{{ p.skin.id() }}" data-skin-source="{{ p.skin.source.as_str() }}" data-palette="{{ p.palette }}" data-nav="{{ p.skin.manifest.frame.nav_attribute() }}" data-header-boards="{{ p.skin.manifest.frame.header_boards }}"{% if let Some(shape) = p.avatar_shape %} data-avatar-shape="{{ shape }}"{% endif %}>
+<html lang="{{ p.t.tag() }}"{% if p.t.is_rtl() %} dir="rtl"{% endif %} data-base="{{ crate::site::base() }}" data-skin="{{ p.skin.id() }}" data-skin-source="{{ p.skin.source.as_str() }}" data-palette="{{ p.palette }}" data-nav="{{ p.nav_attribute() }}" data-header-boards="{{ p.header_boards() }}"{% if let Some(shape) = p.avatar_shape %} data-avatar-shape="{{ shape }}"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -115,9 +115,20 @@
   </div>
 </div>
 {%- endif %}
+{#- Under a skin with side navigation (docs/skins.md, "Side navigation") the side.nav blocks and the main region share
+    the page width; frame.css folds the side navigation into the header drawer from 1099px down. #}
+{%- if p.side %}
+<div class="site-frame container">
+  <div class="side-nav" data-side-nav>{% for html in p.side_nav() %}{{ html|safe }}{% endfor %}</div>
+<main class="site-main site-frame__main" id="main" tabindex="-1">
+{%- else %}
 <main class="container site-main" id="main" tabindex="-1">
+{%- endif %}
 {% block content %}{% endblock %}
 </main>
+{%- if p.side %}
+</div>
+{%- endif %}
 <footer class="colophon">
   <div class="colophon__inner container">{% if !p.places.footer.is_empty() %}<div class="colophon__blocks">{% for html in p.places.footer %}{{ html|safe }}{% endfor %}</div>{% endif %}
     <nav class="colophon__nav" aria-label="{{ p.t.frame_footer_nav() }}">

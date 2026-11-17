@@ -203,6 +203,8 @@ pub enum Problem {
     ManifestUnsupported {
         field: String,
     },
+    /// `frame.nav = "side"` without blocks in the `side.nav` place of the skin's `[layout]`.
+    ManifestSideNav,
     /// The manifest's `[layout]` breaks a rule of layouts (docs/skins.md, "Places and blocks"): the field's path
     /// and the problem's code.
     ManifestLayout {
@@ -337,6 +339,7 @@ impl Problem {
             Self::ManifestText { field } => t.skin_manifest_text(field.as_str()),
             Self::ManifestValue { field } => t.skin_manifest_value(field.as_str()),
             Self::ManifestUnsupported { field } => t.skin_manifest_unsupported(field.as_str()),
+            Self::ManifestSideNav => t.skin_manifest_side_nav().into(),
             Self::ManifestLayout { path, problem } => t.skin_manifest_layout(
                 crate::layout::LayoutError::from_code(path, problem).message(t),
             ),
@@ -767,6 +770,7 @@ fn design_variable(name: &str) -> Option<&'static [&'static str]> {
         "--r-pill" => &["9999px"],
         "--container" => &["1200px"],
         "--sidebar-w" => &["260px", "220px"],
+        "--side-nav-w" => &["200px"],
         "--gap" => &["20px", "16px"],
         "--post-image-max" => &["720px"],
         "--masthead-h" | "--sticky-top" | "--safe-top" | "--safe-right" | "--safe-bottom"

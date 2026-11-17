@@ -45,7 +45,9 @@
     </details>
     <a class="masthead__brand" href="{{ crate::site::base() }}/" translate="no">{% if !p.logo.is_empty() %}<img class="masthead__logo" src="{{ crate::site::href(p.logo) }}" alt="">{% endif %}{{ p.brand_name }}</a>
     {#- Each board may appear twice, inline and in "More"; data-fit (the lowest width tier that keeps it inline) and data-until
-        let frame.css show exactly one copy at any width. #}
+        let frame.css show exactly one copy at any width. A skin with side navigation may leave the header's boards out
+        (frame.header_boards); the drawer still lists them. #}
+    {%- if p.header_boards() %}
     <nav class="masthead__boards" aria-label="{{ p.t.frame_forum_nav() }}">
       <ul class="masthead__board-list">
         {%- for link in p.navigation %}{% if link.fit > 0 %}
@@ -69,6 +71,7 @@
       </details>
       {%- endif %}
     </nav>
+    {%- endif %}
     <form class="masthead__search" role="search" method="get" action="{{ crate::site::base() }}/search" hx-push-url="true">
       <label class="sr-only" for="site-search">{{ p.t.frame_search_label() }}</label>
       <input class="masthead__query" id="site-search" type="search" name="q" placeholder="{{ p.t.frame_search_placeholder() }}" maxlength="{{ p.search_max_length() }}" value="{{ p.query }}">
