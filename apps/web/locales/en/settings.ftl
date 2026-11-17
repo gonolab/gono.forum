@@ -200,6 +200,9 @@ settings-reading-save = Save reading preferences
 settings-device = This device
 settings-device-lead = Saved only in this browser, not with your account.
 settings-emoji-zoom = Enlarge emoji in posts on mouse hover
+# Reading progress kept in this browser (docs/skins.md, "Unread"); clearing it forgets only this account's progress.
+settings-read-progress-lead = Thread lists mark the threads with posts you have not seen, from what you read in this browser. Clearing forgets what this account read here; everything posted until then counts as read.
+settings-read-progress-clear = Clear reading progress on this device
 settings-style-lead = Your personal style applies only while you browse; nobody else sees it, including visitors to your profile. This page, the admin area, account security, login, two-step verification and similar pages do not use it, so you can always come back here to fix it.
 # $max is the size limit in KiB.
 settings-style-max = Up to { $max } KiB.

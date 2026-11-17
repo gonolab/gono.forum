@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="htmx-config" content='{"allowEval":false,"includeIndicatorStyles":false,"historyCacheSize":0}'>
   <meta name="csp-nonce" content="{{ p.nonce }}">
+  {#- Whose reading state site.js keeps in this browser: the member's uid, 0 for visitors (docs/skins.md, "Unread"). #}
+  <meta name="gonof-reader" content="{{ p.uid }}">
   <meta name="composer-published" content="{{ p.published }}">
   <title>{{ p.title }}</title>
   {% if !p.description.is_empty() %}<meta name="description" content="{{ p.description }}">{% endif %}

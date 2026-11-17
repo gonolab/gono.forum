@@ -67,10 +67,10 @@
         {%- include "partials/cross_pins.html" %}
 
         {#- navigation.js restores the scroll position from the first [data-scroll-list]; every link of a row must sit inside its [data-thread-id] item.
-            The row's class names, data attributes and [data-optional] elements are the skin hooks of docs/skins.md, "List rows". #}
+            The row's class names, data attributes and [data-optional] elements are the skin hooks of docs/skins.md, "List rows"; site.js marks unread rows from data-maxposition and the row's time (docs/skins.md, "Unread"). #}
         <ul class="rows rows--topics" aria-label="{{ p.t.home_thread_list() }}" data-scroll-list>
           {%- for row in rows %}
-          <li class="rows__item{% if row.thread.pinned && !pinned_view %} rows__item--pinned{% endif %}" data-thread-id="{{ row.thread.id }}" data-board="{{ row.thread.fid }}"{% if !row.thread.kind_code().is_empty() %} data-kind="{{ row.thread.kind_code() }}"{% endif %}{% let state = row.thread.state_tokens() %}{% if !state.is_empty() %} data-state="{{ state }}"{% endif %}>
+          <li class="rows__item{% if row.thread.pinned && !pinned_view %} rows__item--pinned{% endif %}" data-thread-id="{{ row.thread.id }}" data-maxposition="{{ row.thread.max_position }}" data-board="{{ row.thread.fid }}"{% if !row.thread.kind_code().is_empty() %} data-kind="{{ row.thread.kind_code() }}"{% endif %}{% let state = row.thread.state_tokens() %}{% if !state.is_empty() %} data-state="{{ state }}"{% endif %}>
             <span class="row-avatar">{% let avatar = row.avatar %}{% include "partials/avatar.html" %}</span>
             <div class="row-body">
               <div class="row-headline">

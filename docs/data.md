@@ -115,7 +115,7 @@ directory home").
 | `glyph` | A built-in glyph name or `null`. |
 | `access` | `public` or `members`. |
 | `counts` | With `counts`: `{"threads", "today"}` (threads, and posts today, of the board with its child boards), for boards anonymous visitors can read; `null` otherwise, since board statistics count public content only. |
-| `last_post` | With `last_post`: `{"tid", "title", "href", "at", "member", "summary"}` for the board's newest listed thread by last activity (`member` its last poster, `summary` the last reply's excerpt or `null` for a thread without replies), or `null`; also `null` when the visitor blocked that poster. |
+| `last_post` | With `last_post`: `{"tid", "title", "href", "at", "member", "summary", "max_position"}` for the board's newest listed thread by last activity (`member` its last poster, `summary` the last reply's excerpt or `null` for a thread without replies, `max_position` its highest floor number), or `null`; also `null` when the visitor blocked that poster. |
 | `children` | The child boards the visitor sees (Boards). |
 
 ### `members.recent`

@@ -154,6 +154,8 @@ pub struct LastPost {
     pub at: Time,
     pub member: MemberRef,
     pub summary: Option<String>,
+    /// The thread's highest floor number, for comparing with the floor a reader saw last.
+    pub max_position: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]

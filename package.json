@@ -8,7 +8,8 @@
     "build:styles": "node scripts/build-styles.mjs",
     "build": "npm run build:styles && npm run build:editor",
     "test:screens": "playwright test tests/e2e/screens.spec.js",
-    "test:checks": "playwright test tests/e2e/checks.spec.js"
+    "test:checks": "playwright test tests/e2e/checks.spec.js",
+    "test:unread": "playwright test tests/e2e/unread.spec.js --project=desktop-light"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

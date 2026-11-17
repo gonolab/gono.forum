@@ -1,7 +1,7 @@
 //! The page data block (docs/skins.md, "Page data"): one `<script type="application/json" id="gonof-page">` in the
 //! head of every page built on `layout/base.html`, for page scripts and skins. It carries only what the page itself
 //! shows (the page's ids, its floors' positions and times, the site's own words, the records of its data-source
-//! blocks as this visitor sees them) and nothing personal: no `me.*` source, nothing a page shows only to its viewer.
+//! blocks as this visitor sees them, the latest threads of the board directory) and nothing personal: no `me.*` source, nothing a page shows only to its viewer.
 //!
 //! Version 1 only grows: a new field is added with a value on every page (`null` where it does not apply), and
 //! removing or changing a field means a new `v`.
@@ -49,6 +49,9 @@ pub(super) struct ThreadData {
     /// The floors on this page in page order: the opening post first, then each reply and, in the nested view, its
     /// nested replies after it.
     floors: Vec<Floor>,
+    /// The highest floor such that every floor up to it is on this page or an earlier page of the view: what opening
+    /// this page counts as having read (docs/skins.md, "Unread").
+    read_through: usize,
 }
 
 /// One floor of a thread page.
@@ -86,6 +89,25 @@ struct Block<'a> {
     /// The envelopes of the page's data-source blocks by block id (docs/data.md), as the blocks show them; empty on
     /// pages without places.
     blocks: &'a serde_json::Map<String, serde_json::Value>,
+    /// The boards of the board directory a home page opens with, in its order, with their latest threads; `null` on
+    /// every other page.
+    directory: Option<Vec<DirectoryBoard>>,
+}
+
+/// One board of the board directory, for comparing its latest thread with what the reader saw (docs/skins.md,
+/// "Unread").
+#[derive(Serialize)]
+struct DirectoryBoard {
+    fid: i64,
+    last_post: Option<DirectoryPost>,
+}
+
+/// The latest thread of a directory board: its id, last activity (UTC, as in `<time datetime>`) and highest floor.
+#[derive(Serialize)]
+struct DirectoryPost {
+    tid: i64,
+    at: String,
+    max_position: i64,
 }
 
 /// The site's own words and settings that scripts need to write text and dates like the server does.
@@ -140,6 +162,7 @@ impl PageData {
         thread: &crate::content::Thread,
         (page, pages): (usize, usize),
         floors: Vec<Floor>,
+        read_through: usize,
     ) -> Self {
         Self {
             kind: Kind::Thread,
@@ -150,6 +173,7 @@ impl PageData {
                 replies: thread.reply_count,
                 pages,
                 floors,
+                read_through,
             }),
             ..Self::default()
         }
@@ -178,6 +202,20 @@ impl PageData {
                 date_format: &settings.time.date_format,
             },
             blocks: &p.places.data,
+            directory: p.places.directory.as_ref().map(|directory| {
+                directory
+                    .items
+                    .iter()
+                    .map(|item| DirectoryBoard {
+                        fid: item.board.fid,
+                        last_post: item.board.last_post.as_ref().map(|post| DirectoryPost {
+                            tid: post.tid,
+                            at: post.at.at.clone(),
+                            max_position: post.max_position,
+                        }),
+                    })
+                    .collect()
+            }),
         };
         // Straight to text, not through `serde_json::Value`, so the fields keep the order declared above.
         match serde_json::to_string(&block) {

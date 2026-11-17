@@ -2370,6 +2370,8 @@ struct TopicTemplate<'a> {
     forum_scope_note: &'static str,
     pages: Vec<PageLink>,
     tabs: Vec<Tab>,
+    /// The floor this page counts as read up to ([`read_through`]), written on the replies section for site.js.
+    read_through: usize,
 }
 
 /// The level of a floor's author; empty when there is no author or the author is deleted, and 0 when there is no
@@ -2993,6 +2995,7 @@ async fn topic_response(
         Ok(value) => value,
         Err(error) => return database_error(state, error),
     };
+    let read_position = read_through(thread, &rows, flat, (page, page_count));
     let page_meta = {
         // Kept consistent with the condition for rendering editor/form.html in topic/detail.html.
         // The description takes the first 160 characters of the first post's plain text: inserting the Markdown
@@ -3022,8 +3025,12 @@ async fn topic_response(
             "",
         );
         p.og_type = "article";
-        p.page_data =
-            page_data::PageData::thread(thread, (page, page_count), page_floors(thread, &rows));
+        p.page_data = page_data::PageData::thread(
+            thread,
+            (page, page_count),
+            page_floors(thread, &rows),
+            read_position,
+        );
         // The thread page's canonical and structured data point to the canonical domain of its forum (multi-domain
         // sites).
         let top = state
@@ -3152,6 +3159,7 @@ async fn topic_response(
             })
             .collect(),
         tabs,
+        read_through: read_position,
     };
     if fragment {
         match template.as_reply_fragment().render() {
@@ -3207,6 +3215,34 @@ fn page_floors(thread: &Thread, rows: &[Reply<'_>]) -> Vec<page_data::Floor> {
                 })
         }))
         .collect()
+}
+
+/// The highest floor such that every floor up to it is on this page or an earlier page of the view being read: what
+/// opening this page counts as having read (docs/skins.md, "Unread"). The flat view shows consecutive floors, so it
+/// is the page's highest floor. The nested view pages by top-level reply and shows nested replies under their parent
+/// whenever they were posted, so a late nested reply on an early page says nothing about the top-level replies on
+/// later pages; there it is the page's last top-level reply, every floor before it being on this page or an earlier
+/// one. The last page of either view counts as the whole thread.
+fn read_through(
+    thread: &Thread,
+    rows: &[Reply<'_>],
+    flat: bool,
+    (page, pages): (usize, usize),
+) -> usize {
+    let shown = rows
+        .iter()
+        .flat_map(|row| std::iter::once(row).chain(row.children.iter()))
+        .map(|reply| reply.post.position)
+        .max()
+        .unwrap_or(1);
+    if page >= pages {
+        return shown.max(usize::try_from(thread.max_position).unwrap_or(1));
+    }
+    if flat {
+        shown
+    } else {
+        rows.last().map_or(1, |row| row.post.position)
+    }
 }
 
 fn category_url(mut path: String, category: Option<i64>) -> String {

@@ -478,6 +478,144 @@ document.addEventListener('click', event => {
   card.querySelector('.panel__title')?.focus();
 });
 
+// Unread threads (docs/skins.md, "Unread"): which threads have posts the reader has not seen is kept only in this
+// browser's localStorage and never sent to the server. The key is gonof:<path prefix>:read:<uid>, the uid from
+// <meta name="gonof-reader"> (0 for visitors), so the accounts of one device keep their own and signing out clears
+// nothing. The value is {"since": ms, "threads": {"<tid>": [floor, ms]}}: the starting point, before which everything
+// counts as read (taken the first time, and again after the progress is cleared), and for each thread opened since,
+// the highest floor read and when, for at most readLimit threads (the least recently read are dropped).
+// A thread page records its page data block's thread.read_through, the floor the page counts as read up to (and the
+// replies section's data-read-through after a posted reply swaps it). Topic rows and the board directory's boards
+// compare their highest floor with that, or without a record their last activity with the starting point, and get
+// is-unread, data-unread="N" (N new floors, when known) and a span.row-unread with the words for screen readers.
+const readLimit = 1000;
+const reader = () => {
+  const uid = document.querySelector('meta[name="gonof-reader"]')?.content || '';
+  return /^\d+$/.test(uid) ? uid : '0';
+};
+const readKey = uid => `gonof:${encodeURIComponent(document.documentElement.dataset.base || '/')}:read:${uid}`;
+const floorOf = value => {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? number : 0;
+};
+function pageData() {
+  try { return JSON.parse(document.getElementById('gonof-page')?.textContent || 'null'); } catch { return null; }
+}
+// The latest time the page shows: a new starting point is never earlier, so a first visit marks nothing unread even
+// when this device's clock is behind the server's.
+function latestShown(data) {
+  const times = [
+    ...[...document.querySelectorAll('.rows--topics time.row-meta__time')].map(time => time.getAttribute('datetime')),
+    ...(Array.isArray(data?.thread?.floors) ? data.thread.floors.map(floor => floor?.at) : []),
+    ...(Array.isArray(data?.directory) ? data.directory.map(board => board?.last_post?.at) : []),
+  ].map(text => Date.parse(text || '')).filter(Number.isFinite);
+  return Math.max(Date.now(), ...times);
+}
+function writeRead(uid, state) {
+  try { localStorage.setItem(readKey(uid), JSON.stringify(state)); return true; } catch { return false; }
+}
+// The reader's state, or null when storage cannot be used. A missing or unreadable value starts over at the page's
+// starting point, which is written at once.
+function readRead(uid, data) {
+  let value = null;
+  try { value = localStorage.getItem(readKey(uid)); } catch { return null; }
+  try { value = JSON.parse(value || 'null'); } catch { value = null; }
+  const since = Number(value?.since);
+  if (!Number.isFinite(since) || since <= 0) {
+    const state = { since: latestShown(data), threads: {} };
+    return writeRead(uid, state) ? state : null;
+  }
+  const threads = {};
+  const stored = value.threads && typeof value.threads === 'object' ? value.threads : {};
+  for (const [tid, entry] of Object.entries(stored)) {
+    if (floorOf(tid) && Array.isArray(entry) && floorOf(entry[0]) && Number.isFinite(entry[1])) threads[tid] = [entry[0], entry[1]];
+  }
+  return { since, threads };
+}
+function recordRead(data) {
+  const tid = data?.type === 'thread' ? floorOf(data.tid) : 0;
+  if (!tid) return;
+  const through = Math.max(floorOf(data.thread?.read_through),
+    floorOf(document.getElementById('topic-replies')?.dataset.readThrough));
+  if (!through) return;
+  const uid = reader();
+  const state = readRead(uid, data);
+  if (!state) return;
+  state.threads[tid] = [Math.max(state.threads[tid]?.[0] || 0, through), Date.now()];
+  const ids = Object.keys(state.threads);
+  if (ids.length > readLimit) {
+    ids.sort((a, b) => state.threads[a][1] - state.threads[b][1]);
+    for (const id of ids.slice(0, ids.length - readLimit)) delete state.threads[id];
+  }
+  writeRead(uid, state);
+}
+// null when read, 0 when unread without a count (not opened since the starting point), else the number of new floors.
+// Pages write times to the second, so activity within the second the starting point was taken counts as before it.
+function unreadCount(state, tid, highest, at) {
+  const entry = state.threads[tid];
+  if (entry) return highest > entry[0] ? highest - entry[0] : null;
+  return at > state.since ? 0 : null;
+}
+function markUnread(item, title, count) {
+  const unread = count !== null;
+  item.classList.toggle('is-unread', unread);
+  if (unread && count > 0) item.dataset.unread = String(count);
+  else delete item.dataset.unread;
+  let words = title.parentElement.querySelector(':scope > .row-unread');
+  if (!unread) { words?.remove(); return; }
+  if (!words) {
+    words = document.createElement('span');
+    words.className = 'row-unread';
+    title.after(words);
+  }
+  words.textContent = count > 0 ? t('js-unread-replies', { count }) : t('js-unread');
+}
+function showUnread(data) {
+  const rows = [...document.querySelectorAll('.rows--topics > [data-thread-id][data-maxposition]')];
+  const boards = Array.isArray(data?.directory) ? data.directory : [];
+  const directory = document.querySelector('[data-board-directory]');
+  if (!rows.length && !(directory && boards.length)) return;
+  const state = readRead(reader(), data);
+  if (!state) return;
+  for (const row of rows) {
+    const title = row.querySelector('.row-title');
+    const tid = floorOf(row.dataset.threadId);
+    if (!title || !tid) continue;
+    const at = Date.parse(row.querySelector('time.row-meta__time')?.getAttribute('datetime') || '');
+    markUnread(row, title, unreadCount(state, tid, floorOf(row.dataset.maxposition), at));
+  }
+  for (const board of boards) {
+    const fid = floorOf(board?.fid);
+    const item = fid ? directory?.querySelector(`.board-dir__item[data-board="${fid}"]`) : null;
+    const title = item?.querySelector('.board-dir__last-title');
+    if (!title) continue;
+    const post = board.last_post;
+    const tid = floorOf(post?.tid);
+    markUnread(item, title, tid ? unreadCount(state, tid, floorOf(post.max_position), Date.parse(post.at || '')) : null);
+  }
+}
+function syncUnread() {
+  const data = pageData();
+  recordRead(data);
+  showUnread(data);
+}
+document.addEventListener('DOMContentLoaded', syncUnread);
+// Boosted navigation (a new page and page data block), paging, and the replies section a posted reply swaps in.
+document.addEventListener('htmx:afterSettle', syncUnread);
+// Another tab of this site read a thread or cleared the progress.
+addEventListener('storage', event => {
+  if (event.key === null || event.key === readKey(reader())) showUnread(pageData());
+});
+// "Clear reading progress on this device" in the reading preferences: forgets this account's state here; the next
+// list or thread page starts over from that moment.
+document.addEventListener('click', event => {
+  const button = event.target instanceof Element ? event.target.closest('[data-read-clear]') : null;
+  if (!button) return;
+  try { localStorage.removeItem(readKey(reader())); } catch { return; }
+  const status = button.parentElement?.querySelector('[data-read-status]');
+  if (status) status.textContent = t('js-read-cleared');
+});
+
 // Emoji zoom on hover: a per-device switch (localStorage, off by default), not stored in the database and not tied
 // to the account.
 // When on, emoji characters in post bodies are wrapped in span.emoji--large, leaving code and already wrapped ones
@@ -517,7 +655,7 @@ function wrapEmoji() {
   }
 }
 function showEmojiZoomSetting() {
-  const panel = document.querySelector('[data-emoji-zoom-setting]');
+  const panel = document.querySelector('[data-device-settings]');
   const toggle = panel?.querySelector('[data-emoji-zoom-toggle]');
   if (!toggle) return;
   try { localStorage.getItem(emojiZoomKey); } catch { return; }

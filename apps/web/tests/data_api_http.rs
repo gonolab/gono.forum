@@ -184,6 +184,39 @@ async fn every_source_returns_the_fields_docs_data_md_lists() {
             assert_eq!(&keys(item), fields, "{path}: {item}");
         }
     }
+    // A board's latest thread carries its highest floor, for comparing with the floor a reader saw last.
+    let boards = site
+        .get("/data/v1/boards?last_post=true", Some(&site.member))
+        .await
+        .json();
+    let mut latest = 0;
+    for board in boards["items"].as_array().unwrap() {
+        let Some(post) = board["last_post"].as_object() else {
+            continue;
+        };
+        assert_eq!(
+            post.keys().map(String::as_str).collect::<BTreeSet<_>>(),
+            BTreeSet::from([
+                "tid",
+                "title",
+                "href",
+                "at",
+                "member",
+                "summary",
+                "max_position"
+            ]),
+            "{board}"
+        );
+        let highest = site
+            .scalar(&format!(
+                "SELECT maxposition FROM gonof_forum_thread WHERE tid={}",
+                post["tid"]
+            ))
+            .await;
+        assert_eq!(post["max_position"], highest, "{board}");
+        latest += 1;
+    }
+    assert!(latest > 0, "{boards}");
     site.services.cleanup().await.unwrap();
 }
 

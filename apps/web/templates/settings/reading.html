@@ -56,5 +56,6 @@
   <p class="form-note">{{ p.t.settings_reading_zone() }}</p>
   <div class="form-actions"><button class="button" type="submit">{{ p.t.settings_reading_save() }}</button></div>
 </form></div>
-<div class="panel" data-emoji-zoom-setting hidden><h2 class="panel__title">{{ p.t.settings_device() }}</h2><p>{{ p.t.settings_device_lead() }}</p><div class="checkline"><label class="checkline__label"><input type="checkbox" data-emoji-zoom-toggle><span>{{ p.t.settings_emoji_zoom() }}</span></label></div></div>
+{#- Per-device settings kept in localStorage; site.js reveals the panel when storage works (both need JavaScript). The reading progress is the unread state of docs/skins.md, "Unread". #}
+<div class="panel" data-device-settings hidden><h2 class="panel__title">{{ p.t.settings_device() }}</h2><p>{{ p.t.settings_device_lead() }}</p><div class="checkline"><label class="checkline__label"><input type="checkbox" data-emoji-zoom-toggle><span>{{ p.t.settings_emoji_zoom() }}</span></label></div><p>{{ p.t.settings_read_progress_lead() }}</p><div class="form-actions"><button class="button button--small button--secondary" type="button" data-read-clear>{{ p.t.settings_read_progress_clear() }}</button><span class="form-note" role="status" data-read-status></span></div></div>
 </section>{% endblock %}

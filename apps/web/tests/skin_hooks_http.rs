@@ -251,6 +251,26 @@ async fn list_rows_carry_their_classes_states_and_optional_elements() {
     );
     assert!(row(&home, LOCKED_POLL).contains("<span class=\"sr-only\">Locked</span>"));
 
+    // The highest floor, for site.js to compare with what the reader saw (docs/skins.md, "Unread").
+    for tid in [PINNED, FEATURED, LOCKED_POLL, PLAIN, SITE_PIN] {
+        let highest = scalar(
+            &services.db,
+            &format!("SELECT maxposition FROM gonof_forum_thread WHERE tid={tid}"),
+        )
+        .await;
+        assert!(
+            opening_tag(row(&home, tid)).contains(&format!(
+                "data-thread-id=\"{tid}\" data-maxposition=\"{highest}\" "
+            )),
+            "{tid}"
+        );
+    }
+    assert!(opening_tag(row(&home, FEATURED)).contains("data-maxposition=\"79\""));
+    // Nothing is unread on the server: site.js adds the marks.
+    assert!(!home.contains("is-unread") && !home.contains("row-unread"));
+    // Whose reading state the browser keeps: 0 for visitors.
+    assert!(home.contains("<meta name=\"gonof-reader\" content=\"0\">"));
+
     let plain = row(&home, PLAIN);
     assert!(
         !opening_tag(plain).contains("data-state") && !opening_tag(plain).contains("data-kind")
@@ -266,6 +286,9 @@ async fn list_rows_carry_their_classes_states_and_optional_elements() {
     assert!(opening_tag(pin).contains(&format!("data-board=\"{daily}\"")));
     assert!(opening_tag(pin).contains("data-state=\"pinned\""));
     assert_list_row_hooks(pin);
+    assert!(opening_tag(pin).contains(&format!(
+        "data-thread-id=\"{SITE_PIN}\" data-maxposition=\"7\" "
+    )));
     assert!(pin.contains("<span class=\"row-meta__board\"><a href=\"/daily\">"));
     // The count's number and word in their own elements, reading as before: "6 replies".
     let replies = scalar(
@@ -292,6 +315,7 @@ async fn list_rows_carry_their_classes_states_and_optional_elements() {
     // Search results use the same rows.
     let search = page(&app, "/search?q=RSS", None).await;
     assert_list_row_hooks(row(&search, FEATURED));
+    assert!(opening_tag(row(&search, FEATURED)).contains("data-maxposition=\"79\""));
     services.cleanup().await.unwrap();
 }
 
@@ -376,7 +400,16 @@ async fn the_page_data_block_describes_the_page_and_the_site() {
         ..
     } = site(None).await;
     let fields = [
-        "v", "type", "tid", "fid", "uid", "page", "thread", "site", "blocks",
+        "v",
+        "type",
+        "tid",
+        "fid",
+        "uid",
+        "page",
+        "thread",
+        "site",
+        "blocks",
+        "directory",
     ];
     let site_part = serde_json::json!({
         "name": "Sample Community",
@@ -422,6 +455,8 @@ async fn the_page_data_block_describes_the_page_and_the_site() {
         (Value::Null, 2.into())
     );
     assert_eq!(home["thread"], Value::Null);
+    // Only a home page that opens with the board directory lists it (tests/skin_frame_http.rs).
+    assert_eq!(home["directory"], Value::Null);
 
     let board = block(&page(&app, "/showcase", None).await);
     check(&board, "board");
@@ -482,6 +517,47 @@ async fn the_page_data_block_describes_the_page_and_the_site() {
     services.cleanup().await.unwrap();
 }
 
+/// The floor a thread page counts as read up to (docs/skins.md, "Unread"): every floor up to it is on this page or an
+/// earlier one. Thread 103 has 78 replies, 50 a page: floors 2 to 55 are top-level replies and floors 56 to 79 are
+/// nested under floor 2, so the nested view shows some of them on page 1, beside top-level replies up to 51.
+#[tokio::test]
+async fn a_thread_page_counts_as_read_up_to_its_last_whole_floor() {
+    let Site { app, services, .. } = site(None).await;
+    for (path, expected) in [
+        // Flat: consecutive floors, the page's highest; the last page counts as the whole thread.
+        (format!("/thread-{FEATURED}?view=flat"), 51),
+        (format!("/thread-{FEATURED}-2?view=flat"), 79),
+        // Nested: the page's last top-level reply, although floor 2's nested replies on it go further.
+        (format!("/thread-{FEATURED}"), 51),
+        (format!("/thread-{FEATURED}-2"), 79),
+    ] {
+        let html = page(&app, &path, None).await;
+        let data = block(&html);
+        assert_eq!(data["thread"]["read_through"], expected, "{path}");
+        // The replies section carries it too, for the fragment a posted reply swaps in.
+        assert!(
+            html.contains(&format!(
+                "id=\"topic-replies\" aria-labelledby=\"replies-heading\" data-read-through=\"{expected}\">"
+            )),
+            "{path}"
+        );
+        if path == format!("/thread-{FEATURED}") {
+            let shown = data["thread"]["floors"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|floor| floor["position"].as_i64().unwrap())
+                .max()
+                .unwrap();
+            assert!(
+                shown > 55,
+                "nested replies of floor 2 are on page 1: {shown}"
+            );
+        }
+    }
+    services.cleanup().await.unwrap();
+}
+
 /// Nothing personal: no `me.*` source and nothing about the viewer's account. The blocks' records are what the page
 /// shows this viewer, so with nothing members-only or blocked a member gets the same block as an anonymous visitor.
 #[tokio::test]
@@ -511,6 +587,17 @@ async fn the_page_data_block_has_nothing_personal() {
             member.contains(&format!("data-recent-owner=\"{author}\""))
                 || member.contains("class=\"account-nav"),
             "{path} is rendered for the member"
+        );
+        // The reader's uid is in the head, outside the data block, for the unread state site.js keeps.
+        assert!(
+            member.contains(&format!(
+                "<meta name=\"gonof-reader\" content=\"{author}\">"
+            )),
+            "{path}"
+        );
+        assert!(
+            anonymous.contains("<meta name=\"gonof-reader\" content=\"0\">"),
+            "{path}"
         );
         assert_eq!(
             timeless_block(&anonymous),

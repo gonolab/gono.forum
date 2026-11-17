@@ -709,6 +709,7 @@ fn board_items(
                             at: Time::of(i64::try_from(thread.updated).unwrap_or(0)),
                             member,
                             summary,
+                            max_position: thread.max_position,
                         }
                     }),
                 children: children.into_iter().map(BoardRef::of).collect(),

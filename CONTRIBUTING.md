@@ -99,7 +99,8 @@ npm run build
 npx playwright install chromium          # once
 npm run test:checks                      # no horizontal overflow, no console errors, visible focus, no Chinese on en pages
 npm run test:screens                     # full-page screenshots into .local/visual/<label>/
-npm run test:e2e                         # both, and the update page's wait through an upgrade restart
+npm run test:unread                      # unread marks and the reading state kept in the browser
+npm run test:e2e                         # all of these, and the update page's wait through an upgrade restart
 ```
 
 `checks` and `screens` cover 23 pages in four viewports (1440 and 390 px wide, light and dark).

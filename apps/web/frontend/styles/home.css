@@ -410,6 +410,18 @@
   font-size: 12px;
 }
 
+/* A board whose latest thread is unread (docs/skins.md, "Unread"): the same dot as unread topic rows. */
+.board-dir__item.is-unread .board-dir__last-title::before {
+  content: "";
+  display: inline-block;
+  inline-size: 0;
+  block-size: 0;
+  margin-inline-end: 6px;
+  border: 4px solid var(--accent);
+  border-radius: 50%;
+  vertical-align: 0.12em;
+}
+
 @media (max-width: 760px) {
   .board-strip {
     display: flex;

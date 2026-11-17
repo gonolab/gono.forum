@@ -5,8 +5,8 @@ changes the look on top of that fixed structure, without building anything: pale
 manifest and an optional stylesheet that the forum checks before it uses it. What a skin's stylesheet (and a member's
 personal style, and page scripts) can rely on is a set of public hooks the core templates write on purpose: fixed
 class names, `data-*` attributes for states, raw values next to the formatted ones, optional elements that are output
-but hidden, a page data block, two script events and a declared sticky header height. The first part of this document
-describes skins, the second part ("List rows" onwards) the hooks.
+but hidden, a page data block, two script events, a declared sticky header height and unread marks. The first part
+of this document describes skins, the second part ("List rows" onwards) the hooks.
 
 ## A skin
 
@@ -565,12 +565,15 @@ page 1 of a board (`partials/cross_pins.html`) use `ul.rows.rows--topics`. Each 
 | Attribute | Value |
 | --- | --- |
 | `data-thread-id` | The thread id. Scripts use it too (scroll restoration, the recent threads card). |
+| `data-maxposition` | The thread's highest floor number, the `N` of its last `#floor-N`. `site.js` compares it with the floor the reader last saw ("Unread"). |
 | `data-board` | The `fid` of the thread's own board (a child board, not its parent). |
 | `data-kind` | The thread's category: `bounty`, `redpacket`, `lottery`, `poll` or `news`. Ordinary threads have no `data-kind`. |
 | `data-state` | Space-separated, in this order: `pinned` (at any pin level), `featured`, `closed` (locked). Absent when none applies. Select one state with `[data-state~="closed"]`. |
 
 `data-state` says what the thread is, whatever the list shows: in the "Pinned" view every row is `pinned`, although
 the list leaves out the "Pinned" tag there. `rows__item--pinned` keeps marking the rows the list shows as pinned.
+These attributes are the same for every visitor, so lists stay cacheable; whether a row is unread is added in the
+browser ("Unread").
 
 Inside the row:
 
@@ -677,9 +680,10 @@ added to every page, and removing or changing one means a new `v`.
 | `fid` | The board of a board page; the board of the thread on a thread page. |
 | `uid` | The member whose space this is. |
 | `page` | The page number of a list, a thread or a member's tab. |
-| `thread` | On thread pages, `{"replies", "pages", "floors"}`: the reply count the head shows, the number of pages in the view being read (flat or nested), and the floors of this page in page order, `{"position", "pid", "at"}` each. The opening post comes first on every page; in the nested view each reply is followed by its nested replies. `position` is the `N` of `#floor-N`, `at` the post time in UTC as in `<time datetime>`. Hidden and withdrawn floors are listed too, as the page shows their placeholders. |
+| `thread` | On thread pages, `{"replies", "pages", "floors", "read_through"}`: the reply count the head shows, the number of pages in the view being read (flat or nested), the floors of this page in page order, `{"position", "pid", "at"}` each, and the floor this page counts as read up to ("Unread"). The opening post comes first on every page; in the nested view each reply is followed by its nested replies. `position` is the `N` of `#floor-N`, `at` the post time in UTC as in `<time datetime>`. Hidden and withdrawn floors are listed too, as the page shows their placeholders. |
 | `site` | `{"name", "description", "language", "dir", "base", "credit_name", "index_name", "date_format"}`: this site's name (another domain's own name where it has one), its description, the interface language tag, `ltr` or `rtl`, the path prefix of a forum installed under a sub-path (empty at the root), the names of points and of the activity index, and the date style (`locale`, `ymd-dash`, `ymd-cn` or `mdy-slash`). Empty names and the description are filled with the language's defaults, as on the page. |
 | `blocks` | The page's data-source blocks by block id, each the envelope `/data/v1` would answer with these parameters ([data.md](data.md)), `current` resolved: on the home, board and thread pages; `{}` elsewhere. Core blocks are not data sources and are not listed. |
+| `directory` | On a home page that opens with the board directory ("Board directory home"), its boards in order, `{"fid", "last_post"}` each, `last_post` being `{"tid", "at", "max_position"}` of the board's latest thread (its last activity in UTC and its highest floor) or `null`; `null` on every other page. |
 
 The block describes the page as the server sent it. A boosted navigation (`hx-boost`) brings the new page's block
 with its head; a fragment swapped into the page, such as a reply posted with HTMX, does not change it.
@@ -697,6 +701,46 @@ with its head; a fragment swapped into the page, such as a reply posted with HTM
 document.addEventListener('gonof:ready', start);
 document.addEventListener('gonof:swap', event => { if (event.detail.target === document.body) start(); });
 ```
+
+## Unread
+
+`site.js` marks the threads with posts the reader has not seen, from what was read in this browser. Nothing of it is
+sent to or kept by the server, so it works for visitors too, needs no table, and costs the lists nothing: every row
+carries the same attributes for every visitor. Without JavaScript, or where the browser refuses local storage, nothing
+is marked.
+
+- **Storage.** One `localStorage` entry per reader, `gonof:<path prefix>:read:<uid>` (the prefix URL-encoded, `/` at
+  the root, as for the recent threads card), with the uid from `<meta name="gonof-reader">`, `0` for visitors. The
+  accounts of one browser keep separate entries and signing out clears none. The value is
+  `{"since": <ms>, "threads": {"<tid>": [<floor>, <ms>]}}`: the starting point, and for each thread opened since then
+  the highest floor read and when. At most 1,000 threads are kept; the least recently read go first.
+- **Starting point.** The first list, directory or thread page the reader opens in a browser writes the starting point:
+  now, or the latest time the page shows if this device's clock is behind. Everything before it counts as read, so a
+  new device does not mark the whole forum.
+- **Reading.** Opening a thread page records the page data block's `thread.read_through` for the thread, keeping the
+  higher of it and the floor already recorded. It is the highest floor such that every floor up to it is on this page
+  or an earlier one of the view being read: the page's highest floor in the flat view; in the nested view, which pages
+  by top-level reply and shows nested replies under their parent whenever they were posted, the page's last top-level
+  reply; and on the last page of either view the thread's highest floor. A boosted navigation brings the new page's
+  block; a reply posted with HTMX swaps the replies section, whose `data-read-through` carries the value for its page.
+- **Marking.** A topic row (the lists of "List rows", cross-forum pins included, also after boosted navigation and
+  paging) is unread when its `data-maxposition` is above the recorded floor, the difference being the number of new
+  floors (nested replies included, hidden ones too); a thread without a record is unread when its last activity
+  (`time.row-meta__time`) is after the starting point, with no number. A board of the board directory is unread when
+  its latest thread is, by the same rules on the page data block's `directory`; only the latest thread of each board
+  is looked at, so this is approximate. Other lists and data-source blocks are not marked.
+- **Hooks.** An unread row (`li.rows__item`) or directory board (`li.board-dir__item`) gets the class `is-unread`, and
+  `data-unread="<N>"` when the number of new floors is known. A `span.row-unread` after its title (`.row-title`,
+  `.board-dir__last-title`) holds the words, "3 new replies" or "Unread", hidden on screen like `sr-only` but in the
+  core layer, so a skin may show it. Read rows lose all three. The default look draws an 8px dot in `--accent` before
+  the title.
+- **Clearing.** The reading preferences (`/my/reading`, "This device") offer **Clear reading progress on this device**,
+  which removes the signed-in member's entry; the next list or thread page writes a new starting point, so everything
+  until then counts as read. Visitors clear it with the browser's site data. Other browser tabs of the site follow
+  changes through the `storage` event.
+
+Two devices do not share what was read, and there is no "unread only" list or unread count on the server; those
+would need the server to keep reading state.
 
 ## Sticky header
 

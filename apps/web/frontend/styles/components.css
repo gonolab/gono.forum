@@ -1,4 +1,4 @@
-/* Shared components: fields, field, checkline, option-group, form-note, form-feedback, form-actions, control, button, panel, narrow-page, intro, callout, provider-list, auth-fallback, tabs, list-toolbar, section-tabs, rows and row-* (row-labels, row-icon), tag, board-chip, meta-glyph, unread-dot, empty, layout, mini-list, site-stats, newcomers, friend-links, person, person-card, tally. */
+/* Shared components: fields, field, checkline, option-group, form-note, form-feedback, form-actions, control, button, panel, narrow-page, intro, callout, provider-list, auth-fallback, tabs, list-toolbar, section-tabs, rows and row-* (row-labels, row-icon, row-unread), tag, board-chip, meta-glyph, unread-dot, empty, layout, mini-list, site-stats, newcomers, friend-links, person, person-card, tally. */
 
 /* ------------------------------------------------------------------ */
 /* Form layout                                                         */
@@ -840,7 +840,9 @@ select.control:dir(rtl) {
   background: var(--panel-hover);
 }
 
-.rows__item.is-unread {
+/* Unread notifications. Thread rows marked unread by site.js carry is-unread too and look different ("Unread
+   threads" below). */
+.rows__item.is-unread[data-notification-id] {
   background: var(--accent-soft);
 }
 
@@ -924,8 +926,33 @@ a.row-title:hover {
   text-decoration: underline;
 }
 
-.rows__item.is-unread .row-title {
+.rows__item.is-unread[data-notification-id] .row-title {
   font-weight: 600;
+}
+
+/* Unread threads (docs/skins.md, "Unread"): site.js marks a topic row is-unread from what this browser read, and the
+   default look puts a dot before its title. The dot is drawn with a border, so forced colors keep it. */
+.rows--topics .rows__item.is-unread .row-title::before {
+  content: "";
+  display: inline-block;
+  inline-size: 0;
+  block-size: 0;
+  margin-inline-end: 6px;
+  border: 4px solid var(--accent);
+  border-radius: 50%;
+  vertical-align: 0.12em;
+}
+
+/* The words site.js writes after an unread title ("3 new replies", "Unread"): hidden on screen like sr-only and read
+   by screen readers, but in the core layer, so a skin can show them. */
+.row-unread {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* Content the reader can no longer open: plain text, not a link. */

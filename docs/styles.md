@@ -292,7 +292,8 @@ Six components carry most pages. Use them rather than writing page-specific mark
   `row-avatar`, then `row-body` with `row-headline` (`row-labels` around the tags, `row-title`, `row-pages`) and
   `row-meta` (its items named `row-meta__*`), then optional `row-end` or `row-actions`. An empty list is `li.empty`.
   Counts with a word are `stat` with `stat__value` and `stat__label`. The data attributes of topic rows are in
-  [skins.md](skins.md), "List rows".
+  [skins.md](skins.md), "List rows". `site.js` marks unread topic rows `is-unread`, which draws a dot before the
+  title, and unread notifications carry `is-unread` from the server ([skins.md](skins.md), "Unread").
 - **Aside cards.** `section.panel.panel--aside` with `h2.panel__title` and the card's content, for example `mini-list`
   (`__title`, `__count`, `__empty`). They sit in `layout__aside`; add `panel--keep` to a card that should stay on
   phones.
@@ -406,7 +407,8 @@ npm run build
 npx playwright install chromium   # once
 npm run test:checks               # tests/e2e/checks.spec.js
 npm run test:screens              # tests/e2e/screens.spec.js
-npm run test:e2e                  # both
+npm run test:unread               # tests/e2e/unread.spec.js
+npm run test:e2e                  # all of them
 ```
 
 They start throwaway local sites (`tests/e2e/support/instance.js`): SQLite in a temporary directory, Redis off,
@@ -420,6 +422,10 @@ Redis or a remote host. The pages are listed in `tests/e2e/support/pages.js`, an
   English page (apart from a language's own name and the sample Chinese date format).
 - `test:screens` takes full-page screenshots on the English and Chinese sites into
   `.local/visual/<label>/<language>/<viewport>/`, where the label is `GONOF_VISUAL_LABEL` (default `latest`).
+- `test:unread` checks the unread marks ([skins.md](skins.md), "Unread") at 1440px light, on an English site of its
+  own because it posts replies and changes the home page: the starting point, reading page N in both views, new
+  replies with and without a number, the 1,000-thread limit, separate visitor and member state, clearing it in the
+  reading preferences, the board directory, and pages without JavaScript.
 - With `GONOF_E2E_SKIN` set to a skin pack (`gono-forum-cli skin pack <dir> --output=<file>`), both sites import it
   through `/manage/skins`, confirming its warnings, and use it before the checks and screenshots run. The Ledger test
   fixture (`tests/fixtures/skins/ledger`) is an imported skin with warnings to try this with; the Atrium fixture

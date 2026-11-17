@@ -274,9 +274,10 @@ The templates also write hooks for stylesheets and scripts that are not part of 
 
 - **Page data block.** `layout/base.html` writes `<script type="application/json" id="gonof-page">` into every page's
   head (`router/page_data.rs`): the kind of page, its ids and page number, on thread pages the floors with their
-  positions, pids and times, the site's name, language, direction, path prefix, points and index names and date
-  style, and the records of the page's data-source blocks. It carries nothing personal, and its JSON is escaped like
-  the JSON-LD blocks.
+  positions, pids and times and the floor the page counts as read up to, the site's name, language, direction, path
+  prefix, points and index names and date style, the records of the page's data-source blocks, and on a board
+  directory home its boards' latest threads. It carries nothing personal, and its JSON is escaped like the JSON-LD
+  blocks.
 - **Places and blocks.** The asides, page heads and footer of the home, board and thread pages are places that show
   blocks: data sources with a view, or core cards (`layout.rs`, `router/blocks.rs`, `templates/blocks/`). The domain's
   layout document, the site's, the skin's manifest and the core default layout decide them place by place; the core
@@ -286,6 +287,9 @@ The templates also write hooks for stylesheets and scripts that are not part of 
   documents may choose too) and built-in behavior modules; `<html>` carries the choices as `data-*` attributes.
 - **Script events.** `site.js` dispatches `gonof:ready` on `document` when the page has loaded and `gonof:swap` after
   every HTMX swap has settled.
+- **Unread.** `site.js` keeps what the reader read in the browser's `localStorage`, per account and never on the
+  server, and marks unread topic rows and directory boards `is-unread` from the rows' `data-maxposition` and last
+  activity ([skins.md](skins.md), "Unread").
 - **Declared header height.** `--sticky-top` is the height the sticky header covers, declared in CSS; scroll margins,
   sticky asides, the thread page's reading-position tracker (`site.js`) and list scroll restoration (`navigation.js`)
   all use it rather than measuring the header.

@@ -134,6 +134,16 @@ js-time-hours-ago =
         [one] { $n } hour ago
        *[other] { $n } hours ago
     }
+# Unread threads in lists (docs/skins.md, "Unread"): the words after an unread title, for screen readers (a skin may
+# show them), with the number of new replies when the reader opened the thread before; and the status after the
+# reading progress on this device was cleared in the reading settings.
+js-unread = Unread
+js-unread-replies =
+    { $count ->
+        [one] { $count } new reply
+       *[other] { $count } new replies
+    }
+js-read-cleared = Reading progress on this device cleared
 # The title of an embedded video player when the page gives none.
 js-video-title = YouTube video
 # The debug panel (debug.js): the status next to a query's copy button after copying it, and when the browser does

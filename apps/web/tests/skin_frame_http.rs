@@ -49,6 +49,13 @@ header_boards = false
 ]
 "#;
 
+/// The page data block (docs/skins.md, "Page data").
+fn page_data(html: &str) -> serde_json::Value {
+    let open = "<script type=\"application/json\" id=\"gonof-page\">";
+    let start = html.find(open).expect("the page data block") + open.len();
+    serde_json::from_str(&html[start..start + html[start..].find("</script>").unwrap()]).unwrap()
+}
+
 fn side_nav(html: &str) -> &str {
     let start = html
         .find("<div class=\"side-nav\" data-side-nav>")
@@ -247,6 +254,48 @@ async fn a_skin_may_open_the_home_page_with_the_board_directory() {
     assert!(
         home.body
             .contains("<li class=\"board-dir__item\" data-board=\"")
+    );
+    // The page data block lists its boards in order with their latest threads, for the unread marks of site.js
+    // (docs/skins.md, "Unread"): the thread, its last activity as the directory shows it, and its highest floor.
+    let data = page_data(&home.body);
+    let boards = data["directory"]
+        .as_array()
+        .expect("the directory's boards");
+    let shown: Vec<i64> = home
+        .body
+        .split("<li class=\"board-dir__item\" data-board=\"")
+        .skip(1)
+        .map(|rest| rest[..rest.find('"').unwrap()].parse().unwrap())
+        .collect();
+    let listed: Vec<i64> = boards
+        .iter()
+        .map(|board| board["fid"].as_i64().unwrap())
+        .collect();
+    assert_eq!(listed, shown);
+    let mut latest = 0;
+    for board in boards {
+        let Some(post) = board["last_post"].as_object() else {
+            continue;
+        };
+        let tid = post["tid"].as_i64().unwrap();
+        let highest = site
+            .scalar(&format!(
+                "SELECT maxposition FROM gonof_forum_thread WHERE tid={tid}"
+            ))
+            .await;
+        assert_eq!(post["max_position"], highest, "{board}");
+        let at = post["at"].as_str().unwrap();
+        assert!(
+            home.body.contains(&format!("<time datetime=\"{at}\"")),
+            "{at}"
+        );
+        latest += 1;
+    }
+    assert!(latest > 0, "{data}");
+    // The thread list of page 2 has no directory.
+    assert_eq!(
+        page_data(&site.get("/page-2", None).await.body)["directory"],
+        serde_json::Value::Null
     );
     // A site's own choice wins over the skin's.
     test_support::set_setting(

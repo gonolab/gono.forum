@@ -3,7 +3,7 @@
 {%- if !cross_pins.is_empty() %}
 <ul class="rows rows--topics" aria-label="{{ p.t.home_cross_pins() }}" data-cross-pins>
   {%- for row in cross_pins %}
-  <li class="rows__item rows__item--pinned" data-thread-id="{{ row.thread.id }}" data-board="{{ row.thread.fid }}"{% if !row.thread.kind_code().is_empty() %} data-kind="{{ row.thread.kind_code() }}"{% endif %}{% let state = row.thread.state_tokens() %}{% if !state.is_empty() %} data-state="{{ state }}"{% endif %}>
+  <li class="rows__item rows__item--pinned" data-thread-id="{{ row.thread.id }}" data-maxposition="{{ row.thread.max_position }}" data-board="{{ row.thread.fid }}"{% if !row.thread.kind_code().is_empty() %} data-kind="{{ row.thread.kind_code() }}"{% endif %}{% let state = row.thread.state_tokens() %}{% if !state.is_empty() %} data-state="{{ state }}"{% endif %}>
     <span class="row-avatar">{% let avatar = row.avatar %}{% include "partials/avatar.html" %}</span>
     <div class="row-body">
       <div class="row-headline">

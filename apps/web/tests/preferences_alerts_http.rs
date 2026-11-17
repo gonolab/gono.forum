@@ -811,7 +811,7 @@ async fn reading_preferences_drive_list_sort_title_links_and_permalink_view_with
     // A member who never chose has "follow the site" for every item (the columns are NULL).
     assert!(page.html.contains("name=\"list_sort\" value=\"\" checked"));
     assert!(page.html.contains("Follow the site (now Latest replies)"));
-    assert!(page.html.contains("data-emoji-zoom-setting hidden"));
+    assert!(page.html.contains("data-device-settings hidden"));
     let session = viewer.0["gonof_session"].clone();
     let csrf = f
         .identity
