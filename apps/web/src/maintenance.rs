@@ -6,6 +6,11 @@
 //!   `media.*` and `privacy.*` are never deleted: media quotas and cleanup look up events by `media.process:{aid}`,
 //!   and data requests also advance through event records. The Outbox has no update time column, so it judges by
 //!   `available_at`: the time the event was last queued, which a successful send does not change.
+//!   Because the media and data request events stay for good, the sent events are walked with a cursor kept from
+//!   round to round (`OutboxCursor`), in the order of the `gonof_outbox_delivery` index: a round reads on until it has
+//!   [`BATCH`] candidates or has read [`SCAN`] events, and the next round carries on after the last one read. A new
+//!   pass starts at the end of the range and whenever the process starts; an event the pass has already gone by
+//!   (one whose local file could not be removed, or one sent long after it was queued) is deleted in the next pass.
 //!   For the kinds of events deleted, no later operation inserts the same event key again (checked kind by kind), so
 //!   this never resends the same mail or the same notification.
 //! - `mail/prepared/` drafts: deletes only `.eml` files whose event is already `sent` or `failed` (or whose event row
@@ -71,14 +76,15 @@ pub struct MaintenanceReport {
     pub failed: Vec<&'static str>,
 }
 
-/// At most this many entries of one directory are read per round.
+/// At most this many entries of one directory, or sent Outbox events, are read per round.
 pub const SCAN: usize = 2_000;
 
-/// Cleanup state kept from round to round: the local private directory and how far the walks over the drafts and the
-/// SMS files have got. The worker keeps one and runs one round at a time.
+/// Cleanup state kept from round to round: the local private directory and how far the walks over the sent Outbox
+/// events, the drafts and the SMS files have got. The worker keeps one and runs one round at a time.
 pub struct Maintenance {
     /// `identity.local_directory`: delivered local mail in `mail/`, drafts in `mail/prepared/`, SMS in `sms/`.
     directory: PathBuf,
+    outbox: OutboxCursor,
     mail: DirectoryCursor,
     prepared: DirectoryCursor,
     sms: DirectoryCursor,
@@ -88,6 +94,7 @@ impl Maintenance {
     pub fn new(directory: PathBuf) -> Self {
         Self {
             directory,
+            outbox: OutboxCursor::default(),
             mail: DirectoryCursor::default(),
             prepared: DirectoryCursor::default(),
             sms: DirectoryCursor::default(),
@@ -115,6 +122,7 @@ impl Maintenance {
             purge_outbox(
                 database,
                 &mail_directory,
+                &mut self.outbox,
                 now.saturating_sub(config.outbox_retention_days.saturating_mul(86_400)),
             )
             .await,
@@ -176,6 +184,14 @@ fn settle<T: Default>(failed: &mut Vec<&'static str>, step: &'static str, result
         failed.push(step);
         T::default()
     })
+}
+
+/// How far the walk over the sent Outbox events has got: the `(available_at, lease_until, eventid)` of the last event
+/// read, in the order of `gonof_outbox_delivery`; `None` starts a pass from the oldest. A sent event has `lease_until`
+/// 0, so this is in effect `(available_at, eventid)`; the column is kept so the walk follows the index exactly.
+#[derive(Default)]
+struct OutboxCursor {
+    after: Option<(i64, i64, i64)>,
 }
 
 /// A walk over one directory that carries on from round to round: the open directory stream is kept, so each round
@@ -275,18 +291,52 @@ async fn purge_requests(database: &Database, table: &str, cutoff: i64) -> Result
         .rows_affected())
 }
 
-async fn purge_outbox(database: &Database, mail_directory: &Path, cutoff: i64) -> Result<u64> {
-    // Takes a range via `gonof_outbox_delivery (status, available_at, …)`; deletes by primary key with the condition
-    // checked once more, so rows whose status changed between the two steps are not deleted.
-    let sql = format!(
-        "SELECT eventid FROM gonof_common_outbox FORCE INDEX (gonof_outbox_delivery) WHERE status='sent' AND available_at<? AND event_type IN ({}) LIMIT {BATCH}",
-        vec!["?"; deletable_events().count()].join(",")
-    );
-    let mut query = db::query_scalar(&sql).bind(cutoff);
-    for kind in deletable_events() {
-        query = query.bind(kind);
+async fn purge_outbox(
+    database: &Database,
+    mail_directory: &Path,
+    cursor: &mut OutboxCursor,
+    cutoff: i64,
+) -> Result<u64> {
+    // Walks `gonof_outbox_delivery (status, available_at, lease_until, eventid)` in index order from the cursor, so
+    // the scan stops after SCAN entries instead of reading every sent media and data request event to find the
+    // deletable ones. `event_type` is not in the index and is checked here. The extra `available_at>=?` gives both
+    // engines the start of the range; the OR after it only drops the rows of that first `available_at` up to the
+    // cursor. Deletes by primary key with the condition checked once more, so rows whose status changed between the
+    // two steps are not deleted.
+    let (at, lease, last) = cursor.after.unwrap_or((i64::MIN, i64::MIN, i64::MIN));
+    let rows = db::query(&format!(
+        "SELECT eventid,event_type,available_at,lease_until FROM gonof_common_outbox FORCE INDEX (gonof_outbox_delivery) WHERE status='sent' AND available_at<? AND available_at>=? AND (available_at>? OR lease_until>? OR (lease_until=? AND eventid>?)) ORDER BY available_at,lease_until,eventid LIMIT {SCAN}"
+    ))
+    .bind(cutoff)
+    .bind(at)
+    .bind(at)
+    .bind(lease)
+    .bind(lease)
+    .bind(last)
+    .fetch_all(database.executor())
+    .await?;
+    let mut candidates = Vec::new();
+    let mut read = 0;
+    for row in &rows {
+        read += 1;
+        let eventid: i64 = row.try_get("eventid")?;
+        cursor.after = Some((
+            row.try_get("available_at")?,
+            row.try_get("lease_until")?,
+            eventid,
+        ));
+        let kind = db::text(row, "event_type")?;
+        if deletable_events().any(|deletable| deletable == kind) {
+            candidates.push(eventid);
+            if candidates.len() == BATCH {
+                break;
+            }
+        }
     }
-    let candidates: Vec<i64> = query.fetch_all(database.executor()).await?;
+    if read == rows.len() && rows.len() < SCAN {
+        // The end of the range: the next round starts a new pass from the oldest event.
+        cursor.after = None;
+    }
     // A mail event is the only record of whom its local files are for: account deletion finds `mail/{eventid}.eml`
     // and the draft in `prepared/` through the member's events. So the files go first, and an event whose files
     // cannot be removed stays for the next round.
@@ -752,6 +802,70 @@ mod tests {
             "the delivered mail goes with its event"
         );
         assert!(!draft.exists(), "the draft goes with its event");
+        services.cleanup().await.unwrap();
+    }
+
+    /// The media and data request events are kept for good, so the Outbox step does not read them all again every
+    /// round: it walks the sent events with a cursor, reading at most SCAN per round and carrying on after the last
+    /// one read. An event the pass has gone by waits for the next pass, which starts once the walk reaches the end.
+    #[tokio::test]
+    async fn outbox_cleanup_carries_on_past_the_events_it_keeps() {
+        let services = crate::test_support::TestFixture::migrated().await.unwrap();
+        let db = &services.db;
+        let now = crate::identity::now();
+        let old = now - 31 * 86_400;
+        let config = crate::runtime::settings::tests::seeded().maintenance;
+        // SCAN sent media events, older than the mail queued after them.
+        let media = old - 600;
+        for chunk in (0..SCAN).collect::<Vec<_>>().chunks(BATCH) {
+            let values: Vec<String> = chunk
+                .iter()
+                .map(|n| {
+                    format!("('media.process:{n}','media.process','attachment',{n},'{{}}',{media},{media},'sent')")
+                })
+                .collect();
+            db::query(&format!(
+                "INSERT INTO gonof_common_outbox(event_key,event_type,aggregate_type,aggregate_id,payload,dateline,available_at,status) VALUES {}",
+                values.join(",")
+            ))
+            .execute(db.executor())
+            .await
+            .unwrap();
+        }
+        enqueue(db, "after-media", "password_reset", "sent", old).await;
+        let mut maintenance = Maintenance::new(services.root.join("cursor-local"));
+        let first = maintenance.run(db, &config, now).await;
+        assert_eq!(
+            (first.outbox, first.failed.len()),
+            (0, 0),
+            "the first round reads only the media events"
+        );
+        assert!(exists(db, "after-media").await);
+
+        // Sent long after it was queued, so it sorts before the media events the walk has gone by.
+        enqueue(db, "behind", "notification.email", "sent", media - 600).await;
+        assert_eq!(maintenance.run(db, &config, now).await.outbox, 1);
+        assert!(
+            !exists(db, "after-media").await,
+            "the second round carries on after the media events"
+        );
+        assert!(
+            exists(db, "behind").await,
+            "an event behind the cursor waits for the next pass"
+        );
+
+        assert_eq!(maintenance.run(db, &config, now).await.outbox, 1);
+        assert!(
+            !exists(db, "behind").await,
+            "the walk reached the end, so this round started again from the oldest event"
+        );
+        let media_left: i64 = db::query_scalar(
+            "SELECT COUNT(*) FROM gonof_common_outbox WHERE event_type='media.process'",
+        )
+        .fetch_one(db.executor())
+        .await
+        .unwrap();
+        assert_eq!(media_left, SCAN as i64, "media events are never deleted");
         services.cleanup().await.unwrap();
     }
 
