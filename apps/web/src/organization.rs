@@ -567,6 +567,17 @@ async fn save_forum_with_orphan_seconds_inner(
                 crate::i18n::current().forum_error_children(),
             ));
         }
+        // A forum being merged away is disabled when its job finishes, taking any child forum with it. The merge
+        // request counts child forums under the same lock on this row, so one of the two always sees the other.
+        if active_merges(db, &mut tx)
+            .await?
+            .iter()
+            .any(|(_, task)| task.source == input.parent_fid)
+        {
+            return Err(ContentWriteError::Validation(
+                crate::i18n::current().forum_error_parent_merging(),
+            ));
+        }
     }
     let mut current_icon = None;
     let mut before = None;
@@ -850,6 +861,9 @@ pub const MERGE_BATCH: i64 = 100;
 const MERGE_BATCHES_PER_ROUND: usize = 5;
 /// Lease of the merge job: a batch moves 100 threads with the cascaded forum IDs of their posts, with ample margin.
 const MERGE_LEASE_SECONDS: i64 = 300;
+/// A job whose source is still the target of another job in progress waits this long before it is claimed again;
+/// longer than a worker round, so the job it waits for is claimed in between.
+const MERGE_DEFER_SECONDS: i64 = 30;
 
 /// Parameters of the merge job, stored in the outbox `payload`.
 #[derive(Clone, Debug, Deserialize, serde::Serialize, PartialEq, Eq)]
@@ -1028,7 +1042,8 @@ async fn delete_forum_inner(
 /// worker moves in batches, disabling the source forum once done ([`process_merges`]). Returns the job ID.
 ///
 /// The source forum must not have child forums (move them elsewhere first), one source forum has only one merge job at
-/// a time, and the target cannot be a forum that is being merged away. Thread IDs, post IDs and links are all kept;
+/// a time, the target cannot be a forum that is being merged away, and the source cannot be the target of another job
+/// still in progress. Thread IDs, post IDs and links are all kept;
 /// authors do not receive individual move notifications, and the action log records one start and one completion.
 pub async fn request_merge(
     db: &Database,
@@ -1094,6 +1109,13 @@ async fn request_merge_inner(
         if task.source == target {
             return Err(ContentWriteError::Validation(
                 crate::i18n::current().forum_error_merge_target_busy(),
+            ));
+        }
+        // Merging away a forum another job is still filling: once this job disabled it, the other would keep moving
+        // threads into a disabled forum.
+        if task.target == source {
+            return Err(ContentWriteError::Conflict(
+                crate::i18n::current().forum_error_merge_source_busy(),
             ));
         }
     }
@@ -1171,6 +1193,25 @@ pub async fn process_merges(
                 return Ok(report);
             }
             Ok(MergeStep::Lost) => return Ok(report),
+            Ok(MergeStep::Stopped(moved)) => {
+                report.moved += moved;
+                if moved > 0 {
+                    announce_merge(global, &[crate::cache::Block::Pins]).await;
+                }
+                return Ok(report);
+            }
+            Ok(MergeStep::Deferred) => {
+                // Waiting is not a failure: the attempt the claim counted is given back.
+                db::query("UPDATE gonof_common_outbox SET status='pending',available_at=GREATEST(dateline,?),attempts=?,lease_token=NULL,lease_until=0,last_error=? WHERE eventid=? AND status='processing' AND lease_token=?")
+                    .bind(now.saturating_add(MERGE_DEFER_SECONDS))
+                    .bind(attempts.saturating_sub(1).max(0))
+                    .bind("waiting for another merge into the source forum to finish")
+                    .bind(eventid)
+                    .bind(&lease)
+                    .execute(db.executor())
+                    .await?;
+                return Ok(report);
+            }
             Err(error) => {
                 let description: String = format!("{error:#}").chars().take(1000).collect();
                 tracing::warn!(eventid, attempts, error = %description, "forum merge failed, will retry");
@@ -1268,6 +1309,12 @@ enum MergeStep {
     Finished(u64),
     /// The lease no longer belongs to this round (timed out and claimed by another process); nothing was done.
     Lost,
+    /// The source forum is still the target of another job in progress (a job queued before that was refused, or
+    /// claimed by another process): nothing was moved, and the job goes back to the queue to run after that one.
+    Deferred,
+    /// The job was marked failed after moving this many threads (the source forum gained child forums); the source
+    /// forum stays enabled.
+    Stopped(u64),
 }
 
 async fn merge_batch(
@@ -1291,6 +1338,17 @@ async fn merge_batch(
     {
         return Ok(MergeStep::Lost);
     }
+    // Requests refuse to merge away a forum another job is filling, but a job queued before that rule, or claimed by
+    // another process while the other job runs, still gets here: it waits until the threads have all arrived, or
+    // they would end up in the disabled source.
+    if active_merges(db, &mut tx)
+        .await?
+        .iter()
+        .any(|(other, waiting)| *other != eventid && waiting.target == task.source)
+    {
+        tx.rollback().await?;
+        return Ok(MergeStep::Deferred);
+    }
     let exists = |fid: i64| {
         db::query_scalar::<i64>("SELECT fid FROM gonof_forum_forum WHERE fid=?").bind(fid)
     };
@@ -1300,7 +1358,7 @@ async fn merge_batch(
         .is_some();
     if !source_exists {
         // The source forum is already empty and has been deleted: nothing to move, counts as done.
-        finish_merge(db, &mut tx, eventid, task, 0, false).await?;
+        finish_merge(db, &mut tx, eventid, lease, task, 0, false).await?;
         tx.commit().await?;
         return Ok(MergeStep::Finished(0));
     }
@@ -1350,22 +1408,48 @@ async fn merge_batch(
         tx.commit().await?;
         return Ok(MergeStep::Moved(moved));
     }
-    finish_merge(db, &mut tx, eventid, task, moved, true).await?;
+    let finished = finish_merge(db, &mut tx, eventid, lease, task, moved, true).await?;
     tx.commit().await?;
-    Ok(MergeStep::Finished(moved))
+    Ok(if finished {
+        MergeStep::Finished(moved)
+    } else {
+        MergeStep::Stopped(moved)
+    })
 }
 
 /// The source forum has no threads left: disables it and marks the job done. The caller has already exclusively locked
-/// the source and target forum paths.
+/// the source and target forum paths, so no child forum can be added meanwhile.
+///
+/// Returns false when the source forum has child forums after all (saving a forum refuses a parent that is being
+/// merged away, so only data written another way gets here): disabling it would make them unreachable, so the job is
+/// marked failed instead and the source forum stays enabled; the administrator moves the child forums and retries.
 async fn finish_merge(
     db: &Database,
     tx: &mut Tx<'_>,
     eventid: i64,
+    lease: &str,
     task: &MergeTask,
     moved: u64,
     source_exists: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     if source_exists {
+        let children: i64 =
+            db::query_scalar("SELECT COUNT(*) FROM gonof_forum_forum WHERE parent_fid=?")
+                .bind(task.source)
+                .fetch_one(db.observe(&mut **tx))
+                .await?;
+        if children > 0 {
+            db::query("UPDATE gonof_common_outbox SET status='failed',lease_token=NULL,lease_until=0,last_error=? WHERE eventid=? AND status='processing' AND lease_token=?")
+                .bind("the source forum has child forums; move them elsewhere, then retry the merge task")
+                .bind(eventid)
+                .bind(lease)
+                .execute(db.observe(&mut **tx))
+                .await?;
+            if moved > 0 {
+                crate::content::copies::bump_site(db, tx).await?;
+            }
+            return Ok(false);
+        }
         let status: i64 = db::query_scalar("SELECT status FROM gonof_forum_forum WHERE fid=?")
             .bind(task.source)
             .fetch_one(db.observe(&mut **tx))
@@ -1375,9 +1459,8 @@ async fn finish_merge(
                 .bind(task.source)
                 .execute(db.observe(&mut **tx))
                 .await?;
-            // If someone added child forums to the source forum during the merge, disabling makes them unreadable too:
-            // the read path judges by the process forum cache, so thread rows need not be rewritten;
-            // bumping the site-wide version makes caches everywhere recompute.
+            // The read path judges by the process forum cache, so thread rows need not be rewritten; bumping the
+            // site-wide version makes caches everywhere recompute.
             crate::content::copies::bump_site(db, tx).await?;
         } else if moved > 0 {
             crate::content::copies::bump_site(db, tx).await?;
@@ -1399,7 +1482,7 @@ async fn finish_merge(
     .bind(identity::now())
     .execute(db.observe(&mut **tx))
     .await?;
-    Ok(())
+    Ok(true)
 }
 
 pub async fn move_thread(
