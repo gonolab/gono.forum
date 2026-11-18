@@ -511,10 +511,13 @@ async fn register_page(
     else {
         return redirect(&format!("{LOGIN_PATH}?expired=true"));
     };
-    let form = AuthForm {
+    let mut form = AuthForm {
         return_to: safe_return(&query.return_to),
         ..Default::default()
     };
+    if let Err(error) = show_policies(&state, &mut form).await {
+        return identity_error(&state, error);
+    }
     register_response(&state, &mobile, &form, "", StatusCode::OK)
 }
 
@@ -529,7 +532,7 @@ async fn register(Page(state): Page, headers: HeaderMap, form: CheckedForm<AuthF
     else {
         return redirect(&format!("{LOGIN_PATH}?expired=true"));
     };
-    let form = match form {
+    let mut form = match form {
         CheckedForm::Valid(form) => form,
         CheckedForm::Malformed => {
             return error_page(
@@ -558,8 +561,17 @@ async fn register(Page(state): Page, headers: HeaderMap, form: CheckedForm<AuthF
             StatusCode::UNPROCESSABLE_ENTITY,
         );
     }
-    let consent = match policy_consent(&state).await {
-        Ok(consent) => consent,
+    let consent = match policy_consent(&state, &mut form).await {
+        Ok(Some(consent)) => consent,
+        Ok(None) => {
+            return register_response(
+                &state,
+                &mobile,
+                &form,
+                crate::i18n::current().account_error_terms_updated(),
+                StatusCode::CONFLICT,
+            );
+        }
         Err(error) => return identity_error(&state, error),
     };
     match state

@@ -30,13 +30,17 @@ pub(super) fn landing(request: &Request) -> Option<String> {
         return None;
     }
     // Only public entry points that already matched count. /{segment} covers pagination of forums, threads and lists;
-    // the handler writes the cookie only after confirming the URL exists (including canonical redirects).
+    // the handler writes the cookie only after confirming the URL exists (including canonical redirects). SMS sign-in
+    // is a sign-up page too: a new number goes on to "Finish signing up". `/auth/{provider}` is left out: it is not a
+    // page but the start of an authorization that leaves the site at once, and the sign-in and sign-up pages that link
+    // to it are the places to land on.
     let route = request.extensions().get::<MatchedPath>()?;
     if !matches!(
         route.as_str(),
         "/" | "/{segment}"
             | "/register"
             | "/login"
+            | "/login/sms"
             | "/forums"
             | "/feeds"
             | "/search"
@@ -165,10 +169,12 @@ mod tests {
         }
         let app = Router::new()
             .route("/{segment}", get(check).post(check))
+            .route("/login/sms", get(check))
             .route("/manage", get(check));
         for (method, path, headers, expected) in [
             ("GET", "/thread-1?utm_source=ad", vec![], "ad"),
             ("GET", "/thread-1?utm_source=a&utm_source=b", vec![], ""),
+            ("GET", "/login/sms?utm_source=sms", vec![], "sms"),
             ("GET", "/manage?utm_source=ad", vec![], ""),
             ("POST", "/thread-1?utm_source=ad", vec![], ""),
             (

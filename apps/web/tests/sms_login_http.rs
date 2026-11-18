@@ -374,6 +374,7 @@ async fn sms_login_registers_logs_in_and_enforces_limits() {
         .redirect("/register/mobile");
     let complete = get(&f, "/register/mobile", &mut visitor).await;
     assert_eq!(complete.status, StatusCode::OK);
+    let [terms, privacy] = gono_forum_web::test_support::policy_fields(&complete.html);
     assert!(
         complete
             .html
@@ -399,7 +400,12 @@ async fn sms_login_registers_logs_in_and_enforces_limits() {
         &f,
         "/register/mobile",
         &mut visitor,
-        &[("username", "sms-member"), ("accept_terms", "1")],
+        &[
+            ("username", "sms-member"),
+            ("accept_terms", "1"),
+            (terms.0, &terms.1),
+            (privacy.0, &privacy.1),
+        ],
     )
     .await
     .redirect("/");
@@ -430,7 +436,12 @@ async fn sms_login_registers_logs_in_and_enforces_limits() {
         &f,
         "/register/mobile",
         &mut replay,
-        &[("username", "second-member"), ("accept_terms", "1")],
+        &[
+            ("username", "second-member"),
+            ("accept_terms", "1"),
+            (terms.0, &terms.1),
+            (privacy.0, &privacy.1),
+        ],
     )
     .await;
     assert!(
@@ -539,6 +550,51 @@ async fn sms_login_registers_logs_in_and_enforces_limits() {
     f.services.cleanup().await.unwrap();
 }
 
+/// A referral link straight to SMS sign-in keeps its channel: a new number that finishes signing up there is
+/// recorded with it.
+#[tokio::test]
+async fn a_referral_link_to_sms_login_is_the_registration_source() {
+    let f = Fixture::new().await;
+    let mut visitor = Cookies::default();
+    let landing = get(&f, "/login/sms?utm_source=sms-ad", &mut visitor).await;
+    assert_eq!(landing.status, StatusCode::OK, "{}", landing.html);
+    assert!(
+        visitor
+            .0
+            .keys()
+            .any(|name| name.starts_with("gonof_registration_source")),
+        "the landing sets the channel cookie: {:?}",
+        visitor.0.keys()
+    );
+    sms_login(&f, &mut visitor, MOBILE)
+        .await
+        .redirect("/register/mobile");
+    let page = get(&f, "/register/mobile", &mut visitor).await;
+    let [terms, privacy] = gono_forum_web::test_support::policy_fields(&page.html);
+    post(
+        &f,
+        "/register/mobile",
+        &mut visitor,
+        &[
+            ("username", "sms-referred"),
+            ("accept_terms", "1"),
+            (terms.0, &terms.1),
+            (privacy.0, &privacy.1),
+        ],
+    )
+    .await
+    .redirect("/");
+    let (uid, _, _, _) = f.member("sms-referred").await;
+    let channel: Option<String> =
+        db::query_scalar("SELECT channel FROM gonof_common_member_register WHERE uid=?")
+            .bind(uid)
+            .fetch_one(f.db.executor())
+            .await
+            .unwrap();
+    assert_eq!(channel.as_deref(), Some("sms-ad"));
+    f.services.cleanup().await.unwrap();
+}
+
 #[tokio::test]
 async fn sms_login_follows_registration_mode_and_two_factor_choice() {
     let f = Fixture::new().await;
@@ -590,11 +646,17 @@ async fn sms_login_follows_registration_mode_and_two_factor_choice() {
         .redirect("/register/mobile");
     let page = get(&f, "/register/mobile", &mut invited).await;
     assert!(page.html.contains("This site is invite-only"));
+    let [terms, privacy] = gono_forum_web::test_support::policy_fields(&page.html);
     let missing = post(
         &f,
         "/register/mobile",
         &mut invited,
-        &[("username", "invited-sms"), ("accept_terms", "1")],
+        &[
+            ("username", "invited-sms"),
+            ("accept_terms", "1"),
+            (terms.0, &terms.1),
+            (privacy.0, &privacy.1),
+        ],
     )
     .await;
     assert_eq!(missing.status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -605,6 +667,8 @@ async fn sms_login_follows_registration_mode_and_two_factor_choice() {
         &[
             ("username", "invited-sms"),
             ("accept_terms", "1"),
+            (terms.0, &terms.1),
+            (privacy.0, &privacy.1),
             ("invite", "SMS-2026"),
             ("email", "sms-member@example.test"),
         ],
@@ -673,11 +737,18 @@ async fn account_security_sets_password_and_binds_changes_unbinds_mobile() {
     sms_login(&f, &mut member, MOBILE)
         .await
         .redirect("/register/mobile");
+    let page = get(&f, "/register/mobile", &mut member).await;
+    let [terms, privacy] = gono_forum_web::test_support::policy_fields(&page.html);
     post(
         &f,
         "/register/mobile",
         &mut member,
-        &[("username", "no-password-member"), ("accept_terms", "1")],
+        &[
+            ("username", "no-password-member"),
+            ("accept_terms", "1"),
+            (terms.0, &terms.1),
+            (privacy.0, &privacy.1),
+        ],
     )
     .await
     .redirect("/");

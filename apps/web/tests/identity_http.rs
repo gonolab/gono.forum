@@ -348,9 +348,9 @@ async fn native_forms_connect_invitation_registration_verification_login_and_log
     );
 
     let mut member = Cookies::default();
-    get(&fixture, "/register", &mut member)
-        .await
-        .status(StatusCode::OK);
+    let form = get(&fixture, "/register", &mut member).await;
+    form.status(StatusCode::OK);
+    let [terms, privacy] = gono_forum_web::test_support::policy_fields(&form.html);
     let fields = [
         ("username", "HttpMember"),
         ("email", "Member@Example.test"),
@@ -398,6 +398,8 @@ async fn native_forms_connect_invitation_registration_verification_login_and_log
         ("password2", PASSWORD),
         ("invite", &invite.code),
         ("accept_terms", "1"),
+        (terms.0, &terms.1),
+        (privacy.0, &privacy.1),
     ];
     post(&fixture, "/register", &mut member, &fields)
         .await
@@ -539,7 +541,8 @@ async fn native_forms_connect_invitation_registration_verification_login_and_log
     assert_ne!(member.session().unwrap(), original_session);
 
     let mut second = Cookies::default();
-    get(&fixture, "/register", &mut second).await;
+    let form = get(&fixture, "/register", &mut second).await;
+    let [terms, privacy] = gono_forum_web::test_support::policy_fields(&form.html);
     let duplicate = [
         ("username", "secondmember"),
         ("email", "second@example.test"),
@@ -547,6 +550,8 @@ async fn native_forms_connect_invitation_registration_verification_login_and_log
         ("password2", PASSWORD),
         ("invite", &invite.code),
         ("accept_terms", "1"),
+        (terms.0, &terms.1),
+        (privacy.0, &privacy.1),
     ];
     post(&fixture, "/register", &mut second, &duplicate)
         .await
@@ -562,9 +567,10 @@ async fn native_forms_connect_invitation_registration_verification_login_and_log
 }
 
 /// Registration requires ticking agreement to the terms of use and the privacy notice:
-/// without the tick it is rejected, no account is created and no invite code is consumed; with it registration
-/// proceeds as usual, and the registration log records the versions of both documents at that time (their last save
-/// time).
+/// without the tick it is rejected, no account is created and no invite code is consumed. The form carries the
+/// versions it showed; when either document changed before the form was sent (a new save, or the built-in privacy
+/// notice following the username-history setting), the form comes back with the new versions and an unticked box.
+/// The registration log records the versions agreed to: the last save time and a digest of the text shown.
 #[tokio::test]
 async fn registration_requires_consent_and_logs_the_policy_versions() {
     let fixture = Fixture::new(false, ORIGIN).await;
@@ -605,6 +611,9 @@ async fn registration_requires_consent_and_logs_the_policy_versions() {
         ("password2", PASSWORD),
         ("invite", invite.code.as_str()),
     ];
+    let [shown_terms, shown_privacy] = gono_forum_web::test_support::policy_fields(&form.html);
+    fields.push((shown_terms.0, &shown_terms.1));
+    fields.push((shown_privacy.0, &shown_privacy.1));
     let refused = post(&fixture, "/register", &mut member, &fields).await;
     refused.status(StatusCode::UNPROCESSABLE_ENTITY);
     assert!(
@@ -638,7 +647,63 @@ async fn registration_requires_consent_and_logs_the_policy_versions() {
         .status(StatusCode::UNPROCESSABLE_ENTITY);
     fields.pop();
     fields.push(("accept_terms", "1"));
-    post(&fixture, "/register", &mut member, &fields)
+
+    // The administrator saves new terms while the form is open.
+    let new_terms = gono_forum_web::runtime::save_document(
+        &fixture.db,
+        &fixture._services.global,
+        admin.member.actor(),
+        "policy.terms",
+        gono_forum_web::runtime::Document {
+            title: "Terms of Use".into(),
+            body: "The second version of the terms".into(),
+            updated_at: 0,
+        },
+    )
+    .await
+    .unwrap();
+    let changed = post(&fixture, "/register", &mut member, &fields).await;
+    changed.status(StatusCode::CONFLICT);
+    assert!(
+        changed
+            .html
+            .contains("The terms of use or the privacy notice changed after this page was opened")
+    );
+    assert!(changed.html.contains("value=\"ConsentMember\""));
+    assert!(
+        !changed.html.contains("value=\"1\" checked"),
+        "the box must be ticked again for the new terms"
+    );
+    let [current_terms, current_privacy] =
+        gono_forum_web::test_support::policy_fields(&changed.html);
+    assert_ne!(current_terms.1, shown_terms.1);
+    assert_eq!(current_privacy.1, shown_privacy.1);
+    assert_eq!(
+        fixture
+            .scalar("SELECT COUNT(*) FROM gonof_common_member WHERE username='consentmember'")
+            .await,
+        0
+    );
+
+    // The built-in privacy notice names the username-history period, so changing it changes the notice.
+    gono_forum_web::test_support::set_setting(&fixture.db, "settings.username.history_days", "120")
+        .await
+        .unwrap();
+    fixture._services.global.clear_local();
+    let mut resent = fields.clone();
+    resent.retain(|(name, _)| !name.ends_with("_version"));
+    resent.push((current_terms.0, &current_terms.1));
+    resent.push((current_privacy.0, &current_privacy.1));
+    let changed = post(&fixture, "/register", &mut member, &resent).await;
+    changed.status(StatusCode::CONFLICT);
+    let [latest_terms, latest_privacy] = gono_forum_web::test_support::policy_fields(&changed.html);
+    assert_eq!(latest_terms.1, current_terms.1);
+    assert_ne!(latest_privacy.1, current_privacy.1);
+
+    resent.retain(|(name, _)| !name.ends_with("_version"));
+    resent.push((latest_terms.0, &latest_terms.1));
+    resent.push((latest_privacy.0, &latest_privacy.1));
+    post(&fixture, "/register", &mut member, &resent)
         .await
         .redirect("/verify-email");
     let data: String = db::query_scalar("SELECT l.data FROM gonof_common_log l JOIN gonof_common_member m ON m.uid=l.uid WHERE m.username='consentmember' AND l.type='identity.register'")
@@ -646,11 +711,15 @@ async fn registration_requires_consent_and_logs_the_policy_versions() {
         .await
         .unwrap();
     let data: serde_json::Value = serde_json::from_str(&data).unwrap();
-    assert_eq!(data["consent"]["terms_version"], terms.updated_at);
+    assert!(new_terms.updated_at >= terms.updated_at);
+    assert_eq!(data["consent"]["terms_version"], new_terms.updated_at);
+    assert_eq!(data["consent"]["terms_digest"], latest_terms.1.as_str());
     assert_eq!(
         data["consent"]["privacy_version"], 0,
         "the privacy notice was never saved, so its version is 0"
     );
+    assert_eq!(data["consent"]["privacy_digest"], latest_privacy.1.as_str());
+    assert_eq!(latest_privacy.1.len(), 64);
 }
 
 /// When the return URL contains non-ASCII characters, a successful sign-in is still 303 and Location is the same

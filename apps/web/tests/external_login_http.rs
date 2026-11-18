@@ -579,6 +579,7 @@ async fn google_registers_with_its_verified_email_and_logs_in_again() {
         register.html
     );
     assert!(!register.html.contains("name=\"email\""));
+    let [terms, privacy] = gono_forum_web::test_support::policy_fields(&register.html);
     let no_terms = post(
         &f,
         "/register/external",
@@ -594,6 +595,8 @@ async fn google_registers_with_its_verified_email_and_logs_in_again() {
         &[
             ("username", "googlemember"),
             ("accept_terms", "1"),
+            (terms.0, &terms.1),
+            (privacy.0, &privacy.1),
             ("email", "ignored@example.test"),
         ],
     )
@@ -733,11 +736,17 @@ async fn github_only_accounts_participate_by_binding_and_set_a_password() {
         register.html
     );
     assert!(register.html.contains("value=\"octo-gono\""));
+    let [terms, privacy] = gono_forum_web::test_support::policy_fields(&register.html);
     post(
         &f,
         "/register/external",
         &mut member,
-        &[("username", "octo-gono"), ("accept_terms", "1")],
+        &[
+            ("username", "octo-gono"),
+            ("accept_terms", "1"),
+            (terms.0, &terms.1),
+            (privacy.0, &privacy.1),
+        ],
     )
     .await
     .redirect("/");
@@ -1125,7 +1134,8 @@ async fn recovering_an_unverified_account_shuts_out_whoever_set_it_up() {
 
     // Signing up with a password and someone else's address: nothing more can be added until it is verified.
     let mut squatter = Cookies::default();
-    get(&f, "/register", &mut squatter).await;
+    let form = get(&f, "/register", &mut squatter).await;
+    let [terms, privacy] = gono_forum_web::test_support::policy_fields(&form.html);
     post(
         &f,
         "/register",
@@ -1136,6 +1146,8 @@ async fn recovering_an_unverified_account_shuts_out_whoever_set_it_up() {
             ("password", PASSWORD),
             ("password2", PASSWORD),
             ("accept_terms", "1"),
+            (terms.0, &terms.1),
+            (privacy.0, &privacy.1),
         ],
     )
     .await
@@ -1229,6 +1241,8 @@ async fn recovering_an_unverified_account_shuts_out_whoever_set_it_up() {
     })
     .await
     .redirect("/register/external");
+    let form = get(&f, "/register/external", &mut other).await;
+    let [terms, privacy] = gono_forum_web::test_support::policy_fields(&form.html);
     post(
         &f,
         "/register/external",
@@ -1237,6 +1251,8 @@ async fn recovering_an_unverified_account_shuts_out_whoever_set_it_up() {
             ("username", "squatter2"),
             ("email", "second-owner@example.test"),
             ("accept_terms", "1"),
+            (terms.0, &terms.1),
+            (privacy.0, &privacy.1),
         ],
     )
     .await

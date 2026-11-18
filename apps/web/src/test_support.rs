@@ -21,6 +21,22 @@ use crate::{
     project_root,
 };
 
+/// The versions of the terms of use and the privacy notice a registration form carries in its hidden fields, as the
+/// pairs to submit with it (empty when the form has no such field).
+pub fn policy_fields(html: &str) -> [(&'static str, String); 2] {
+    let value = |name: &str| {
+        let marker = format!("name=\"{name}\" value=\"");
+        html.split_once(&marker)
+            .and_then(|(_, rest)| rest.split('"').next())
+            .unwrap_or_default()
+            .to_owned()
+    };
+    [
+        ("terms_version", value("terms_version")),
+        ("privacy_version", value("privacy_version")),
+    ]
+}
+
 /// Each fixture uses its own MySQL database, Redis namespace and local mail/media directories.
 /// Takes the host and port part of the Origin.
 ///

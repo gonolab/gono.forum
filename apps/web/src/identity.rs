@@ -46,13 +46,33 @@ pub use two_factor::{
     totp_code_for_test,
 };
 
-/// Versions of the terms agreed to at registration: the `updated_at` (last admin-area save time) of the terms of use
-/// and of the privacy notice; 0 means the built-in text was in use then. Terms are overwritten without history, so the
-/// version only tells which save moment the agreed version came from.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+/// Versions of the terms agreed to at registration, as the registration form showed them: the terms of use and the
+/// privacy notice.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PolicyConsent {
-    pub terms_version: i64,
-    pub privacy_version: i64,
+    pub terms: PolicyVersion,
+    pub privacy: PolicyVersion,
+}
+
+/// One policy document as a page showed it: `updated_at` is the last admin-area save time, 0 while the built-in text
+/// is in use. Saved documents are overwritten without history and the built-in privacy notice changes with the
+/// username-history setting, so the version also carries a digest of the text that was shown.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct PolicyVersion {
+    pub updated_at: i64,
+    /// SHA-256 of the body as shown, lowercase hex.
+    pub digest: String,
+}
+
+impl PolicyVersion {
+    pub fn of(updated_at: i64, body: &str) -> Self {
+        use sha2::Digest;
+        let digest = sha2::Sha256::digest(body.as_bytes());
+        Self {
+            updated_at,
+            digest: digest.iter().map(|byte| format!("{byte:02x}")).collect(),
+        }
+    }
 }
 
 /// A new account ([`Identity::create_account`]): username, email and mobile number already normalized, password
@@ -1597,7 +1617,8 @@ impl Identity {
                 "registration_source": metadata.registration_source,
                 "user_agent": metadata.user_agent, "client_ip": metadata.client_ip,
                 "consent": consent.map(|c| serde_json::json!({
-                    "terms_version": c.terms_version, "privacy_version": c.privacy_version}))}),
+                    "terms_version": c.terms.updated_at, "terms_digest": c.terms.digest,
+                    "privacy_version": c.privacy.updated_at, "privacy_digest": c.privacy.digest}))}),
             timestamp,
         )
         .await?;

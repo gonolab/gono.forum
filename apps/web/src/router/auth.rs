@@ -779,6 +779,12 @@ pub(super) struct AuthForm {
     /// The registration form's checkbox for agreeing to the terms of use and the privacy notice; `1` when checked.
     #[serde(default)]
     accept_terms: String,
+    /// Digests of the terms of use and the privacy notice as the registration form showed them
+    /// ([`identity::PolicyVersion::digest`]); registration only goes ahead while both are still current.
+    #[serde(default)]
+    terms_version: String,
+    #[serde(default)]
+    privacy_version: String,
 }
 csrf_forms!(AuthForm);
 
@@ -913,6 +919,9 @@ async fn register_page(Page(state): Page, Query(query): Query<ReturnQuery>) -> R
         } else {
             &form.return_to
         });
+    }
+    if let Err(error) = show_policies(&state, &mut form).await {
+        return identity_error(&state, error);
     }
     let mut response = account_page(&state, true, &form, "", StatusCode::OK).await;
     if !form.return_to.is_empty() {
@@ -1083,7 +1092,7 @@ async fn login(Page(state): Page, headers: HeaderMap, form: CheckedForm<AuthForm
 }
 
 async fn register(Page(state): Page, headers: HeaderMap, form: CheckedForm<AuthForm>) -> Response {
-    let form = match form {
+    let mut form = match form {
         CheckedForm::Valid(form) => form,
         CheckedForm::Malformed => {
             return error_page(
@@ -1128,8 +1137,18 @@ async fn register(Page(state): Page, headers: HeaderMap, form: CheckedForm<AuthF
         )
         .await;
     }
-    let consent = match policy_consent(&state).await {
-        Ok(consent) => consent,
+    let consent = match policy_consent(&state, &mut form).await {
+        Ok(Some(consent)) => consent,
+        Ok(None) => {
+            return account_page(
+                &state,
+                true,
+                &form,
+                crate::i18n::current().account_error_terms_updated(),
+                StatusCode::CONFLICT,
+            )
+            .await;
+        }
         Err(error) => return identity_error(&state, error),
     };
     // The count is the admin setting `settings.signup.ip_hourly_limit`; the window is 1 hour (a constant).
@@ -1188,19 +1207,65 @@ async fn register(Page(state): Page, headers: HeaderMap, form: CheckedForm<AuthF
     }
 }
 
-/// The current versions of the two policy documents at registration, written into the registration log as the
-/// consent record.
-async fn policy_consent(state: &AppState) -> Result<identity::PolicyConsent, IdentityError> {
-    let ttl = state.cache_ttl();
-    let terms = state.global.policy(&state.db, "policy.terms", ttl).await?;
-    let privacy = state
-        .global
-        .policy(&state.db, "policy.privacy", ttl)
-        .await?;
-    Ok(identity::PolicyConsent {
-        terms_version: terms.updated_at,
-        privacy_version: privacy.updated_at,
-    })
+/// The versions of `/terms` and `/privacy` as this request shows them: from the process cache, like the pages
+/// themselves, or `fresh` from the database. A document never saved in this language is its built-in text, which
+/// depends on the site name and settings.
+async fn policy_versions(
+    state: &AppState,
+    fresh: bool,
+) -> Result<identity::PolicyConsent, IdentityError> {
+    let mut versions = Vec::with_capacity(2);
+    for kind in ["terms", "privacy"] {
+        let key = format!("policy.{kind}");
+        let document = if fresh {
+            crate::runtime::document_in(&state.db, &key, crate::i18n::current()).await?
+        } else {
+            (*state
+                .global
+                .policy(&state.db, &key, state.cache_ttl())
+                .await?)
+                .clone()
+        };
+        let body = if document.updated_at == 0 {
+            super::site::builtin(kind, &state.frame.settings).1
+        } else {
+            document.body
+        };
+        versions.push(identity::PolicyVersion::of(document.updated_at, &body));
+    }
+    let privacy = versions.pop().unwrap_or_default();
+    let terms = versions.pop().unwrap_or_default();
+    Ok(identity::PolicyConsent { terms, privacy })
+}
+
+/// Puts the versions of the two policy documents into a registration form that is about to be shown.
+pub(super) async fn show_policies(
+    state: &AppState,
+    form: &mut AuthForm,
+) -> Result<(), IdentityError> {
+    let shown = policy_versions(state, false).await?;
+    form.terms_version = shown.terms.digest;
+    form.privacy_version = shown.privacy.digest;
+    Ok(())
+}
+
+/// The consent record of a submitted registration form, written into the registration log: the current versions of
+/// the two policy documents, read from the database, when they are the ones the form showed. `None` when either
+/// changed since (or the form carried no versions): the form then holds the current versions and an unticked
+/// checkbox, to be shown again with the notice that the terms changed.
+pub(super) async fn policy_consent(
+    state: &AppState,
+    form: &mut AuthForm,
+) -> Result<Option<identity::PolicyConsent>, IdentityError> {
+    let current = policy_versions(state, true).await?;
+    if form.terms_version == current.terms.digest && form.privacy_version == current.privacy.digest
+    {
+        return Ok(Some(current));
+    }
+    form.terms_version = current.terms.digest;
+    form.privacy_version = current.privacy.digest;
+    form.accept_terms.clear();
+    Ok(None)
 }
 
 fn session_metadata(state: &AppState, headers: &HeaderMap) -> identity::SessionMetadata {

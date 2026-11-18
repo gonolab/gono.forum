@@ -165,6 +165,7 @@ account-notice-password-set = Your password is set and all devices are logged ou
 account-error-login-too-many = Too many attempts. Please try logging in later
 account-error-password-mismatch = The two passwords do not match
 account-error-consent = Please read and agree to the terms of use and the privacy notice first
+account-error-terms-updated = The terms of use or the privacy notice changed after this page was opened. Please read them again and tick the box to agree.
 account-error-register-too-many = Too many sign-up attempts. Please try again later
 account-verify-description = Verify the email of your { $site } account
 account-error-verify-params = The verification link is malformed

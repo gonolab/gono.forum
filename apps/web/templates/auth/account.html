@@ -54,6 +54,8 @@
         <label class="field__label" for="register-password2">{{ p.t.account_password_confirm() }}</label>
         <input type="password" id="register-password2" name="password2" autocomplete="new-password" minlength="{{ p.frame.settings.account.password_min_length }}" maxlength="128" required>
       </div>
+      <input type="hidden" name="terms_version" value="{{ form.terms_version }}">
+      <input type="hidden" name="privacy_version" value="{{ form.privacy_version }}">
       <div class="checkline">
         <label class="checkline__label">
           <input type="checkbox" name="accept_terms" value="1"{% if form.accept_terms == "1" %} checked{% endif %} required>

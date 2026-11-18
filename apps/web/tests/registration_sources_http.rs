@@ -101,6 +101,7 @@ async fn register(
     let form = request(app, origin, path, source, None).await;
     assert_eq!(form.status, StatusCode::OK, "{}", form.html);
     let csrf = pair(form.cookie("gonof_csrf"));
+    let [terms, privacy] = gono_forum_web::test_support::policy_fields(&form.html);
     let mut cookies = csrf.to_owned();
     if !source.is_empty() {
         cookies.push_str("; ");
@@ -115,6 +116,8 @@ async fn register(
             ("password2", PASSWORD),
             ("invite", invite),
             ("accept_terms", "1"),
+            (terms.0, &terms.1),
+            (privacy.0, &privacy.1),
         ])
         .finish();
     request(app, origin, path, &cookies, Some(&body)).await

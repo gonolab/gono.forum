@@ -51,6 +51,24 @@ fn privacy_body(settings: &crate::runtime::SiteSettings) -> String {
     crate::i18n::current().policy_privacy_body(settings.username.history_days)
 }
 
+/// Title and body of the built-in text of `/terms`, `/privacy`, `/rules` or `/contact` (`kind` without the `policy.`
+/// prefix) in this request's language, shown while the administrator has not saved that page in the language.
+pub(super) fn builtin(
+    kind: &str,
+    settings: &crate::runtime::SiteSettings,
+) -> (&'static str, String) {
+    let t = crate::i18n::current();
+    match kind {
+        "terms" => (
+            t.frame_footer_terms(),
+            t.policy_terms_body(crate::site::site_name(settings)),
+        ),
+        "contact" => (t.frame_footer_contact(), t.policy_contact_body().to_owned()),
+        "privacy" => (t.frame_footer_privacy(), privacy_body(settings)),
+        _ => (t.frame_footer_rules(), t.policy_rules_body().to_owned()),
+    }
+}
+
 async fn policy(Page(state): Page, OriginalUri(uri): OriginalUri) -> Response {
     let kind = uri.path().trim_start_matches('/');
     let mut doc = match state
@@ -62,19 +80,7 @@ async fn policy(Page(state): Page, OriginalUri(uri): OriginalUri) -> Response {
         Err(e) => return auth::identity_error(&state, e),
     };
     if doc.updated_at == 0 {
-        let t = crate::i18n::current();
-        let (title, body) = match kind {
-            "terms" => (
-                t.frame_footer_terms(),
-                t.policy_terms_body(crate::site::site_name(&state.frame.settings)),
-            ),
-            "contact" => (t.frame_footer_contact(), t.policy_contact_body().to_owned()),
-            "privacy" => (
-                t.frame_footer_privacy(),
-                privacy_body(&state.frame.settings),
-            ),
-            _ => (t.frame_footer_rules(), t.policy_rules_body().to_owned()),
-        };
+        let (title, body) = builtin(kind, &state.frame.settings);
         doc.title = title.into();
         doc.body = body;
     }

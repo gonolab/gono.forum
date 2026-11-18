@@ -129,6 +129,7 @@ account-notice-password-set = 密码已设置，所有设备已退出，请重�
 account-error-login-too-many = 尝试次数较多，请稍后再登录
 account-error-password-mismatch = 两次输入的密码不一致
 account-error-consent = 请先阅读并勾选同意《使用条款》和《隐私说明》
+account-error-terms-updated = 打开本页之后，《使用条款》或《隐私说明》有了更新。请重新阅读，再勾选同意。
 account-error-register-too-many = 注册尝试较多，请稍后再试
 account-verify-description = 验证{ $site }账号邮箱
 account-error-verify-params = 验证链接参数不正确
