@@ -7,6 +7,8 @@ skin-mode-dark = 深色模式
 
 skin-builtin-default-name = 默认
 skin-builtin-default-description = Gono Forum 的标准外观。
+skin-builtin-atrium-name = 中庭
+skin-builtin-atrium-description = 侧边导航配彩色版块图标，首页是版块目录，平铺列表带统计框，帖子沿时间线排开。
 skin-builtin-harbor-name = 港湾
 skin-builtin-harbor-description = 版块放在侧栏，列表和帖子平铺，帖子旁是大头像。
 skin-builtin-ledger-name = 账本

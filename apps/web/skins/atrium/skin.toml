@@ -1,0 +1,42 @@
+# The built-in Atrium skin: a white page under a light grey header, the boards in a side column with their colored
+# glyphs, a board directory on the home page, flat lists divided by thin rules with stat boxes and a last-activity
+# column, and posts hung along a vertical rule beside a timeline of the thread (docs/skins.md, "Built-in skins").
+contract = 1
+id = "atrium"
+version = "1.0.0"
+# Built-in skins write only English here: their names and descriptions are translated in the translation files
+# (skin-builtin-atrium-name and -description in locales/<language>/skin.ftl, docs/skins.md, "The manifest").
+name = { en = "Atrium" }
+description = { en = "Side navigation with colored board glyphs, a board directory home, flat lists with stat boxes and posts along a timeline." }
+author = "Gono Forum"
+license = "MIT OR Apache-2.0"
+
+# One set of grounds and text in five accent colors; each has a light and a dark mode.
+[palettes]
+default = "main"
+variants = ["forest", "plum", "teal", "slate"]
+
+[frame]
+# The boards move from the header into the side column (nav-boards in side.nav below); from 1099px down the column
+# folds into the header drawer as usual.
+nav = "side"
+header_boards = false
+avatar_shape = "circle"
+page_head = "column"
+home = "boards"
+
+[behaviors]
+enabled = ["timeline", "progress", "autohide-header", "docked-composer"]
+
+[layout]
+"side.nav" = [
+  { id = "side-boards", source = "nav-boards" },
+]
+# The home and board pages leave out the aside, so the directory and the lists take the whole main column; skin.css
+# folds an aside without blocks away.
+"home.aside" = []
+"board.aside" = []
+"thread.aside" = [
+  { id = "outline", source = "thread.outline", view = "timeline", params = { tid = "current" }, title = { key = "block-title-outline" } },
+  { id = "outline-pages", source = "thread.outline", view = "progress", params = { tid = "current" }, title = { key = "block-title-navigation" } },
+]

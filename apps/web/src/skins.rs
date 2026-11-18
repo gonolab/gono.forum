@@ -212,6 +212,10 @@ pub fn builtin_text(id: &str, t: crate::i18n::Lang) -> Option<(&'static str, &'s
             t.skin_builtin_default_name(),
             t.skin_builtin_default_description(),
         )),
+        "atrium" => Some((
+            t.skin_builtin_atrium_name(),
+            t.skin_builtin_atrium_description(),
+        )),
         "harbor" => Some((
             t.skin_builtin_harbor_name(),
             t.skin_builtin_harbor_description(),

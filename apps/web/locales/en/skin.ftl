@@ -13,6 +13,8 @@ skin-mode-dark = dark mode
 ## bar. External skins write their own names in each language in skin.toml.
 skin-builtin-default-name = Default
 skin-builtin-default-description = The standard look of Gono Forum.
+skin-builtin-atrium-name = Atrium
+skin-builtin-atrium-description = Side navigation with colored board glyphs, a board directory home, flat lists with stat boxes and posts along a timeline.
 skin-builtin-harbor-name = Harbor
 skin-builtin-harbor-description = Boards in a side column, flat lists and posts beside large avatars.
 skin-builtin-ledger-name = Ledger
