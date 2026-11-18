@@ -368,7 +368,7 @@ source and fails when:
 | --- | --- |
 | `INSERT INTO gonof_forum_thread` | outside `content/writes.rs` and `content/seed.rs`, or without `author` and `family_fid` (which has no default); with `views` outside `content/seed.rs` (the fixture and sample import) |
 | `UPDATE gonof_forum_thread` | without `cache_revision`, apart from `content/views.rs`, whose statement must assign `views` and nothing else; `views` anywhere else; `fid` without `family_fid`; `author` or `family_fid` outside `content/copies.rs`; `displayorder` outside `copies.rs` and `content/edits.rs`; `last_reply_author` or `last_reply_uid` outside `content/writes.rs`, `content.rs` and `copies.rs`; `favorites`, `tips`, `tip_total` outside `interaction/counters.rs`; `category` or `authorid` anywhere |
-| `UPDATE gonof_forum_post` | `root_invisible` outside `copies.rs`; `reactions`, `downvotes` outside `counters.rs` |
+| `UPDATE gonof_forum_post` | `root_invisible` outside `copies.rs`; `reactions`, `downvotes` outside `counters.rs`; `authorid`, `dateline` or an identity column (`pid`, `tid`, `first`, `position`, …) anywhere (erasure walks a member's posts by author and time) |
 | the two count tables | written outside `copies.rs`, apart from deleting an empty forum's rows in `organization.rs` |
 | like, downvote and favorite rows | written outside `interaction.rs`, `interaction/counters.rs` and `growth.rs` |
 | thread and post rows | deleted anywhere |

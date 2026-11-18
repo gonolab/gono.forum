@@ -374,7 +374,14 @@ async fn run(
         r.stage = "posts".into();
     }
     if r.stage == "posts" && (r.kind == "erase" || r.content_mode == "erase") {
-        let row=db::query("SELECT pid,tid,fid,root_pid,first,erased_at FROM gonof_forum_post WHERE authorid=? AND pid>? AND pid<=? ORDER BY pid LIMIT 1").bind(c.uid).bind(r.cursor_pid).bind(r.upper_pid).fetch_optional(db.observe(&mut *tx)).await?;
+        // A post the walk reaches moves the cursor; one that only the final check finds is erased with the cursor
+        // left where it is.
+        let walked = next_post(db, &mut tx, c.uid, r.cursor_pid, r.upper_pid).await?;
+        let moves = walked.is_some();
+        let row = match walked {
+            Some(post) => Some(post),
+            None => missed_post(db, &mut tx, c.uid, r.upper_pid).await?,
+        };
         if let Some(p) = row {
             let pid: i64 = p.try_get("pid")?;
             let tid: i64 = p.try_get("tid")?;
@@ -514,7 +521,7 @@ async fn run(
                 purge_if_unused(db, &mut tx, aid, words, now).await?;
             }
             crate::content::refresh_effective_replies(db, &mut tx, tid).await?;
-            db::query("UPDATE gonof_common_data_request SET cursor_pid=GREATEST(cursor_pid,?),version=version+1,last_error='',status='processing' WHERE id=?").bind(pid).bind(r.id).execute(db.observe(&mut *tx)).await?;
+            db::query("UPDATE gonof_common_data_request SET cursor_pid=?,version=version+1,last_error='',status='processing' WHERE id=?").bind(if moves { pid } else { r.cursor_pid }).bind(r.id).execute(db.observe(&mut *tx)).await?;
             finish_task(db, &mut tx, c, false, now).await?;
             // Erasure changed the title, effective replies or last reply, so the anonymous cache is invalidated
             // immediately at commit.
@@ -802,6 +809,85 @@ async fn close_account(
     // and the site-wide version goes up by one.
     crate::content::copies::member_changed(db, tx, uid).await?;
     Ok(())
+}
+
+/// The columns an erasure step reads of the post it erases.
+const STEP_POST: &str = "SELECT pid,tid,fid,root_pid,first,erased_at FROM gonof_forum_post FORCE INDEX (gonof_post_author_created)";
+
+/// The member's next post to erase, at or below `upper` (the request's `upper_pid`). Erasure walks
+/// `gonof_post_author_created (authorid, first, dateline)`: first posts, then replies, each by
+/// `dateline, tid, position`. InnoDB ends that index's entries with the primary key `(tid, position)`, so this is the
+/// index's own order and each step reads on from the post erased last (`cursor`, the request's `cursor_pid`; 0 before
+/// the first), a range over all three columns; SQLite sorts only the posts that share that post's time. Walking by
+/// `pid`, which no index of the member's posts follows, made each step read every post of the member, or every post on
+/// the site after the cursor. A post's author, `first`, `dateline`, `tid` and `position` never change (pinned by the
+/// source scan), so the cursor keeps its place.
+async fn next_post(
+    db: &Database,
+    tx: &mut Tx<'_>,
+    uid: i64,
+    cursor: i64,
+    upper: i64,
+) -> anyhow::Result<Option<DbRow>> {
+    let start = (i64::MIN, 0, 0);
+    let (phase, mut after) = if cursor == 0 {
+        (1, start)
+    } else {
+        let at = db::query("SELECT first,dateline,tid,position FROM gonof_forum_post WHERE pid=?")
+            .bind(cursor)
+            .fetch_one(db.observe(&mut **tx))
+            .await?;
+        (
+            at.try_get::<i64, _>("first")?,
+            (
+                at.try_get("dateline")?,
+                at.try_get("tid")?,
+                at.try_get("position")?,
+            ),
+        )
+    };
+    let sql = format!(
+        "{STEP_POST} WHERE authorid=? AND first=? AND dateline>=? AND (dateline>? OR tid>? OR (tid=? AND position>?)) AND pid<=? ORDER BY dateline,tid,position LIMIT 1"
+    );
+    for first in [1, 0] {
+        if first > phase {
+            continue;
+        }
+        let (dateline, tid, position) = after;
+        let post = db::query(&sql)
+            .bind(uid)
+            .bind(first)
+            .bind(dateline)
+            .bind(dateline)
+            .bind(tid)
+            .bind(tid)
+            .bind(position)
+            .bind(upper)
+            .fetch_optional(db.observe(&mut **tx))
+            .await?;
+        if post.is_some() {
+            return Ok(post);
+        }
+        after = start;
+    }
+    Ok(None)
+}
+
+/// A post at or below `upper` that is still not erased once the walk is past the member's last post. Only a request
+/// whose walk began before it followed [`next_post`]'s order leaves one (it went by `pid`, with `cursor_pid` the
+/// largest pid erased); each is erased in a step of its own. One read of the member's posts per step.
+async fn missed_post(
+    db: &Database,
+    tx: &mut Tx<'_>,
+    uid: i64,
+    upper: i64,
+) -> anyhow::Result<Option<DbRow>> {
+    let sql = format!("{STEP_POST} WHERE authorid=? AND pid<=? AND erased_at=0 LIMIT 1");
+    Ok(db::query(&sql)
+        .bind(uid)
+        .bind(upper)
+        .fetch_optional(db.observe(&mut **tx))
+        .await?)
 }
 
 async fn purge_if_unused(

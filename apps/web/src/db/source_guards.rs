@@ -213,7 +213,8 @@ fn ledgers_are_append_only_and_activity_values_go_through_the_invariants() {
 /// nested replies' `root_invisible` go only through copies.rs; posts' like and downvote counts and threads' favorite
 /// and tip counts go only through `interaction/counters.rs`, and the three detail tables are only inserted into or
 /// deleted from in files that call it; the site version goes only through `copies::bump_site`; the first post's
-/// `first_tid` is written at insert; posts' identity columns and thread ID, category and author cannot change; erasure
+/// `first_tid` is written at insert; posts' identity columns, author and time and threads' ID, category and author
+/// cannot change (erasure walks a member's posts by author and time, `privacy/worker.rs`); erasure
 /// markers are written only by the erasure statements; member and forum columns that feed the copies change only in
 /// files that call the `copies` sync. Thread and post rows are never deleted; forum rows are deleted only in
 /// `organization.rs`, for empty forums (only forums with no threads and no child forums can be deleted; when there are
@@ -223,7 +224,7 @@ fn content_copies_versions_and_identities_change_only_through_their_code() {
     let found = content_breaches(production_sources());
     assert!(
         found.is_empty(),
-        "thread copies are rewritten only through content/copies.rs; like, downvote, favorite and tip counts only through interaction/counters.rs; changing the forum also writes the top-level forum id; displayorder changes only in the visibility sync and pinning; forum counts and parent post copies only through copies.rs; every UPDATE of a thread row bumps cache_revision, except the view count's in content/views.rs, the only writer of views; the site version only through bump_site; the first post writes first_tid; post identity and thread category and author do not change; erasure markers are written only by the erasure statements: {found:?}"
+        "thread copies are rewritten only through content/copies.rs; like, downvote, favorite and tip counts only through interaction/counters.rs; changing the forum also writes the top-level forum id; displayorder changes only in the visibility sync and pinning; forum counts and parent post copies only through copies.rs; every UPDATE of a thread row bumps cache_revision, except the view count's in content/views.rs, the only writer of views; the site version only through bump_site; the first post writes first_tid; post identity, author and time and thread category and author do not change; erasure markers are written only by the erasure statements: {found:?}"
     );
 }
 
@@ -268,6 +269,23 @@ fn only_the_view_counter_writes_views_and_skips_cache_revision() {
     ];
     let found = content_breaches(refused);
     assert_eq!(found.len(), 5, "{found:?}");
+}
+
+/// Erasure walks a member's posts by author and time (`privacy/worker.rs`), so no statement may give a post another
+/// author or time.
+#[test]
+fn posts_keep_their_author_and_time() {
+    let source = |sql: &str| {
+        (
+            "content/edits.rs".to_owned(),
+            format!("let sql = \"{sql}\";\n"),
+        )
+    };
+    let found = content_breaches([
+        source("UPDATE gonof_forum_post SET dateline=? WHERE pid=?"),
+        source("UPDATE gonof_forum_post SET authorid=NULL,version=version+1 WHERE pid=?"),
+    ]);
+    assert_eq!(found.len(), 2, "{found:?}");
 }
 
 /// The breaches of [`content_copies_versions_and_identities_change_only_through_their_code`] in `sources` (file path
@@ -379,6 +397,7 @@ fn content_breaches(sources: impl IntoIterator<Item = (String, String)>) -> Vec<
                 }
                 "gonof_forum_post" => {
                     any(POST_IDENTITY)
+                        || any(&["authorid", "dateline"])
                         || (file != "privacy/worker.rs" && has(&assigned, "erased_at"))
                         || (file != COPIES && has(&assigned, "root_invisible"))
                         || (file != MARK_COUNTERS && any(POST_MARK_COUNTS))
@@ -588,8 +607,6 @@ fn identity_and_governance_rows_change_only_through_their_rules() {
                         )
                     }) || !set.contains("version=version+1")
                         || (assigns("upper_pid") && !set.contains("upper_pid=greatest(upper_pid,"))
-                        || (assigns("cursor_pid")
-                            && !set.contains("cursor_pid=greatest(cursor_pid,"))
                 }
                 "gonof_common_outbox" => {
                     (assigns("available_at") && !set.contains("available_at=greatest(dateline,"))

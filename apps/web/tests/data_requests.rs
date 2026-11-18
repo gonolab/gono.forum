@@ -10,6 +10,7 @@ use gono_forum_web::{
         writes::{ContentWriter, NewReply, NewThread, WriteConfig},
     },
     db::{self, Database},
+    debug::trace::{self, QuerySource, RequestProfile},
     identity::{self, Identity, IdentityError, SessionGrant},
     media::Media,
     privacy::{self, Access, NewRequest},
@@ -17,6 +18,7 @@ use gono_forum_web::{
 };
 use http_body_util::BodyExt;
 use std::io::Read;
+use std::sync::Arc;
 use tower::ServiceExt;
 
 // Keep one attachment waiting for object storage cleanup so the account deletion stops at deleting, to verify the
@@ -2929,5 +2931,205 @@ async fn lists_show_threads_kept_after_account_deletion_without_the_uid() {
             "{path}: the former account's uid is not in the list"
         );
     }
+    f.services.cleanup_ref().await.unwrap();
+}
+
+/// The member's threads and replies with others' posts in between: `(threads, replies)` of the member, in posting
+/// order.
+async fn member_posts_among_others(f: &Fixture, prefix: &str) -> (Vec<i64>, Vec<i64>) {
+    let other = f.member(&format!("{}_other", prefix.to_lowercase())).await;
+    let writer = ContentWriter::new(f.db.clone(), WriteConfig::default());
+    let fid: i64 = db::query_scalar("SELECT fid FROM gonof_forum_forum ORDER BY fid LIMIT 1")
+        .fetch_one(f.db.executor())
+        .await
+        .unwrap();
+    let (mut threads, mut replies) = (Vec::new(), Vec::new());
+    for index in 0..3 {
+        let thread = writer
+            .publish(
+                f.user.member.uid,
+                NewThread {
+                    visibility: Default::default(),
+                    activity: Default::default(),
+                    fid,
+                    title: format!("{prefix}_THREAD_{index}"),
+                    body: format!("{prefix}_THREAD_{index} BODY"),
+                    attachment_ids: vec![],
+                    request_key: identity::random_token(),
+                },
+            )
+            .await
+            .unwrap();
+        threads.push(thread.pid);
+        for (uid, author) in [(other.member.uid, "OTHER"), (f.user.member.uid, "OWN")] {
+            let reply = writer
+                .reply(
+                    uid,
+                    NewReply {
+                        tid: thread.tid,
+                        root_pid: None,
+                        reply_to_pid: None,
+                        body: format!("{prefix}_{author}_REPLY_{index}"),
+                        attachment_ids: vec![],
+                        request_key: identity::random_token(),
+                    },
+                )
+                .await
+                .unwrap();
+            if uid == f.user.member.uid {
+                replies.push(reply.pid);
+            }
+        }
+    }
+    (threads, replies)
+}
+
+/// Erasure walks the member's posts along `gonof_post_author_created (authorid, first, dateline)` and reads on from
+/// the post erased last. Walking by `pid` had no index to follow: each step sorted all of the member's posts (SQLite,
+/// and MySQL for a member with few posts), or read every post on the site after the cursor (MySQL for a member with
+/// many), so a whole erasure cost the square of the member's posts or a pass over the site.
+#[tokio::test]
+async fn erasure_reads_on_from_the_post_erased_last() {
+    let f = Fixture::new().await;
+    let now = identity::now();
+    let (threads, replies) = member_posts_among_others(&f, "WALK").await;
+    privacy::submit(&f.db, &f.access(), f.request("erase", "erase"), now)
+        .await
+        .unwrap();
+    let profile = Arc::new(RequestProfile::new());
+    trace::scope(
+        profile.clone(),
+        Box::pin(f.work(now + privacy::COOLING_SECONDS)),
+    )
+    .await;
+    for pid in threads.iter().chain(&replies) {
+        assert!(
+            f.scalar(&format!(
+                "SELECT erased_at FROM gonof_forum_post WHERE pid={pid}"
+            ))
+            .await
+                > 0,
+            "post {pid} is erased"
+        );
+    }
+    assert_eq!(
+        f.scalar(&format!(
+            "SELECT COUNT(*) FROM gonof_forum_post WHERE authorid<>{} AND erased_at>0",
+            f.user.member.uid
+        ))
+        .await,
+        0,
+        "others' replies in the member's threads stay"
+    );
+    let walk: Vec<_> = profile
+        .snapshot()
+        .into_iter()
+        .filter(|r| {
+            r.source == QuerySource::Application
+                && r.sql.contains("FROM gonof_forum_post")
+                && r.sql.contains("authorid=?")
+                && r.sql.contains("ORDER BY")
+        })
+        .collect();
+    assert!(
+        walk.len() > threads.len() + replies.len(),
+        "one read per post, and one that finds the walk is over: {}",
+        walk.len()
+    );
+    let sqlite = f.db.backend() == db::Backend::Sqlite;
+    for record in walk {
+        if sqlite {
+            let plan = gono_forum_web::test_support::sqlite_plan(&f.db, &record.expanded_sql)
+                .await
+                .unwrap();
+            assert!(
+                plan.iter().any(|step| step.contains(
+                    "USING INDEX gonof_forum_post__gonof_post_author_created (authorid=? AND first=? AND dateline"
+                )),
+                "the walk reads a range of the member's posts from the cursor on: {}\n{plan:?}",
+                record.sql
+            );
+            assert!(
+                !plan
+                    .iter()
+                    .any(|step| step == "USE TEMP B-TREE FOR ORDER BY"),
+                "the walk does not sort all of the member's posts: {}\n{plan:?}",
+                record.sql
+            );
+            continue;
+        }
+        let plan = db::query(&format!("EXPLAIN {}", record.expanded_sql))
+            .fetch_all(f.db.executor())
+            .await
+            .unwrap();
+        assert_eq!(plan.len(), 1, "{}", record.sql);
+        let row = &plan[0];
+        // SQLx only gets the column names of EXPLAIN at execution time, so they are looked up by position.
+        let text = |column: &str| {
+            let ordinal = row
+                .columns()
+                .iter()
+                .position(|c| c.name() == column)
+                .unwrap();
+            row.try_get::<Option<Vec<u8>>, _>(ordinal)
+                .unwrap()
+                .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+                .unwrap_or_default()
+        };
+        assert_eq!(text("key"), "gonof_post_author_created", "{}", record.sql);
+        assert!(
+            !text("Extra").contains("filesort"),
+            "the walk follows the index order: {}\n{}",
+            record.sql,
+            text("Extra")
+        );
+        // Past the first post of a kind the range covers all three columns (authorid 9 bytes with its NULL flag,
+        // first and dateline 8 each), so the walk starts at the cursor rather than at the member's first post.
+        if !record.expanded_sql.contains(&i64::MIN.to_string()) {
+            assert_eq!(text("key_len"), "25", "{}", record.sql);
+        }
+    }
+    f.services.cleanup_ref().await.unwrap();
+}
+
+/// A request whose walk began when erasure went by `pid` holds the largest pid erased as its cursor. The walk now
+/// goes by author index order, where posts with a larger pid can come before that post; once the walk is past the
+/// member's last post, a final check erases each such post, one per step, so none is left.
+#[tokio::test]
+async fn an_erasure_resumed_from_a_pid_cursor_still_reaches_every_post() {
+    let f = Fixture::new().await;
+    let now = identity::now();
+    let (threads, replies) = member_posts_among_others(&f, "RESUMED").await;
+    let id = privacy::submit(&f.db, &f.access(), f.request("erase", "erase"), now)
+        .await
+        .unwrap();
+    // The last reply has the largest pid, but replies come after every first post in the walk: from this cursor the
+    // walk is over at once, and every post is left for the check (the test does not erase the cursor's post either).
+    let last = *replies.last().unwrap();
+    db::query("UPDATE gonof_common_data_request SET cursor_pid=?,version=version+1 WHERE id=?")
+        .bind(last)
+        .bind(id)
+        .execute(f.db.executor())
+        .await
+        .unwrap();
+    f.work(now + privacy::COOLING_SECONDS).await;
+    for pid in threads.iter().chain(&replies) {
+        assert!(
+            f.scalar(&format!(
+                "SELECT erased_at FROM gonof_forum_post WHERE pid={pid}"
+            ))
+            .await
+                > 0,
+            "post {pid} is erased"
+        );
+    }
+    assert_eq!(
+        f.scalar(&format!(
+            "SELECT cursor_pid FROM gonof_common_data_request WHERE id={id}"
+        ))
+        .await,
+        last,
+        "posts found by the check leave the cursor where it was"
+    );
     f.services.cleanup_ref().await.unwrap();
 }
