@@ -326,13 +326,17 @@ async fn submit_inner(
         tx.commit().await?;
         return Ok(id);
     }
-    let count: i64 = crate::db::query_scalar(
-        "SELECT COUNT(*) FROM gonof_common_report WHERE uid=? AND dateline>?",
+    // Only the newest `daily_limit` reports can decide the quota: when all of them are within the last 24 hours the
+    // member is at the cap, otherwise there is room. Reading them backwards on `(uid, id)` stops there instead of
+    // reading the time of every report the member ever made (ids follow submission time).
+    let recent: Vec<i64> = crate::db::query_scalar(
+        "SELECT dateline FROM gonof_common_report WHERE uid=? ORDER BY id DESC LIMIT ?",
     )
     .bind(actor.uid)
-    .bind(now - 86400)
-    .fetch_one(db.observe(&mut *tx))
+    .bind(daily_limit.max(0))
+    .fetch_all(db.observe(&mut *tx))
     .await?;
+    let count = recent.iter().filter(|at| **at > now - 86400).count() as i64;
     if count >= daily_limit {
         return Err(ContentWriteError::Forbidden(
             crate::i18n::current().governance_error_report_quota(),

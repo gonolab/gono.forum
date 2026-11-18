@@ -199,6 +199,91 @@ impl Fixture {
     }
 }
 
+/// The daily report quota counts the reports of the last 24 hours, and reads no more of the member's reports than the
+/// quota itself: a member with a long history of reports does not have every one of them read on each submission.
+#[tokio::test]
+async fn the_report_quota_reads_only_the_newest_reports() {
+    use gono_forum_web::debug::trace::{self, QuerySource, RequestProfile};
+    let f = Fixture::new().await;
+    let db = &f.services.db;
+    let now = identity::now();
+    // 40 old reports and 2 from the last day.
+    for n in 0..42_i64 {
+        let at = if n < 40 {
+            now - 10 * 86_400 + n
+        } else {
+            now - 3600 + n
+        };
+        db::query("INSERT INTO gonof_common_report(uid,target_type,target_id,reason,status,dateline,request_key) VALUES(2,'profile',3,'old report','resolved',?,?)")
+            .bind(at)
+            .bind(format!("quota-history-{n}"))
+            .execute(db.executor())
+            .await
+            .unwrap();
+    }
+    let profile = std::sync::Arc::new(RequestProfile::new());
+    let third = trace::scope(
+        profile.clone(),
+        moderation::submit_report(
+            db,
+            actor(2),
+            &f.target(0),
+            "third today",
+            &identity::random_token(),
+            now,
+            3,
+        ),
+    )
+    .await;
+    assert!(third.is_ok(), "{third:?}");
+    let reads: Vec<_> = profile
+        .snapshot()
+        .into_iter()
+        .filter(|record| {
+            record.source == QuerySource::Application
+                && record.sql.contains("FROM gonof_common_report WHERE uid=?")
+                && !record.sql.contains("request_key")
+                && !record.sql.contains("target_type")
+        })
+        .collect();
+    assert_eq!(reads.len(), 1, "{reads:?}");
+    assert!(
+        !reads[0].sql.contains("COUNT(") && reads[0].sql.contains("LIMIT"),
+        "the quota reads a bounded number of rows: {}",
+        reads[0].sql
+    );
+    assert!(reads[0].rows_returned <= 3);
+    // The fourth report within 24 hours is over the quota.
+    assert!(matches!(
+        moderation::submit_report(
+            db,
+            actor(2),
+            &f.target(1),
+            "fourth today",
+            &identity::random_token(),
+            now,
+            3,
+        )
+        .await,
+        Err(ContentWriteError::Forbidden(_))
+    ));
+    // A day later the two older ones have left the window.
+    assert!(
+        moderation::submit_report(
+            db,
+            actor(2),
+            &f.target(1),
+            "next day",
+            &identity::random_token(),
+            now + 86_400,
+            3,
+        )
+        .await
+        .is_ok()
+    );
+    f.services.cleanup().await.unwrap();
+}
+
 #[tokio::test]
 async fn reports_preserve_scope_idempotency_and_hidden_content_notifications() {
     let f = Fixture::new().await;
