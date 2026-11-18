@@ -194,6 +194,7 @@ site-manage-link-error-reason = 原因需要 1 到 200 个字，不能换行
 site-manage-link-error-order-range = 排序值需要在 -9999 到 9999 之间
 site-manage-link-error-description = 介绍最多 60 个字，不能换行
 site-manage-link-error-full = 展示中的友情链接已满 500 条，请先下架一些
+site-manage-link-error-changed = 这条友情链接刚被别人修改过，请刷新后重试
 site-manage-verified = 认证会员
 site-manage-description = 授予、修改、续期与撤销会员认证
 site-manage-verified-lead = 只有管理员能授予、修改、续期与撤销。冻结、到期、注销中的认证前台都不显示，记录保留到续期或撤销。前台名录在 { $link_html }，申请说明在“认证说明”页签编辑。

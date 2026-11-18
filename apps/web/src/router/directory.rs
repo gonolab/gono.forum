@@ -491,7 +491,10 @@ async fn apply(Page(state): Page, form: CheckedForm<ApplyForm>) -> Response {
         }
         Err(unavailable) => return unavailable,
     }
-    let own = links::own_domain(state.site_url());
+    let own = match links::own_domains(&state.db, state.site_url()).await {
+        Ok(own) => own,
+        Err(error) => return auth::identity_error(&state, error),
+    };
     let input = links::Application {
         name: form.name.clone(),
         category: form.category.clone(),
@@ -504,7 +507,7 @@ async fn apply(Page(state): Page, form: CheckedForm<ApplyForm>) -> Response {
         &state.db,
         session.member.actor(),
         input,
-        own.as_deref(),
+        &own,
         identity::now(),
     )
     .await
@@ -972,6 +975,9 @@ struct LinkForm {
     displayorder: String,
     #[serde(default)]
     reason: String,
+    /// Row version the detail page was read at (absent on the add form).
+    #[serde(default)]
+    version: Option<i64>,
 }
 csrf_forms!(LinkForm);
 
@@ -1003,6 +1009,7 @@ impl LinkForm {
             description: link.description.clone(),
             home: link.home,
             displayorder: link.displayorder.to_string(),
+            version: Some(link.version),
             ..Default::default()
         }
     }
@@ -1284,6 +1291,7 @@ async fn decide_link(
         &state.global,
         admin_actor(&state),
         id,
+        form.version,
         decision,
         identity::now(),
     )

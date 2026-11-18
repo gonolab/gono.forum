@@ -740,7 +740,7 @@ pub async fn forget_member(
         .bind(uid)
         .execute(db.observe(&mut **tx))
         .await?;
-    db::query("UPDATE gonof_common_friend_link SET status='withdrawn',live_domain=NULL,handler_uid=NULL,handled_at=?,updated_at=? WHERE owner_uid=? AND status='pending'")
+    db::query("UPDATE gonof_common_friend_link SET status='withdrawn',live_domain=NULL,handler_uid=NULL,handled_at=?,updated_at=?,version=version+1 WHERE owner_uid=? AND status='pending'")
         .bind(now)
         .bind(now)
         .bind(uid)

@@ -53,6 +53,7 @@ const SOURCES: &[Source] = sources! {
     3 => "0003_skins.sql", "imported skins and the site's layout document";
     4 => "0004_thread_last_reply_uid.sql", "the last replier's uid on thread rows";
     5 => "0005_board_color_glyph.sql", "board colors and glyphs";
+    6 => "0006_friend_link_version.sql", "friend link versions";
 };
 
 /// The latest migration version. Tests read it when asserting "migrated to the latest", so adding a migration does not

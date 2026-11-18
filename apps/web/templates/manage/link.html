@@ -9,12 +9,12 @@
 {% if !link.resolution.is_empty() %}<p>{{ p.t.site_links_reason(link.resolution) }}</p>{% endif %}
 {% if link.is_pending() || link.is_active() %}
 <form class="fields" method="post" action="{{ crate::site::base() }}/manage/links/{{ link.id }}" data-link-edit>
-<input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="action" value="{% if link.is_pending() %}approve{% else %}update{% endif %}">
+<input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="action" value="{% if link.is_pending() %}approve{% else %}update{% endif %}">{% if let Some(version) = form.version %}<input type="hidden" name="version" value="{{ version }}">{% endif %}
 {% include "manage/link_fields.html" %}
 <div class="form-actions"><button class="button" type="submit">{% if link.is_pending() %}{{ p.t.site_manage_link_approve() }}{% else %}{{ p.t.site_manage_link_update() }}{% endif %}</button></div>
 </form>
 <form class="fields" method="post" action="{{ crate::site::base() }}/manage/links/{{ link.id }}" data-link-close>
-<input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="action" value="{% if link.is_pending() %}reject{% else %}remove{% endif %}">
+<input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="action" value="{% if link.is_pending() %}reject{% else %}remove{% endif %}">{% if let Some(version) = form.version %}<input type="hidden" name="version" value="{{ version }}">{% endif %}
 <div class="field">
   <label class="field__label" for="link-close-reason">{% if link.is_pending() %}{{ p.t.site_manage_link_reject_reason() }}{% else %}{{ p.t.site_manage_link_remove_reason() }}{% endif %}</label>
   <input id="link-close-reason" aria-describedby="link-close-reason-hint" name="reason" maxlength="200" required>

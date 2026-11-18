@@ -135,6 +135,8 @@ pub struct Link {
     pub resolution: String,
     pub dateline: i64,
     pub handled_at: Option<i64>,
+    /// Raised by every write to the row; admin forms carry it so that a form read before another change is refused.
+    pub version: i64,
 }
 
 impl Link {
@@ -159,7 +161,7 @@ impl Link {
     }
 }
 
-const COLUMNS: &str = "l.id,l.status,l.category,l.name,l.url,l.domain,l.description,l.backlink_url,l.note,l.home,l.displayorder,l.owner_uid,l.resolution,l.dateline,l.handled_at,m.username AS owner_username,m.account_state AS owner_state";
+const COLUMNS: &str = "l.id,l.status,l.category,l.name,l.url,l.domain,l.description,l.backlink_url,l.note,l.home,l.displayorder,l.owner_uid,l.resolution,l.dateline,l.handled_at,l.version,m.username AS owner_username,m.account_state AS owner_state";
 const FROM: &str =
     "FROM gonof_common_friend_link l LEFT JOIN gonof_common_member m ON m.uid=l.owner_uid";
 
@@ -194,6 +196,7 @@ fn link_of(row: &DbRow) -> Result<Link> {
         resolution: db::text(row, "resolution")?,
         dateline: row.try_get("dateline")?,
         handled_at: row.try_get("handled_at")?,
+        version: row.try_get("version")?,
     })
 }
 
@@ -486,12 +489,12 @@ pub struct Applied {
 /// same website is not accepted within 7 days after a rejection → insert (a key violation on `live_domain` means the
 /// same website is already listed or under review) → write the log. Concurrent submissions by the same member queue
 /// on the member row lock; different members competing for the same website are settled by the unique key.
-/// `own_domain` is this site's domain; this site itself cannot be applied for.
+/// `own_domains` are this forum's own domains ([`own_domains`]); none of them can be applied for.
 pub async fn apply(
     db: &Database,
     actor: Actor,
     input: Application,
-    own_domain: Option<&str>,
+    own_domains: &[String],
     now: i64,
 ) -> Result<Applied> {
     if !identity::valid_request_key(&input.request_key) {
@@ -502,8 +505,8 @@ pub async fn apply(
     let name = name(&input.name)?;
     let category = category(&input.category)?;
     let (url, domain) = site(&input.url)?;
-    if own_domain.is_some_and(|own| {
-        own == domain
+    if own_domains.iter().any(|own| {
+        *own == domain
             || own.ends_with(&format!(".{domain}"))
             || domain.ends_with(&format!(".{own}"))
     }) {
@@ -695,7 +698,7 @@ pub async fn withdraw(
             ));
         }
     };
-    db::query("UPDATE gonof_common_friend_link SET status=?,live_domain=NULL,handler_uid=NULL,handled_at=?,updated_at=? WHERE id=? AND status=?")
+    db::query("UPDATE gonof_common_friend_link SET status=?,live_domain=NULL,handler_uid=NULL,handled_at=?,updated_at=?,version=version+1 WHERE id=? AND status=?")
         .bind(next.slug())
         .bind(now)
         .bind(now)
@@ -871,11 +874,16 @@ pub enum Handled {
 /// Admin approve, reject, edit, remove (administrators only). First lock this row and read its current state, judge
 /// it by the state machine, then do an update conditioned on the state; if the state has already changed, return
 /// [`Handled::Unchanged`] without writing the log again.
+///
+/// `version` is the row version the admin form was read at. When given and the row has been written since (another
+/// administrator edited it), the action is refused with a conflict, so an older form cannot put back the fields it
+/// still shows; every write raises the version (`version=version+1 … AND version=?`).
 pub async fn decide(
     db: &Database,
     global: &crate::cache::GlobalCache,
     actor: Actor,
     id: i64,
+    version: Option<i64>,
     decision: Decision,
     now: i64,
 ) -> Result<Handled> {
@@ -891,7 +899,7 @@ pub async fn decide(
     };
     let mut tx = admin_tx(db, actor).await?;
     let row = db::query(
-        "SELECT status,owner_uid,domain FROM gonof_common_friend_link WHERE id=? FOR UPDATE",
+        "SELECT status,owner_uid,domain,version FROM gonof_common_friend_link WHERE id=? FOR UPDATE",
     )
     .bind(id)
     .fetch_optional(db.observe(&mut *tx))
@@ -899,6 +907,12 @@ pub async fn decide(
     .ok_or(IdentityError::NotFound)?;
     if Status::parse(&db::text(&row, "status")?) != Some(expected) {
         return Ok(Handled::Unchanged);
+    }
+    let current: i64 = row.try_get("version")?;
+    if version.is_some_and(|version| version != current) {
+        return Err(IdentityError::Conflict(
+            crate::i18n::current().site_manage_link_error_changed(),
+        ));
     }
     let owner: Option<i64> = row.try_get("owner_uid")?;
     let old_domain = db::text(&row, "domain")?;
@@ -909,7 +923,7 @@ pub async fn decide(
             if expected == Status::Pending {
                 ensure_room(db, &mut tx).await?;
             }
-            db::query("UPDATE gonof_common_friend_link SET status='active',category=?,name=?,url=?,domain=?,live_domain=?,description=?,home=?,displayorder=?,handler_uid=?,handled_at=?,updated_at=? WHERE id=? AND status=?")
+            db::query("UPDATE gonof_common_friend_link SET status='active',category=?,name=?,url=?,domain=?,live_domain=?,description=?,home=?,displayorder=?,handler_uid=?,handled_at=?,updated_at=?,version=version+1 WHERE id=? AND status=? AND version=?")
                 .bind(input.category.slug())
                 .bind(&input.name)
                 .bind(&input.url)
@@ -923,6 +937,7 @@ pub async fn decide(
                 .bind(now)
                 .bind(id)
                 .bind(expected.slug())
+                .bind(current)
                 .execute(db.observe(&mut *tx))
                 .await
                 .map_err(live_conflict)?;
@@ -934,7 +949,7 @@ pub async fn decide(
             } else {
                 Status::Removed
             };
-            db::query("UPDATE gonof_common_friend_link SET status=?,live_domain=NULL,resolution=?,handler_uid=?,handled_at=?,updated_at=? WHERE id=? AND status=?")
+            db::query("UPDATE gonof_common_friend_link SET status=?,live_domain=NULL,resolution=?,handler_uid=?,handled_at=?,updated_at=?,version=version+1 WHERE id=? AND status=? AND version=?")
                 .bind(next.slug())
                 .bind(&reason)
                 .bind(actor.uid)
@@ -942,6 +957,7 @@ pub async fn decide(
                 .bind(now)
                 .bind(id)
                 .bind(expected.slug())
+                .bind(current)
                 .execute(db.observe(&mut *tx))
                 .await?;
             old_domain.clone()
@@ -966,6 +982,26 @@ pub async fn decide(
 /// be determined.
 pub fn own_domain(site_url: &str) -> Option<String> {
     site(site_url).ok().map(|(_, domain)| domain)
+}
+
+/// Every normalized domain this forum is reached on, used to reject applications for the forum itself: the forum URL
+/// and each address of the domain table (`gonof_common_site_domain`, enabled or not, at most
+/// [`crate::domains::MAX_DOMAINS`] rows, read by primary key). Addresses that cannot be normalized (an IP, a
+/// single-label host) block nothing.
+pub async fn own_domains(db: &Database, site_url: &str) -> Result<Vec<String>> {
+    let urls: Vec<String> = db::query_scalar(
+        "SELECT site_url FROM gonof_common_site_domain ORDER BY domain_id LIMIT ?",
+    )
+    .bind(crate::domains::MAX_DOMAINS as i64)
+    .fetch_all(db.executor())
+    .await?;
+    let mut domains: Vec<String> = std::iter::once(site_url)
+        .chain(urls.iter().map(String::as_str))
+        .filter_map(own_domain)
+        .collect();
+    domains.sort();
+    domains.dedup();
+    Ok(domains)
 }
 
 #[cfg(test)]

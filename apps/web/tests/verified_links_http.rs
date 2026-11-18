@@ -1049,6 +1049,7 @@ async fn admins_review_links_and_the_pages_render_them_safely() {
             &f.services.global,
             actor(MOD),
             id,
+            None,
             links::Decision::Reject("Not allowed".into()),
             f.now
         )
@@ -1223,6 +1224,161 @@ async fn admins_review_links_and_the_pages_render_them_safely() {
 /// footer has two entry points.
 /// "My applications" always lists the member's live applications: an old active link still taking up one of the
 /// member's places stays on the page, with its take-down button, however many withdrawn applications came after it.
+/// The link detail page carries the row version. Saving an older copy of the page after another administrator changed
+/// the link is a conflict and puts nothing back; taking a link down from an older page is refused the same way.
+#[tokio::test]
+async fn stale_link_edit_forms_do_not_overwrite_newer_changes() {
+    let f = Fixture::new().await;
+    let admin = f.login(ADMIN).await;
+    let added = f
+        .post(
+            "/manage/links",
+            &admin,
+            &[
+                ("category", "blog"),
+                ("name", "Shared Site"),
+                ("url", "https://wrong.example.test/"),
+                ("displayorder", "0"),
+            ],
+        )
+        .await;
+    assert_eq!(added.status, StatusCode::SEE_OTHER, "{}", added.body);
+    let id = f.link_id("wrong.example.test").await;
+    let path = format!("/manage/links/{id}");
+    let page = f.get(&path, Some(&admin)).await;
+    let version = f
+        .scalar(&format!(
+            "SELECT version FROM gonof_common_friend_link WHERE id={id}"
+        ))
+        .await
+        .to_string();
+    let form = |url: &'static str, order: &'static str| {
+        [
+            ("action", "update"),
+            ("category", "blog"),
+            ("name", "Shared Site"),
+            ("url", url),
+            ("displayorder", order),
+        ]
+    };
+    // One administrator corrects the address from the page.
+    let mut fixed: Vec<(&str, &str)> = form("https://right.example.test/", "0").to_vec();
+    fixed.push(("version", &version));
+    let saved = f.post(&path, &admin, &fixed).await;
+    assert_eq!(saved.status, StatusCode::SEE_OTHER, "{}", saved.body);
+    // Another one changes only the order from an older copy of the page: refused, the address stays corrected.
+    let mut stale: Vec<(&str, &str)> = form("https://wrong.example.test/", "7").to_vec();
+    stale.push(("version", &version));
+    let refused = f.post(&path, &admin, &stale).await;
+    assert_eq!(refused.status, StatusCode::CONFLICT, "{}", refused.body);
+    assert!(refused.body.contains("This friend link was just changed"));
+    assert_eq!(
+        f.scalar(&format!(
+            "SELECT COUNT(*) FROM gonof_common_friend_link WHERE id={id} AND url='https://right.example.test/' AND domain='right.example.test' AND displayorder=0"
+        ))
+        .await,
+        1
+    );
+    let removed = f
+        .post(
+            &path,
+            &admin,
+            &[
+                ("action", "remove"),
+                ("reason", "Seen on the old page"),
+                ("version", &version),
+            ],
+        )
+        .await;
+    assert_eq!(removed.status, StatusCode::CONFLICT, "{}", removed.body);
+    assert_eq!(f.logs("site.links.update").await, 1);
+    assert_eq!(f.logs("site.links.remove").await, 0);
+    // The page's forms are the ones these submissions stand for.
+    assert_eq!(
+        page.body
+            .matches(&format!(r#"name="version" value="{version}""#))
+            .count(),
+        2,
+        "both forms on the detail page carry the version"
+    );
+    // A fresh copy of the page carries the new version and can save.
+    let fresh = f
+        .scalar(&format!(
+            "SELECT version FROM gonof_common_friend_link WHERE id={id}"
+        ))
+        .await
+        .to_string();
+    assert_ne!(fresh, version);
+    let mut current: Vec<(&str, &str)> = form("https://right.example.test/", "7").to_vec();
+    current.push(("version", &fresh));
+    let saved = f.post(&path, &admin, &current).await;
+    assert_eq!(saved.status, StatusCode::SEE_OTHER, "{}", saved.body);
+    f.services.cleanup().await.unwrap();
+}
+
+/// Every address of the forum counts as "this site": an application for another domain of the same forum, enabled or
+/// not, is refused like one for the forum URL.
+#[tokio::test]
+async fn applications_for_any_domain_of_this_forum_are_refused() {
+    let f = Fixture::new().await;
+    let d = f.login(D).await;
+    f.execute(
+        "UPDATE gonof_common_settings SET svalue='https://example.com' WHERE skey='settings.site.url'",
+    )
+    .await;
+    f.execute(&format!(
+        "INSERT INTO gonof_common_site_domain(site_url,dateline) VALUES('https://example.com',{now}),('https://forum-two.example.net',{now}),('https://old.example.org/bbs',{now})",
+        now = f.now
+    ))
+    .await;
+    f.execute(
+        "UPDATE gonof_common_site_domain SET status=0 WHERE site_url='https://old.example.org/bbs'",
+    )
+    .await;
+    for url in [
+        "https://forum-two.example.net/",
+        "https://www.forum-two.example.net/threads",
+        "https://old.example.org/",
+    ] {
+        let own = f
+            .post(
+                "/links/apply",
+                &d,
+                &[
+                    ("name", "Same Forum"),
+                    ("category", "forum"),
+                    ("url", url),
+                    ("request_key", &identity::random_token()),
+                ],
+            )
+            .await;
+        assert_eq!(own.status, StatusCode::UNPROCESSABLE_ENTITY, "{url}");
+        assert!(
+            own.body.contains("You cannot apply with this site"),
+            "{url}: {}",
+            own.body
+        );
+    }
+    assert_eq!(
+        f.scalar(&format!(
+            "SELECT COUNT(*) FROM gonof_common_friend_link WHERE owner_uid={D}"
+        ))
+        .await,
+        0
+    );
+    // An unrelated site still goes through.
+    let other = f
+        .apply(&d, "unrelated.example.test", &identity::random_token())
+        .await;
+    assert_eq!(
+        other.location(),
+        "/links/apply?done=submitted",
+        "{}",
+        other.body
+    );
+    f.services.cleanup().await.unwrap();
+}
+
 #[tokio::test]
 async fn my_applications_keep_live_links_in_view() {
     let f = Fixture::new().await;
@@ -1330,6 +1486,7 @@ async fn the_last_directory_place_goes_to_one_administrator() {
                 &global,
                 actor(A),
                 waiting,
+                None,
                 links::Decision::Approve(input),
                 now,
             )

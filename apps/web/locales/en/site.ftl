@@ -224,6 +224,7 @@ site-manage-link-error-reason = The reason must be 1 to 200 characters on one li
 site-manage-link-error-order-range = The sort value must be between -9999 and 9999
 site-manage-link-error-description = The description can be at most 60 characters on one line
 site-manage-link-error-full = 500 friend links are already shown; take some down first
+site-manage-link-error-changed = This friend link was just changed by someone else. Please refresh and try again
 # Admin area: verified members.
 site-manage-verified = Verified members
 site-manage-description = Grant, edit, renew and revoke member verifications
