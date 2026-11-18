@@ -96,6 +96,89 @@ async fn post(
         .unwrap(),
     )
 }
+/// The unfiltered action log shows administrators every entry: switching site mail and creating an honor group are
+/// listed with their own labels, and a type nothing registered still appears as a generic management action. Other
+/// staff keep seeing only content events.
+#[tokio::test]
+async fn administrators_see_every_action_in_the_unfiltered_log() {
+    let (f, actor, _) = fixture().await;
+    let identity = identity::Identity::new(
+        f.db.clone(),
+        f.config.identity.clone(),
+        f.root.clone(),
+        f.global.clone(),
+    );
+    let administrator = http_auth::login(&identity, &f.db, actor.uid).await;
+    let app = gono_forum_web::router::build(f.config.clone(), &f.root, f.db.clone());
+    let (status, body) = post(
+        &app,
+        "/manage/mail/switch",
+        &administrator,
+        &[("enabled", "off".into())],
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
+    gono_forum_web::honors::create(
+        &f.db,
+        actor,
+        &gono_forum_web::honors::HonorInput {
+            name: "Helper".into(),
+            description: "Helps new members".into(),
+            displayorder: 0,
+            enabled: true,
+        },
+        identity::now(),
+    )
+    .await
+    .unwrap();
+    db::query("INSERT INTO gonof_common_log(uid,operationuid,type,data,source,dateline) VALUES(9901,9901,'unlisted.test.action','{}','web',?)")
+        .bind(identity::now())
+        .execute(f.db.executor())
+        .await
+        .unwrap();
+    let (status, page) = get(&app, "/manage/logs", Some(&administrator.session_token)).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    for label in [
+        "Site mail turned on or off",
+        "Honor group created",
+        "Management action",
+    ] {
+        assert!(
+            page.contains(&format!(" · {label}</h2>")),
+            "{label}: {page}"
+        );
+    }
+    let (entries, total) = gono_forum_web::manage::logs(&f.db, actor, 1).await.unwrap();
+    assert!(total >= 3);
+    for operation in ["mail.switch", "site.honor.create", "unlisted.test.action"] {
+        assert!(
+            entries.iter().any(|entry| entry.operation == operation),
+            "{operation}"
+        );
+    }
+    // A moderator sees none of them.
+    let moderator = Actor {
+        uid: 9903,
+        credentials_version: 1,
+        api_key: None,
+    };
+    let (entries, _) = gono_forum_web::manage::logs(&f.db, moderator, 1)
+        .await
+        .unwrap();
+    assert!(
+        entries
+            .iter()
+            .all(|entry| entry.operation.starts_with("content.")
+                || entry.operation.starts_with("restore.")),
+        "{:?}",
+        entries
+            .iter()
+            .map(|entry| &entry.operation)
+            .collect::<Vec<_>>()
+    );
+    f.cleanup().await.unwrap();
+}
+
 /// Each status filter of the invite list returns exactly the codes the list labels with that status: an available
 /// or frozen code past its end time is "expired" (and not "available" or "frozen"), and a revoked code is "revoked"
 /// whatever its end time. Totals follow the same set.

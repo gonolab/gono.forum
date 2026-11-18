@@ -920,7 +920,7 @@ fn scanner_reads_column_lists_and_assignments() {
     );
 }
 
-pub(super) fn production_sources() -> Vec<(String, String)> {
+pub(crate) fn production_sources() -> Vec<(String, String)> {
     let root = crate::project_root().join("apps/web/src");
     let mut files = Vec::new();
     collect(&root, &root, &mut files);

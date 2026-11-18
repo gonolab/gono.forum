@@ -68,6 +68,9 @@ moderator, 5 reviewer. Staff powers need an active, unfrozen account. All five r
 
 "Own boards" is defined under "Moderators and boards". Every staff action on a post needs a reason of 1 to 500
 characters and is written to the action log. Profile and attachment reports can only be marked handled or dismissed.
+"All events" means every entry of the log: each event type the code writes is registered with its own label
+(`manage.rs`, `EVENTS`, kept complete by a source scan), and an entry of any other type shows as a generic management
+action.
 
 ### Assigning roles
 

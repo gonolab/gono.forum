@@ -458,9 +458,10 @@ type EventLabel = fn(Lang) -> &'static str;
 
 /// Audit event registry: event name, visibility scope, label (a translation key, maintenance.ftl).
 ///
-/// The log page's two IN lists and the labels are all generated from this table, so only one place needs
-/// maintenance, and names without labels, or labels that find nothing, cannot occur. A listed name that nothing
-/// writes raises no error, its entries simply never appear; publishing, for example, writes
+/// The content events moderators see and every label come from this table. Administrators see every entry of the
+/// log, registered or not; an entry whose type is missing here is labeled "Management action". A unit test scans
+/// the source and requires every event type it writes to be listed. A listed name that nothing writes raises no
+/// error, its entries simply never appear; publishing, for example, writes
 /// `content.thread.publish`/`content.reply.publish` (see the two call sites of `finish` in `content/writes.rs`), not
 /// `content.thread`/`content.reply`.
 const EVENTS: &[(&str, LogScope, EventLabel)] = &[
@@ -766,6 +767,366 @@ const EVENTS: &[(&str, LogScope, EventLabel)] = &[
         LogScope::Admin,
         Lang::maintenance_event_identity_session_logout_all,
     ),
+    (
+        "activity.lottery.draw",
+        LogScope::Admin,
+        Lang::maintenance_event_activity_lottery_draw,
+    ),
+    (
+        "activity.lottery.exclude",
+        LogScope::Admin,
+        Lang::maintenance_event_activity_lottery_exclude,
+    ),
+    (
+        "activity.lottery.restore",
+        LogScope::Admin,
+        Lang::maintenance_event_activity_lottery_restore,
+    ),
+    (
+        "activity.lottery.codes",
+        LogScope::Admin,
+        Lang::maintenance_event_activity_lottery_codes,
+    ),
+    (
+        "activity.lottery.correct",
+        LogScope::Admin,
+        Lang::maintenance_event_activity_lottery_correct,
+    ),
+    (
+        "credits.rule",
+        LogScope::Admin,
+        Lang::maintenance_event_credits_rule,
+    ),
+    (
+        "credits.tip",
+        LogScope::Admin,
+        Lang::maintenance_event_credits_tip,
+    ),
+    (
+        "growth.adjust",
+        LogScope::Admin,
+        Lang::maintenance_event_growth_adjust,
+    ),
+    (
+        "feed.token.create",
+        LogScope::Admin,
+        Lang::maintenance_event_feed_token_create,
+    ),
+    (
+        "feed.token.rotate",
+        LogScope::Admin,
+        Lang::maintenance_event_feed_token_rotate,
+    ),
+    (
+        "feed.token.members",
+        LogScope::Admin,
+        Lang::maintenance_event_feed_token_members,
+    ),
+    (
+        "feed.token.disable",
+        LogScope::Admin,
+        Lang::maintenance_event_feed_token_disable,
+    ),
+    (
+        "feed.token.revoke",
+        LogScope::Admin,
+        Lang::maintenance_event_feed_token_revoke,
+    ),
+    (
+        "identity.bootstrap_admin",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_bootstrap_admin,
+    ),
+    (
+        "identity.register",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_register,
+    ),
+    (
+        "identity.login",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_login,
+    ),
+    (
+        "identity.email.verify",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_email_verify,
+    ),
+    (
+        "identity.email.resend",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_email_resend,
+    ),
+    (
+        "identity.invite.generate",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_invite_generate,
+    ),
+    (
+        "identity.invite.revoke",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_invite_revoke,
+    ),
+    (
+        "identity.avatar.update",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_avatar_update,
+    ),
+    (
+        "identity.custom_css",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_custom_css,
+    ),
+    (
+        "identity.reading_preferences",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_reading_preferences,
+    ),
+    (
+        "identity.notification_preferences",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_notification_preferences,
+    ),
+    (
+        "identity.external.link",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_external_link,
+    ),
+    (
+        "identity.external.unlink",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_external_unlink,
+    ),
+    (
+        "identity.mobile.bind",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_mobile_bind,
+    ),
+    (
+        "identity.mobile.change",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_mobile_change,
+    ),
+    (
+        "identity.mobile.unbind",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_mobile_unbind,
+    ),
+    (
+        "identity.two_factor.enable",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_two_factor_enable,
+    ),
+    (
+        "identity.two_factor.disable",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_two_factor_disable,
+    ),
+    (
+        "identity.two_factor.recovery.regenerate",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_two_factor_recovery_regenerate,
+    ),
+    (
+        "identity.two_factor.lockout",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_two_factor_lockout,
+    ),
+    (
+        "identity.two_factor.reset",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_two_factor_reset,
+    ),
+    (
+        "identity.verification.grant",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_verification_grant,
+    ),
+    (
+        "identity.verification.update",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_verification_update,
+    ),
+    (
+        "identity.verification.renew",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_verification_renew,
+    ),
+    (
+        "identity.verification.revoke",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_verification_revoke,
+    ),
+    (
+        "identity.honor.grant",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_honor_grant,
+    ),
+    (
+        "identity.honor.renew",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_honor_renew,
+    ),
+    (
+        "identity.honor.revoke",
+        LogScope::Admin,
+        Lang::maintenance_event_identity_honor_revoke,
+    ),
+    (
+        "interaction.thread",
+        LogScope::Admin,
+        Lang::maintenance_event_interaction_thread,
+    ),
+    (
+        "interaction.forum",
+        LogScope::Admin,
+        Lang::maintenance_event_interaction_forum,
+    ),
+    (
+        "interaction.member",
+        LogScope::Admin,
+        Lang::maintenance_event_interaction_member,
+    ),
+    (
+        "interaction.block",
+        LogScope::Admin,
+        Lang::maintenance_event_interaction_block,
+    ),
+    (
+        "interaction.forum_filter",
+        LogScope::Admin,
+        Lang::maintenance_event_interaction_forum_filter,
+    ),
+    (
+        "mail.switch",
+        LogScope::Admin,
+        Lang::maintenance_event_mail_switch,
+    ),
+    (
+        "media.upload",
+        LogScope::Admin,
+        Lang::maintenance_event_media_upload,
+    ),
+    (
+        "media.cancel",
+        LogScope::Admin,
+        Lang::maintenance_event_media_cancel,
+    ),
+    (
+        "media.trash",
+        LogScope::Admin,
+        Lang::maintenance_event_media_trash,
+    ),
+    (
+        "media.restore",
+        LogScope::Admin,
+        Lang::maintenance_event_media_restore,
+    ),
+    (
+        "media.purge_non_image",
+        LogScope::Admin,
+        Lang::maintenance_event_media_purge_non_image,
+    ),
+    (
+        "media.storage.save",
+        LogScope::Admin,
+        Lang::maintenance_event_media_storage_save,
+    ),
+    (
+        "organization.forum.order",
+        LogScope::Admin,
+        Lang::maintenance_event_organization_forum_order,
+    ),
+    (
+        "organization.forum.delete",
+        LogScope::Admin,
+        Lang::maintenance_event_organization_forum_delete,
+    ),
+    (
+        "organization.forum.merge",
+        LogScope::Admin,
+        Lang::maintenance_event_organization_forum_merge,
+    ),
+    (
+        "organization.forum.merge.done",
+        LogScope::Admin,
+        Lang::maintenance_event_organization_forum_merge_done,
+    ),
+    (
+        "site.url.cli",
+        LogScope::Admin,
+        Lang::maintenance_event_site_url_cli,
+    ),
+    (
+        "site.domains.switch",
+        LogScope::Admin,
+        Lang::maintenance_event_site_domains_switch,
+    ),
+    (
+        "site.domain.create",
+        LogScope::Admin,
+        Lang::maintenance_event_site_domain_create,
+    ),
+    (
+        "site.domain.save",
+        LogScope::Admin,
+        Lang::maintenance_event_site_domain_save,
+    ),
+    (
+        "site.domain.delete",
+        LogScope::Admin,
+        Lang::maintenance_event_site_domain_delete,
+    ),
+    (
+        "site.honor.create",
+        LogScope::Admin,
+        Lang::maintenance_event_site_honor_create,
+    ),
+    (
+        "site.honor.update",
+        LogScope::Admin,
+        Lang::maintenance_event_site_honor_update,
+    ),
+    (
+        "site.links.add",
+        LogScope::Admin,
+        Lang::maintenance_event_site_links_add,
+    ),
+    (
+        "site.links.apply",
+        LogScope::Admin,
+        Lang::maintenance_event_site_links_apply,
+    ),
+    (
+        "site.links.withdraw",
+        LogScope::Admin,
+        Lang::maintenance_event_site_links_withdraw,
+    ),
+    (
+        "site.links.approve",
+        LogScope::Admin,
+        Lang::maintenance_event_site_links_approve,
+    ),
+    (
+        "site.links.reject",
+        LogScope::Admin,
+        Lang::maintenance_event_site_links_reject,
+    ),
+    (
+        "site.links.update",
+        LogScope::Admin,
+        Lang::maintenance_event_site_links_update,
+    ),
+    (
+        "site.links.remove",
+        LogScope::Admin,
+        Lang::maintenance_event_site_links_remove,
+    ),
+    (
+        "sms.site_daily_limit",
+        LogScope::Admin,
+        Lang::maintenance_event_sms_site_daily_limit,
+    ),
 ];
 
 /// Event names contain only letters, digits and dots and are spliced directly into the SQL IN list; a unit test guards
@@ -780,8 +1141,6 @@ fn event_list(scope: LogScope) -> String {
 }
 static CONTENT_EVENTS: std::sync::LazyLock<String> =
     std::sync::LazyLock::new(|| event_list(LogScope::Content));
-static ADMIN_EVENTS: std::sync::LazyLock<String> =
-    std::sync::LazyLock::new(|| event_list(LogScope::Admin));
 
 impl LogEntry {
     pub fn label(&self) -> &str {
@@ -869,10 +1228,12 @@ pub async fn logs_filtered(
     // forums' current hierarchy.
     let (fid, moved_to) = ("l.fid", "l.to_fid");
     let guard = active(actor);
-    let admin_events = &*ADMIN_EVENTS;
     let content_events = &*CONTENT_EVENTS;
+    // Administrators see every entry, whatever its type (unregistered types are labeled as a generic management
+    // action); other staff see the registered content events, global moderators everywhere and moderators in their
+    // forums.
     let mut clause = format!(
-        "FROM gonof_common_log l LEFT JOIN gonof_common_member m ON m.uid=l.operationuid WHERE {guard} AND ((l.type IN ({content_events}) AND (?=1 OR ?=2 OR {moderates_from} OR {moderates_to})) OR ({role}=1 AND l.type IN ({admin_events})))",
+        "FROM gonof_common_log l LEFT JOIN gonof_common_member m ON m.uid=l.operationuid WHERE {guard} AND ({role}=1 OR (l.type IN ({content_events}) AND (?=1 OR ?=2 OR {moderates_from} OR {moderates_to})))",
         // UIDs are server-issued integers, written directly into the statement as in `active()`.
         moderates_from = crate::organization::moderates_fid_sql(&actor.uid.to_string(), fid),
         moderates_to = crate::organization::moderates_fid_sql(&actor.uid.to_string(), moved_to),
@@ -1139,5 +1500,105 @@ mod tests {
             "Management action",
             "a dead name has no label of its own"
         );
+    }
+
+    /// Quoted, event-shaped literals in `text` (`a.b`, lowercase letters, digits and underscores, between double or
+    /// single quotes, so SQL literals count too).
+    fn event_literals(text: &str) -> Vec<&str> {
+        let bytes = text.as_bytes();
+        let mut found = Vec::new();
+        for (start, quote) in bytes.iter().enumerate() {
+            if !matches!(quote, b'"' | b'\'') {
+                continue;
+            }
+            let rest = &bytes[start + 1..];
+            let len = rest
+                .iter()
+                .take_while(|b| {
+                    b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'.')
+                })
+                .count();
+            if rest.get(len) != Some(quote) {
+                continue;
+            }
+            let name = &text[start + 1..start + 1 + len];
+            if name.starts_with(|c: char| c.is_ascii_lowercase())
+                && name.contains('.')
+                && name.split('.').all(|part| !part.is_empty())
+            {
+                found.push(name);
+            }
+        }
+        found
+    }
+
+    /// Every event type the production source writes to `gonof_common_log` is registered, so the log page labels it.
+    /// The scan takes every quoted, event-shaped literal in a namespace that has registered events and requires it to be
+    /// registered or listed below as something else. It cannot see names built at run time, so event names are always
+    /// written out in full (see `interaction::social::Relation::log_type`); the first event of a new namespace has to be
+    /// registered by hand.
+    #[test]
+    fn every_event_type_the_source_writes_is_registered() {
+        // Strings in the same namespaces that are not log types.
+        const NOT_EVENTS: &[&str] = &[
+            // Settings and lock rows of gonof_common_settings.
+            "identity.username_namespace",
+            "mail.transport",
+            "media.storage",
+            // Outbox event types.
+            "media.process",
+            "media.purge",
+            "privacy.erase",
+            "privacy.export",
+            // Request fingerprints of interactions.
+            "interaction.downvote",
+            "interaction.favorite",
+            "interaction.reaction",
+            // Data source and cache block names.
+            "site.links",
+            "site.stats",
+            // File names.
+            "feed.xml",
+            "skin.css",
+            "skin.toml",
+        ];
+        let registered: std::collections::BTreeSet<&str> =
+            EVENTS.iter().map(|(name, _, _)| *name).collect();
+        let namespaces: std::collections::BTreeSet<&str> = registered
+            .iter()
+            .filter_map(|name| name.split('.').next())
+            .collect();
+        let mut seen = std::collections::BTreeSet::new();
+        let mut missing = std::collections::BTreeSet::new();
+        for (file, text) in crate::db::source_guards::production_sources() {
+            for name in event_literals(&text) {
+                if !namespaces.contains(name.split('.').next().unwrap_or_default()) {
+                    continue;
+                }
+                seen.insert(name.to_owned());
+                if !registered.contains(name) && !NOT_EVENTS.contains(&name) {
+                    missing.insert(format!("{name} ({file})"));
+                }
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "event types written without a registry entry (add them to EVENTS and maintenance.ftl, or to NOT_EVENTS if they are not log types): {missing:?}"
+        );
+        // The scan reads the write sites: literals in SQL, in calls and in constants.
+        for written in [
+            "growth.adjust",
+            "mail.switch",
+            "identity.two_factor.enable",
+            "interaction.member",
+        ] {
+            assert!(seen.contains(written), "the scan did not find {written}");
+        }
+        for name in NOT_EVENTS {
+            assert!(
+                seen.contains(*name),
+                "{name} no longer appears in the source; drop it from NOT_EVENTS"
+            );
+        }
     }
 }

@@ -25,6 +25,15 @@ impl Relation {
             Self::Member => "member",
         }
     }
+    /// The audit event of a change, spelled out so that the registry scan in `manage.rs` finds it.
+    fn log_type(self) -> &'static str {
+        match self {
+            Self::Thread => "interaction.thread",
+            Self::Forum => "interaction.forum",
+            Self::Block => "interaction.block",
+            Self::Member => "interaction.member",
+        }
+    }
     fn storage(self) -> (&'static str, &'static str) {
         match self {
             Self::Thread => ("gonof_home_thread_follow", "tid"),
@@ -322,7 +331,7 @@ pub async fn set(
     .await?;
     if changed {
         crate::db::query("INSERT INTO gonof_common_log(uid,operationuid,type,data,source,dateline) VALUES(?,?,?,?,'web',?)")
-            .bind(actor.uid).bind(actor.uid).bind(format!("interaction.{}",relation.name()))
+            .bind(actor.uid).bind(actor.uid).bind(relation.log_type())
             .bind(serde_json::json!({"target":target,"desired":desired}).to_string()).bind(timestamp).execute(db.observe(&mut *tx)).await?;
     }
     tx.commit().await?;

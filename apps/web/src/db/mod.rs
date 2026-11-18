@@ -11,7 +11,7 @@ mod observed;
 mod queries;
 mod rows;
 #[cfg(test)]
-mod source_guards;
+pub(crate) mod source_guards;
 pub mod sql_display;
 pub mod sqlite;
 #[cfg(test)]
