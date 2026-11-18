@@ -55,20 +55,32 @@ scripts/package-release.sh [--version <semver>] [--arch amd64|arm64]... [--out <
 ```
 
 It needs rustup (the toolchain comes from `rust-toolchain.toml`; the script adds the musl targets), zig,
-cargo-zigbuild, cargo-about (`cargo install --locked cargo-about --features cli`), Node.js with npm, tar and
+cargo-zigbuild, cargo-about (`cargo install --locked cargo-about --features cli`), Node.js with npm, file, tar and
 sha256sum. Without `--arch` it builds both architectures; without `--out` it writes to `dist/<version>/`.
 
+`--version` is `MAJOR.MINOR.PATCH` with an optional pre-release (`0.2.0-rc.1`), and defaults to the crate version.
+Build metadata (`1.4.2+build.7`) is refused: SemVer gives it no order, so the update check would take two releases
+that differ only in it for the same version and never offer the second. Use a pre-release or a new patch version.
+
 The script runs `npm ci --ignore-scripts && npm run build`, generates the licence file, then for each architecture
-runs `cargo zigbuild --locked --profile dist --features bundled --target <triple> -p gono-forum-web --bins`. It checks
-with `file` that both binaries are statically linked and, when the build machine has the same architecture as the
-package, that `gono-forum-web --version` reports the expected version. Last it writes `checksums.txt`.
+runs `cargo zigbuild --locked --profile dist --features bundled --target <triple> -p gono-forum-web --bins`. It takes
+the binaries from Cargo's target directory as `cargo metadata` reports it, so `CARGO_TARGET_DIR` and
+`build.target-dir` are followed, and it deletes the binaries of an earlier build there first, so that a build that
+writes nothing cannot leave old ones to be packed. It checks with `file` that both binaries are statically linked
+Linux binaries of the package's architecture and, when the build machine has the same architecture as the package,
+that `gono-forum-web --version` reports the expected version. Last it writes `checksums.txt`. Everything is put
+together in `<out>/.<version>.tmp.<pid>/`, which replaces `<out>/<version>/` only once every package and the
+checksums are written: a rebuild that fails leaves the packages of the earlier build as they were.
+`tests/release/simulate.sh` runs the script with stand-ins for the build tools (see "Release scripts" in
+[CONTRIBUTING.md](../CONTRIBUTING.md)).
 
 ## Publishing a release
 
 1. Set `version` in `apps/web/Cargo.toml` and let Cargo update `Cargo.lock`; packages are built with `--locked`.
 2. Write the version's section in `CHANGELOG.md`: a heading `## <version>`, optionally followed by a label such as
    `(early alpha)`, then the text. The release is titled "Gono Forum " followed by the heading, and its text is the
-   section. Links in it must be absolute, because the release page does not resolve relative ones.
+   section. Links in it must be absolute, because the release page does not resolve relative ones. A line starting
+   with `## ` inside a fenced code block (```` ``` ```` or `~~~`) is part of the text, not the next section.
    `scripts/release-notes.sh title|notes <version>` prints both.
 3. Commit, then run the Rust suite on that commit on SQLite, MySQL 5.7.44 and MySQL 8.4 (commands in the README's
    "Tests"; 5.7 with `--test-threads=2`). CI does not run it, so this is the only test run a release gets.

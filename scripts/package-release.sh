@@ -13,12 +13,18 @@
 # and in GitHub Actions on tags (.github/workflows/release.yml).
 #
 # Needs: Linux, rustup (the toolchain in rust-toolchain.toml), zig and cargo-zigbuild (cross C compiler for the musl
-# targets), cargo-about (`cargo install --locked cargo-about --features cli`), node and npm (styles and the editor bundle).
+# targets), cargo-about (`cargo install --locked cargo-about --features cli`), node and npm (styles and the editor bundle),
+# file, tar and sha256sum.
 #
 # Usage: scripts/package-release.sh [--version <semver>] [--arch amd64|arm64]... [--out <dir>]
 #   --version  defaults to the crate version; a different one (e.g. 0.1.1-dev.1 for a test package) is compiled in
-#              through GONOF_BUILD_VERSION
+#              through GONOF_BUILD_VERSION. MAJOR.MINOR.PATCH with an optional -PRERELEASE; build metadata (+…) is
+#              refused (docs/releasing.md, "Building packages")
 #   --arch     defaults to both
+#
+# The binaries are taken from Cargo's own target directory (CARGO_TARGET_DIR or build.target-dir included). The
+# packages are put together in a temporary directory next to the output and replace an earlier build of the same
+# version only once all of them are complete.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -31,62 +37,93 @@ while [ $# -gt 0 ]; do
     --version) version="${2:?--version needs a value}"; shift 2 ;;
     --arch) arches+=("${2:?--arch needs a value}"); shift 2 ;;
     --out) out="${2:?--out needs a value}"; shift 2 ;;
-    -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
 [ ${#arches[@]} -gt 0 ] || arches=(amd64 arm64)
+case "$version" in
+  *+*)
+    # SemVer gives build metadata no order: the update check would take 1.4.2+build.8 for the same version as
+    # 1.4.2+build.7 and never offer it.
+    echo "release versions take no build metadata: $version (SemVer ignores the +… part when it orders versions, so the update check could not tell such releases apart; use a pre-release such as 1.4.2-rc.1 or a new patch version)" >&2
+    exit 2
+    ;;
+esac
 if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
-  echo "not a semantic version: $version" >&2
+  echo "not a semantic version: $version (MAJOR.MINOR.PATCH with an optional -PRERELEASE)" >&2
   exit 2
 fi
 [ "$(uname -s)" = Linux ] || { echo "release packages are built on Linux" >&2; exit 1; }
-for tool in cargo rustup zig cargo-zigbuild cargo-about npm tar sha256sum; do
+for tool in cargo rustup zig cargo-zigbuild cargo-about npm file tar sha256sum; do
   command -v "$tool" >/dev/null || { echo "missing tool: $tool" >&2; exit 1; }
 done
 
 step() { printf '\n=== %s ===\n' "$1"; }
 
+# Where Cargo writes the builds: the repository's target/ unless CARGO_TARGET_DIR or a Cargo configuration names
+# another directory.
+target_dir=$(cargo metadata --format-version 1 --no-deps | sed -n 's/.*"target_directory":"\([^"\\]*\)".*/\1/p')
+[ -n "$target_dir" ] || { echo "cannot read Cargo's target directory from cargo metadata" >&2; exit 1; }
+
+# Everything is put together in $work and replaces $dest only at the end, so a build that fails leaves the packages
+# of an earlier build of this version as they were.
+dest="$out/$version"
+mkdir -p "$out"
+work="$out/.$version.tmp.$$"
+cleanup() { rm -rf "$work" "$dest.old.$$"; }
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+rm -rf "$work"
+mkdir -p "$work"
+
 step "Front-end assets"
 npm ci --ignore-scripts
 npm run build
 
-dest="$out/$version"
-rm -rf "$dest"
-mkdir -p "$dest"
 step "Third-party licenses"
 # One file for both architectures: scripts/licenses/about.toml lists both musl targets and fails on a license that is
 # not accepted there. cargo-about reads the license files from the crate sources, so fetch them first.
 cargo fetch --locked
 cargo about generate --locked --fail -c scripts/licenses/about.toml -m apps/web/Cargo.toml --features bundled \
-  -o "$dest/THIRD-PARTY-LICENSES.txt" scripts/licenses/about.hbs
+  -o "$work/THIRD-PARTY-LICENSES.txt" scripts/licenses/about.hbs
 
 # Reproducible archives: fixed owner, order and timestamps (the last commit's time).
 epoch=$(git log -1 --format=%ct 2>/dev/null || date +%s)
 
 for arch in "${arches[@]}"; do
+  # machine: how file(1) names the architecture of an ELF binary for it.
   case "$arch" in
-    amd64) triple=x86_64-unknown-linux-musl ;;
-    arm64) triple=aarch64-unknown-linux-musl ;;
+    amd64) triple=x86_64-unknown-linux-musl machine=x86-64 ;;
+    arm64) triple=aarch64-unknown-linux-musl machine="ARM aarch64" ;;
     *) echo "unknown architecture: $arch" >&2; exit 2 ;;
   esac
   step "Build $triple ($version)"
   rustup target add "$triple" >/dev/null
+  built="$target_dir/$triple/dist"
+  # A build that writes nothing must not leave the binaries of an earlier build to be packed.
+  rm -f "$built/gono-forum-web" "$built/gono-forum-cli"
   GONOF_BUILD_VERSION="$version" cargo zigbuild --locked --profile dist --features bundled \
     --target "$triple" -p gono-forum-web --bins
   name="gono-forum_${version}_linux_${arch}"
-  stage="$dest/$name"
+  stage="$work/$name"
   mkdir -p "$stage"
   for binary in gono-forum-web gono-forum-cli; do
-    install -m 0755 "target/$triple/dist/$binary" "$stage/$binary"
-    if command -v file >/dev/null && ! file "$stage/$binary" | grep -q 'statically linked\|static-pie linked'; then
-      echo "$binary is not statically linked:" >&2
-      file "$stage/$binary" >&2
-      exit 1
-    fi
+    [ -f "$built/$binary" ] || { echo "the build wrote no $built/$binary" >&2; exit 1; }
+    install -m 0755 "$built/$binary" "$stage/$binary"
+    described=$(file -b "$stage/$binary")
+    case "$described" in
+      *"statically linked"* | *"static-pie linked"*) ;;
+      *) echo "$binary is not statically linked: $described" >&2; exit 1 ;;
+    esac
+    case "$described" in
+      ELF*", $machine,"*) ;;
+      *) echo "$binary is not a Linux $arch binary: $described" >&2; exit 1 ;;
+    esac
   done
   install -m 0755 forum.install.sh "$stage/forum.install.sh"
-  install -m 0644 LICENSE-MIT LICENSE-APACHE NOTICE "$dest/THIRD-PARTY-LICENSES.txt" "$stage/"
+  install -m 0644 LICENSE-MIT LICENSE-APACHE NOTICE "$work/THIRD-PARTY-LICENSES.txt" "$stage/"
   mkdir -p "$stage/docs/licenses"
   install -m 0644 docs/licenses/* "$stage/docs/licenses/"
   if [ "$(uname -m)" = "$( [ "$arch" = amd64 ] && echo x86_64 || echo aarch64)" ]; then
@@ -94,15 +131,24 @@ for arch in "${arches[@]}"; do
     [ "$reported" = "gono-forum-web $version" ] || { echo "unexpected version: $reported" >&2; exit 1; }
   fi
   tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$epoch" \
-    -C "$dest" -czf "$dest/$name.tar.gz" "$name"
+    -C "$work" -czf "$work/$name.tar.gz" "$name"
   rm -rf "$stage"
 done
-rm -f "$dest/THIRD-PARTY-LICENSES.txt"
+rm -f "$work/THIRD-PARTY-LICENSES.txt"
 
 # forum.install.sh is also published on its own, so `curl …/latest/download/forum.install.sh | sudo bash` works.
-install -m 0755 forum.install.sh "$dest/forum.install.sh"
+install -m 0755 forum.install.sh "$work/forum.install.sh"
 
 step "Checksums"
-(cd "$dest" && sha256sum -- *.tar.gz forum.install.sh > checksums.txt && cat checksums.txt)
+(cd "$work" && sha256sum -- *.tar.gz forum.install.sh > checksums.txt && cat checksums.txt)
+
+# Complete: replace an earlier build of this version.
+rm -rf "$dest.old.$$"
+if [ -e "$dest" ]; then mv "$dest" "$dest.old.$$"; fi
+if ! mv "$work" "$dest"; then
+  if [ -e "$dest.old.$$" ]; then mv "$dest.old.$$" "$dest"; fi
+  echo "could not move the packages from $work to $dest" >&2
+  exit 1
+fi
 echo
 echo "Packages are in $dest"

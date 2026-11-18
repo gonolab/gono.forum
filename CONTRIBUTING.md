@@ -130,6 +130,14 @@ user, and never touches `/opt`, `/etc` or the real service manager. It needs bas
 coreutils (on macOS `brew install coreutils`), checks the wget fallback only when wget is installed, and takes about
 four minutes.
 
+### Release scripts
+
+After changing `scripts/package-release.sh` or `scripts/release-notes.sh`, run `shellcheck` on it and
+`tests/release/simulate.sh`. The simulation runs the packaging script with stand-ins for cargo and the other build
+tools (a separate Cargo target directory, a failed rebuild, a build that writes nothing, a binary of the wrong
+architecture, a version with build metadata) and the release-notes script on a changelog with headings inside fenced
+code blocks. It takes a few seconds and touches nothing outside a temporary directory.
+
 ## Commits and pull requests
 
 - Keep a pull request to one change, with tests that cover it.
