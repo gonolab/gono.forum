@@ -893,7 +893,7 @@ mod tests {
         let (draft, found) = from_files([
             (
                 "skin.toml",
-                "contract = 1\nid = \"ledger\"\nversion = \"1.0.0\"\nname = { en = \"Ledger\" }\n[palettes]\ndefault = \"main\"\nvariants = [\"night\"]\n[frame]\nmasthead_height = \"52px\"\n",
+                "contract = 1\nid = \"ruled\"\nversion = \"1.0.0\"\nname = { en = \"Ruled\" }\n[palettes]\ndefault = \"main\"\nvariants = [\"night\"]\n[frame]\nmasthead_height = \"52px\"\n",
             ),
             ("palettes/main.json", r##"{"light":{"--accent":"#0f766e"}}"##),
             ("palettes/night.json", r##"{"shared":{"--accent":"#115e59"}}"##),
@@ -902,7 +902,7 @@ mod tests {
         ])
         .unwrap();
         assert!(matches!(found[0].problem, Problem::PackFile));
-        let checked = check(&draft, Source::Instance, Some("ledger"));
+        let checked = check(&draft, Source::Instance, Some("ruled"));
         let skin = checked.skin.expect("only warnings");
         assert_eq!(skin.palettes, ["main", "night"]);
         assert_eq!(skin.palette(Some("night")), "night");
@@ -918,7 +918,7 @@ mod tests {
         let warnings: Vec<_> = skin.warnings.iter().map(|w| w.file.as_str()).collect();
         assert_eq!(warnings, ["skin.toml", "skin.css"]);
         // The same draft as a built-in skin is refused for the same reasons, and because no messages name it.
-        let builtin = check(&draft, Source::Builtin, Some("ledger"));
+        let builtin = check(&draft, Source::Builtin, Some("ruled"));
         assert!(builtin.skin.is_none());
         assert_eq!(builtin.errors().count(), 3);
         assert!(

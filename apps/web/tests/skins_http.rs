@@ -3,7 +3,7 @@
 //! built-in default when a choice cannot be used, the administrator's preview and what it keeps out of shared caches,
 //! the member's personal style in its cascade layer, seed colors for the site and for a domain, and who may do what.
 //!
-//! The imported and instance skins are the Ledger test fixture (tests/fixtures/skins/ledger), which passes the safety
+//! The imported and instance skins are the Ruled test fixture (tests/fixtures/skins/ruled), which passes the safety
 //! rules and breaks several style rules, so it imports with warnings.
 #[path = "support/http_auth.rs"]
 mod http_auth;
@@ -41,12 +41,12 @@ struct Answer {
     cookies: Vec<String>,
 }
 
-fn ledger_dir() -> PathBuf {
-    project_root().join("tests/fixtures/skins/ledger")
+fn ruled_dir() -> PathBuf {
+    project_root().join("tests/fixtures/skins/ruled")
 }
 
-fn ledger_pack() -> String {
-    let (draft, _) = skins::read_dir(&ledger_dir()).expect("the fixture reads");
+fn ruled_pack() -> String {
+    let (draft, _) = skins::read_dir(&ruled_dir()).expect("the fixture reads");
     skins::pack(&draft)
 }
 
@@ -67,9 +67,9 @@ async fn execute(db: &Database, sql: &str) {
     db::query(sql).execute(db.executor()).await.unwrap();
 }
 
-async fn ledger_column(db: &Database, column: &str) -> String {
+async fn ruled_column(db: &Database, column: &str) -> String {
     db::query_scalar(&format!(
-        "SELECT {column} FROM gonof_common_skin WHERE skin_id='ledger'"
+        "SELECT {column} FROM gonof_common_skin WHERE skin_id='ruled'"
     ))
     .fetch_one(db.executor())
     .await
@@ -239,7 +239,7 @@ impl Site {
     async fn upload(&self, session: &(String, String), pack: &str) -> Answer {
         let boundary = "gonof-skin-boundary";
         let body = format!(
-            "--{boundary}\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\n{}\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"pack\"; filename=\"ledger.skin.json\"\r\nContent-Type: application/json\r\n\r\n{pack}\r\n--{boundary}--\r\n",
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\n{}\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"pack\"; filename=\"ruled.skin.json\"\r\nContent-Type: application/json\r\n\r\n{pack}\r\n--{boundary}--\r\n",
             session.1
         );
         let request = Self::base(
@@ -257,9 +257,9 @@ impl Site {
         self.send(request).await
     }
 
-    /// Imports the Ledger fixture through the upload and the confirmation of its warnings.
-    async fn import_ledger(&self) {
-        let answer = self.upload(&self.admin, &ledger_pack()).await;
+    /// Imports the Ruled fixture through the upload and the confirmation of its warnings.
+    async fn import_ruled(&self) {
+        let answer = self.upload(&self.admin, &ruled_pack()).await;
         assert_eq!(answer.status, StatusCode::OK, "{}", answer.html);
         assert!(answer.html.contains("data-skin-confirm"), "{}", answer.html);
         let replaces = hidden(&answer.html, "replaces");
@@ -395,7 +395,7 @@ async fn the_default_skin_serves_its_palette_and_guards_without_a_session() {
     assert_eq!(stale.cache, "no-cache");
     assert_eq!(stale.html, css.html);
     assert_eq!(
-        site.get("/skin/ledger.css", None).await.status,
+        site.get("/skin/ruled.css", None).await.status,
         StatusCode::NOT_FOUND
     );
     assert_eq!(
@@ -409,12 +409,12 @@ async fn the_default_skin_serves_its_palette_and_guards_without_a_session() {
 async fn sources_are_listed_by_priority_with_reasons_and_warnings() {
     let broken = std::env::temp_dir().join(format!("gonof-broken-skin-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&broken);
-    copy_dir(&ledger_dir(), &broken);
+    copy_dir(&ruled_dir(), &broken);
     std::fs::write(
         broken.join("skin.toml"),
-        std::fs::read_to_string(ledger_dir().join("skin.toml"))
+        std::fs::read_to_string(ruled_dir().join("skin.toml"))
             .unwrap()
-            .replace("\"ledger\"", "\"broken\""),
+            .replace("\"ruled\"", "\"broken\""),
     )
     .unwrap();
     std::fs::write(
@@ -430,7 +430,7 @@ async fn sources_are_listed_by_priority_with_reasons_and_warnings() {
         &default_copy,
     );
     let site = Site::new(&[
-        ("ledger", &ledger_dir()),
+        ("ruled", &ruled_dir()),
         ("broken", &broken),
         ("default", &default_copy),
     ])
@@ -438,13 +438,13 @@ async fn sources_are_listed_by_priority_with_reasons_and_warnings() {
     let page = site.get("/manage/skins", Some(&site.admin)).await;
     assert_eq!(page.status, StatusCode::OK);
     let t = gono_forum_web::i18n::current();
-    // The instance Ledger is usable, with its warnings listed.
-    let ledger = row(&page.html, "ledger", t.skin_source_instance());
-    assert!(ledger.contains("data-skin-usable=\"true\""), "{ledger}");
-    assert!(ledger.contains("data-skin-warnings"), "{ledger}");
+    // The instance Ruled is usable, with its warnings listed.
+    let ruled = row(&page.html, "ruled", t.skin_source_instance());
+    assert!(ruled.contains("data-skin-usable=\"true\""), "{ruled}");
+    assert!(ruled.contains("data-skin-warnings"), "{ruled}");
     assert!(
-        ledger.contains("--masthead-bg is not a color token of the core"),
-        "{ledger}"
+        ruled.contains("--masthead-bg is not a color token of the core"),
+        "{ruled}"
     );
     // The broken one says why it cannot be used.
     let broken_row = row(&page.html, "broken", t.skin_source_instance());
@@ -460,25 +460,25 @@ async fn sources_are_listed_by_priority_with_reasons_and_warnings() {
     let builtin = row(&page.html, "default", t.skin_source_builtin());
     assert!(builtin.contains(t.skin_state_current()));
 
-    // Importing Ledger shadows the instance copy.
-    site.import_ledger().await;
+    // Importing Ruled shadows the instance copy.
+    site.import_ruled().await;
     let page = site.get("/manage/skins", Some(&site.admin)).await;
-    let instance = row(&page.html, "ledger", t.skin_source_instance());
+    let instance = row(&page.html, "ruled", t.skin_source_instance());
     assert!(
         unescape(instance).contains(&t.skin_state_shadowed(t.skin_source_imported())),
         "{instance}"
     );
     assert!(
-        row(&page.html, "ledger", t.skin_source_imported()).contains("data-skin-usable=\"true\"")
+        row(&page.html, "ruled", t.skin_source_imported()).contains("data-skin-usable=\"true\"")
     );
 
     // A directory added later is only read after a rescan.
-    copy_dir(&ledger_dir(), &site.root.join("skins").join("later"));
+    copy_dir(&ruled_dir(), &site.root.join("skins").join("later"));
     std::fs::write(
         site.root.join("skins/later/skin.toml"),
-        std::fs::read_to_string(ledger_dir().join("skin.toml"))
+        std::fs::read_to_string(ruled_dir().join("skin.toml"))
             .unwrap()
-            .replace("\"ledger\"", "\"later\""),
+            .replace("\"ruled\"", "\"later\""),
     )
     .unwrap();
     assert!(
@@ -505,7 +505,7 @@ async fn sources_are_listed_by_priority_with_reasons_and_warnings() {
 async fn importing_lists_warnings_refuses_errors_and_records_what_was_confirmed() {
     let site = Site::new(&[]).await;
     // A pack that breaks a safety rule is refused with every problem listed, and nothing is stored.
-    let bad = ledger_pack().replace(
+    let bad = ruled_pack().replace(
         ".pane {",
         ".pane { background: url(x.png); z-index: 99; }\\n.x {",
     );
@@ -525,12 +525,12 @@ async fn importing_lists_warnings_refuses_errors_and_records_what_was_confirmed(
     let not_a_pack = site.upload(&site.admin, "{}").await;
     assert_eq!(not_a_pack.status, StatusCode::UNPROCESSABLE_ENTITY);
 
-    site.import_ledger().await;
-    let version = ledger_column(site.db(), "skin_version").await;
-    let warnings = ledger_column(site.db(), "warnings").await;
-    let hash = ledger_column(site.db(), "content_hash").await;
+    site.import_ruled().await;
+    let version = ruled_column(site.db(), "skin_version").await;
+    let warnings = ruled_column(site.db(), "warnings").await;
+    let hash = ruled_column(site.db(), "content_hash").await;
     assert_eq!(version, "1.0.0");
-    let (draft, _) = skins::read_dir(&ledger_dir()).unwrap();
+    let (draft, _) = skins::read_dir(&ruled_dir()).unwrap();
     assert_eq!(hash, skins::content_hash(&draft));
     let confirmed: Vec<gono_forum_web::css_check::Finding> =
         serde_json::from_str(&warnings).unwrap();
@@ -552,7 +552,7 @@ async fn importing_lists_warnings_refuses_errors_and_records_what_was_confirmed(
     );
 
     // Importing the same id again asks first, and a confirmation for a row that changed meanwhile is refused.
-    let again = site.upload(&site.admin, &ledger_pack()).await;
+    let again = site.upload(&site.admin, &ruled_pack()).await;
     assert!(
         again
             .html
@@ -577,12 +577,12 @@ async fn importing_lists_warnings_refuses_errors_and_records_what_was_confirmed(
 #[tokio::test]
 async fn choosing_a_skin_changes_every_page_and_a_domain_can_choose_its_own() {
     let site = Site::new(&[]).await;
-    site.import_ledger().await;
+    site.import_ruled().await;
     let chosen = site
         .post(
             "/manage/skins/select",
             &site.admin,
-            &[("choice", "ledger:main")],
+            &[("choice", "ruled:main")],
         )
         .await;
     assert_eq!(
@@ -598,7 +598,7 @@ async fn choosing_a_skin_changes_every_page_and_a_domain_can_choose_its_own() {
     .unwrap();
     assert_eq!(
         body,
-        r#"{"v":1,"skin":"ledger","palette":"main","based_on":{"skin":"ledger","version":"1.0.0"},"places":null}"#
+        r#"{"v":1,"skin":"ruled","palette":"main","based_on":{"skin":"ruled","version":"1.0.0"},"places":null}"#
     );
     assert_eq!(
         scalar(
@@ -611,7 +611,7 @@ async fn choosing_a_skin_changes_every_page_and_a_domain_can_choose_its_own() {
     let page = site.get("/", None).await;
     let tag = html_tag(&page.html);
     assert!(
-        tag.contains("data-skin=\"ledger\" data-skin-source=\"imported\" data-palette=\"main\""),
+        tag.contains("data-skin=\"ruled\" data-skin-source=\"imported\" data-palette=\"main\""),
         "{tag}"
     );
     // The skin fixes round avatars for everyone.
@@ -683,7 +683,7 @@ async fn choosing_a_skin_changes_every_page_and_a_domain_can_choose_its_own() {
         "{}",
         html_tag(&there.html)
     );
-    assert!(html_tag(&site.get("/", None).await.html).contains("data-skin=\"ledger\""));
+    assert!(html_tag(&site.get("/", None).await.html).contains("data-skin=\"ruled\""));
     // Following the site again removes the override.
     site.post(
         &format!("/manage/domains/{other}/skin"),
@@ -691,7 +691,7 @@ async fn choosing_a_skin_changes_every_page_and_a_domain_can_choose_its_own() {
         &[("choice", "")],
     )
     .await;
-    assert!(html_tag(&site.get_on(OTHER, "/", &[]).await.html).contains("data-skin=\"ledger\""));
+    assert!(html_tag(&site.get_on(OTHER, "/", &[]).await.html).contains("data-skin=\"ruled\""));
     // Deleting the domain deletes its document.
     site.post(
         &format!("/manage/domains/{other}/skin"),
@@ -735,22 +735,22 @@ async fn choosing_a_skin_changes_every_page_and_a_domain_can_choose_its_own() {
 #[tokio::test]
 async fn a_skin_in_use_cannot_be_deleted_and_a_broken_choice_falls_back_to_the_default() {
     let site = Site::new(&[]).await;
-    site.import_ledger().await;
+    site.import_ruled().await;
     site.post(
         "/manage/skins/select",
         &site.admin,
-        &[("choice", "ledger:main")],
+        &[("choice", "ruled:main")],
     )
     .await;
     let version = scalar(
         site.db(),
-        "SELECT version FROM gonof_common_skin WHERE skin_id='ledger'",
+        "SELECT version FROM gonof_common_skin WHERE skin_id='ruled'",
     )
     .await
     .to_string();
     let refused = site
         .post(
-            "/manage/skins/ledger/delete",
+            "/manage/skins/ruled/delete",
             &site.admin,
             &[("version", &version)],
         )
@@ -763,7 +763,7 @@ async fn a_skin_in_use_cannot_be_deleted_and_a_broken_choice_falls_back_to_the_d
     );
 
     // A row edited by hand so that it breaks a safety rule is no longer usable: pages fall back to the default.
-    execute(site.db(), "UPDATE gonof_common_skin SET css='.pane { background: url(x.png); }' WHERE skin_id='ledger'").await;
+    execute(site.db(), "UPDATE gonof_common_skin SET css='.pane { background: url(x.png); }' WHERE skin_id='ruled'").await;
     site.services.global.clear_local();
     let page = site.get("/", None).await;
     assert_eq!(page.status, StatusCode::OK);
@@ -790,7 +790,7 @@ async fn a_skin_in_use_cannot_be_deleted_and_a_broken_choice_falls_back_to_the_d
     .await;
     let deleted = site
         .post(
-            "/manage/skins/ledger/delete",
+            "/manage/skins/ruled/delete",
             &site.admin,
             &[("version", &version)],
         )
@@ -817,12 +817,12 @@ async fn a_skin_in_use_cannot_be_deleted_and_a_broken_choice_falls_back_to_the_d
 
 #[tokio::test]
 async fn a_preview_is_only_seen_by_the_administrator_who_started_it() {
-    let site = Site::new(&[("ledger", &ledger_dir())]).await;
+    let site = Site::new(&[("ruled", &ruled_dir())]).await;
     let started = site
         .post(
             "/manage/skins/preview",
             &site.admin,
-            &[("choice", "ledger:")],
+            &[("choice", "ruled:")],
         )
         .await;
     assert_eq!(started.status, StatusCode::SEE_OTHER, "{}", started.html);
@@ -839,7 +839,7 @@ async fn a_preview_is_only_seen_by_the_administrator_who_started_it() {
     let admin_cookies = vec![format!("gonof_session={}", site.admin.0), cookie.clone()];
     let previewed = site.get_on(TEST_SITE_URL, "/", &admin_cookies).await;
     assert!(
-        html_tag(&previewed.html).contains("data-skin=\"ledger\" data-skin-source=\"instance\"")
+        html_tag(&previewed.html).contains("data-skin=\"ruled\" data-skin-source=\"instance\"")
     );
     assert!(previewed.html.contains("data-skin-preview"));
     // Pages of a signed-in member are never stored by shared caches, and a skin no page uses is private.
@@ -906,7 +906,7 @@ async fn a_preview_is_only_seen_by_the_administrator_who_started_it() {
         "{}",
         published.html
     );
-    assert!(html_tag(&site.get("/", None).await.html).contains("data-skin=\"ledger\""));
+    assert!(html_tag(&site.get("/", None).await.html).contains("data-skin=\"ruled\""));
     site.services.cleanup().await.unwrap();
 }
 
@@ -933,7 +933,7 @@ async fn only_administrators_manage_skins() {
             );
         }
     }
-    let upload = site.upload(&site.member, &ledger_pack()).await;
+    let upload = site.upload(&site.member, &ruled_pack()).await;
     assert_eq!(upload.status, StatusCode::FORBIDDEN);
     assert_eq!(
         scalar(site.db(), "SELECT COUNT(*) FROM gonof_common_skin").await,
@@ -968,7 +968,7 @@ async fn personal_styles_sit_in_the_member_layer_after_the_skin() {
 
 #[tokio::test]
 async fn built_in_skin_names_come_from_the_translation_files() {
-    let site = Site::new(&[("ledger", &ledger_dir())]).await;
+    let site = Site::new(&[("ruled", &ruled_dir())]).await;
     test_support::set_setting(site.db(), "settings.site.language", "zh-CN")
         .await
         .unwrap();
@@ -991,8 +991,8 @@ async fn built_in_skin_names_come_from_the_translation_files() {
         zh.skin_builtin_default_name()
     )));
     assert!(
-        row(&page.html, "ledger", zh.skin_source_instance())
-            .contains("<span translate=\"no\">Ledger</span>")
+        row(&page.html, "ruled", zh.skin_source_instance())
+            .contains("<span translate=\"no\">Ruled</span>")
     );
     site.services.cleanup().await.unwrap();
 }
@@ -1161,24 +1161,24 @@ async fn seed_colors_derive_over_the_skin_and_change_its_stylesheet_address() {
     assert!(page.html.contains("value=\"#0f766e\""));
 
     // Changing skins keeps the seeds and derives them again for the new skin.
-    site.import_ledger().await;
+    site.import_ruled().await;
     site.post(
         "/manage/skins/select",
         &site.admin,
-        &[("choice", "ledger:main")],
+        &[("choice", "ruled:main")],
     )
     .await;
     let body = layout_body(site.db(), "settings.layout.body")
         .await
         .unwrap();
-    assert!(body.contains("\"skin\":\"ledger\""), "{body}");
+    assert!(body.contains("\"skin\":\"ruled\""), "{body}");
     assert!(body.contains("\"colors\""), "{body}");
-    let ledger = unescape(&skin_href(&site.get("/", None).await.html));
+    let ruled = unescape(&skin_href(&site.get("/", None).await.html));
     assert!(
-        ledger.starts_with("/skin/ledger.css?c=0f766ef97316&v="),
-        "{ledger}"
+        ruled.starts_with("/skin/ruled.css?c=0f766ef97316&v="),
+        "{ruled}"
     );
-    let css = site.get(&ledger, None).await;
+    let css = site.get(&ruled, None).await;
     assert_eq!(css.cache, "public, max-age=31536000, immutable");
     assert!(
         css.html.contains(".pane {"),
@@ -1197,7 +1197,7 @@ async fn seed_colors_derive_over_the_skin_and_change_its_stylesheet_address() {
         .await
         .unwrap();
     assert!(!body.contains("colors"), "{body}");
-    assert!(skin_href(&site.get("/", None).await.html).starts_with("/skin/ledger.css?v="));
+    assert!(skin_href(&site.get("/", None).await.html).starts_with("/skin/ruled.css?v="));
     assert_eq!(
         scalar(
             site.db(),
@@ -1481,7 +1481,7 @@ async fn a_domain_color_preview_shows_on_that_domain_and_publishes_there() {
 
 #[tokio::test]
 async fn a_color_preview_is_only_seen_by_the_administrator_who_started_it() {
-    let site = Site::new(&[("ledger", &ledger_dir())]).await;
+    let site = Site::new(&[("ruled", &ruled_dir())]).await;
     let started = site
         .post(
             "/manage/appearance/colors/preview",
@@ -1620,7 +1620,7 @@ async fn a_color_preview_is_only_seen_by_the_administrator_who_started_it() {
         .post(
             "/manage/skins/preview",
             &site.admin,
-            &[("choice", "ledger:")],
+            &[("choice", "ruled:")],
         )
         .await;
     let other_cookie = other_skin
@@ -1634,18 +1634,18 @@ async fn a_color_preview_is_only_seen_by_the_administrator_who_started_it() {
         .to_owned();
     let other_cookies = vec![format!("gonof_session={}", site.admin.0), other_cookie];
     let page = site.get_on(TEST_SITE_URL, "/", &other_cookies).await;
-    let ledger = unescape(&skin_href(&page.html));
+    let ruled = unescape(&skin_href(&page.html));
     assert!(
-        ledger.starts_with("/skin/ledger.css?c=0f766ef97316&v="),
-        "{ledger}"
+        ruled.starts_with("/skin/ruled.css?c=0f766ef97316&v="),
+        "{ruled}"
     );
-    let own = site.get_on(TEST_SITE_URL, &ledger, &other_cookies).await;
+    let own = site.get_on(TEST_SITE_URL, &ruled, &other_cookies).await;
     assert_eq!(own.cache, "private, max-age=31536000, immutable");
     assert!(
         own.html
             .contains("with the seed colors #0f766e and #f97316")
     );
-    let theirs = site.get(&ledger, None).await;
+    let theirs = site.get(&ruled, None).await;
     assert_eq!(theirs.cache, "no-cache");
     assert!(!theirs.html.contains("with the seed colors"));
     // Publishing the color preview saves its colors and ends it.

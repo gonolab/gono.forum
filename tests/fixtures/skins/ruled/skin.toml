@@ -1,8 +1,8 @@
 # A test fixture for imported and instance skins (docs/skins.md); see skin.css.
 contract = 1
-id = "ledger"
+id = "ruled"
 version = "1.0.0"
-name = { en = "Ledger" }
+name = { en = "Ruled" }
 description = { en = "Flat surfaces separated by rules (test fixture)" }
 author = "Gono Forum tests"
 license = "MIT OR Apache-2.0"

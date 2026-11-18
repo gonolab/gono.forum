@@ -305,10 +305,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("gonof-skins-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         write(&dir, "default", "");
-        write(&dir, "ledger", "");
+        write(&dir, "ruled", "");
         write(&dir, "broken", "[frame]\nnav = \"sideways\"\n");
         std::fs::create_dir_all(dir.join("misnamed")).unwrap();
-        std::fs::copy(dir.join("ledger/skin.toml"), dir.join("misnamed/skin.toml")).unwrap();
+        std::fs::copy(dir.join("ruled/skin.toml"), dir.join("misnamed/skin.toml")).unwrap();
         let mut listed = builtin();
         listed.extend(scan(&dir));
         let catalog = Catalog::build(listed);
@@ -324,11 +324,11 @@ mod tests {
             status("default", Source::Instance),
             Some(Status::Shadowed(Source::Builtin))
         );
-        assert_eq!(status("ledger", Source::Instance), Some(Status::Available));
+        assert_eq!(status("ruled", Source::Instance), Some(Status::Available));
         assert_eq!(status("broken", Source::Instance), Some(Status::Invalid));
         assert_eq!(status("misnamed", Source::Instance), Some(Status::Invalid));
         assert_eq!(catalog.get("default").unwrap().source, Source::Builtin);
-        assert_eq!(catalog.get("ledger").unwrap().source, Source::Instance);
+        assert_eq!(catalog.get("ruled").unwrap().source, Source::Instance);
         assert!(catalog.get("broken").is_none());
         assert!(scan(&dir.join("missing")).is_empty());
         std::fs::remove_dir_all(&dir).unwrap();

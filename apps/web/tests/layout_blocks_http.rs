@@ -179,7 +179,7 @@ async fn a_skin_layout_fills_the_places_the_site_leaves_alone() {
     // An instance skin whose manifest has a layout for the home aside.
     let dir = site.services.root.join("skins/stacked");
     std::fs::create_dir_all(dir.join("palettes")).unwrap();
-    let fixture = project_root().join("tests/fixtures/skins/ledger");
+    let fixture = project_root().join("tests/fixtures/skins/ruled");
     std::fs::copy(
         fixture.join("palettes/main.json"),
         dir.join("palettes/main.json"),
@@ -187,8 +187,8 @@ async fn a_skin_layout_fills_the_places_the_site_leaves_alone() {
     .unwrap();
     let manifest = std::fs::read_to_string(fixture.join("skin.toml"))
         .unwrap()
-        .replace("id = \"ledger\"", "id = \"stacked\"")
-        .replace("name = { en = \"Ledger\" }", "name = { en = \"Stacked\" }");
+        .replace("id = \"ruled\"", "id = \"stacked\"")
+        .replace("name = { en = \"Ruled\" }", "name = { en = \"Stacked\" }");
     std::fs::write(
         dir.join("skin.toml"),
         format!(

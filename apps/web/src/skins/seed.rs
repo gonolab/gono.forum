@@ -629,9 +629,9 @@ mod tests {
         palette::merge("default", &palette::Overrides::default(), "x").0
     }
 
-    fn ledger() -> Merged {
+    fn ruled() -> Merged {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/fixtures/skins/ledger");
+            .join("../../tests/fixtures/skins/ruled");
         let (draft, _) = super::super::read_dir(&dir).unwrap();
         palette::merge("main", draft.palettes.get("main").unwrap(), "x").0
     }
@@ -651,7 +651,7 @@ mod tests {
 
     #[test]
     fn every_pair_reaches_its_contrast_on_both_skins() {
-        for merged in [base(), ledger()] {
+        for merged in [base(), ruled()] {
             for (p, s) in SEEDS {
                 let seeds = Seeds::parse(p, s).unwrap();
                 let derived = derive(&merged, seeds);
@@ -696,7 +696,7 @@ mod tests {
 
     #[test]
     fn references_and_transparent_tokens_are_left_alone() {
-        let merged = ledger();
+        let merged = ruled();
         let derived = derive(&merged, Seeds::parse("#e11d48", "#7c3aed").unwrap());
         for name in [
             "--brand-bg",

@@ -9,13 +9,13 @@ use gono_forum_web::{project_root, test_support};
 use serde_json::json;
 use site::Site;
 
-/// Writes the instance skin `id` (the Ledger fixture's palette, the manifest's `extra` sections) and makes it the
+/// Writes the instance skin `id` (the Ruled fixture's palette, the manifest's `extra` sections) and makes it the
 /// site's skin.
 async fn use_skin(site: &Site, id: &str, extra: &str) {
     let dir = site.services.root.join(format!("skins/{id}"));
     std::fs::create_dir_all(dir.join("palettes")).unwrap();
     std::fs::copy(
-        project_root().join("tests/fixtures/skins/ledger/palettes/main.json"),
+        project_root().join("tests/fixtures/skins/ruled/palettes/main.json"),
         dir.join("palettes/main.json"),
     )
     .unwrap();

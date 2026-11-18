@@ -1,9 +1,8 @@
-/* Ledger: a test fixture, not a built-in skin. It is the Discourse-style research prototype (branch
-   claude/discourse-css-research-ff3973) rewritten as an external skin: flat white surfaces, thin rules between items,
-   small square corners, a column-style topic list and posts without cards. It does not follow every rule of the
-   style guide on purpose (weight 700, a 52px header, physical properties), so importing it lists warnings
-   (docs/skins.md, "Two kinds of rules"). Blocks: sizes, text, masthead, controls, aside cards, listing, topic rows,
-   badges, topic page, floors, actions, post body, breakpoints. */
+/* Ruled: a test fixture, not a built-in skin. An early research prototype rewritten as an external skin: flat white
+   surfaces, thin rules between items, small square corners, a column-style topic list and posts without cards. It
+   does not follow every rule of the style guide on purpose (weight 700, a 52px header, physical properties), so
+   importing it lists warnings (docs/skins.md, "Two kinds of rules"). Blocks: sizes, text, masthead, controls, aside
+   cards, listing, topic rows, badges, topic page, floors, actions, post body, breakpoints. */
 /* ------------------------------------------------------------------ */
 /* Sizes                                                               */
 /* ------------------------------------------------------------------ */

@@ -506,14 +506,14 @@ avatar_shape = "circle"
 
     #[test]
     fn invalid_manifests_say_why() {
-        let base = "contract = 1\nid = \"ledger\"\nversion = \"1.0.0\"\nname = { en = \"Ledger\" }\n[palettes]\ndefault = \"main\"\n";
+        let base = "contract = 1\nid = \"ruled\"\nversion = \"1.0.0\"\nname = { en = \"Ruled\" }\n[palettes]\ndefault = \"main\"\n";
         assert_eq!(problems(base), []);
         assert!(matches!(
             problems(&base.replace("contract = 1", "contract = 2"))[..],
             [Problem::ManifestContract { .. }]
         ));
         assert!(matches!(
-            problems(&base.replace("\"ledger\"", "\"Ledger\""))[..],
+            problems(&base.replace("\"ruled\"", "\"Ruled\""))[..],
             [Problem::ManifestId { .. }]
         ));
         assert!(matches!(
@@ -521,7 +521,7 @@ avatar_shape = "circle"
             [Problem::ManifestVersion { .. }]
         ));
         assert!(matches!(
-            problems(&base.replace("en = \"Ledger\"", "fr = \"Registre\""))[..],
+            problems(&base.replace("en = \"Ruled\"", "fr = \"Registre\""))[..],
             [Problem::ManifestName { .. }]
         ));
         assert!(matches!(
@@ -612,10 +612,10 @@ avatar_shape = "circle"
                 .map(|f| f.problem)
                 .collect::<Vec<_>>()
         };
-        let default = base.replace("\"ledger\"", "\"default\"");
+        let default = base.replace("\"ruled\"", "\"default\"");
         assert_eq!(builtin(&default), []);
         assert!(matches!(
-            builtin(&default.replace("en = \"Ledger\"", "en = \"Ledger\", fr = \"Registre\""))[..],
+            builtin(&default.replace("en = \"Ruled\"", "en = \"Ruled\", fr = \"Registre\""))[..],
             [Problem::ManifestBuiltinText { .. }]
         ));
         assert!(matches!(
@@ -623,7 +623,7 @@ avatar_shape = "circle"
             [Problem::ManifestBuiltinMessages { .. }]
         ));
         let external = Manifest::from_toml(
-            &base.replace("en = \"Ledger\"", "en = \"Ledger\", fr = \"Registre\""),
+            &base.replace("en = \"Ruled\"", "en = \"Ruled\", fr = \"Registre\""),
         )
         .unwrap();
         assert_eq!(external.check(Trust::External), []);
