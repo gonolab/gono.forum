@@ -14,6 +14,11 @@
 //!   from round to round (`DirectoryCursor`): a round reads on until it has [`BATCH`] candidates or has read
 //!   [`SCAN`] entries, and the next round carries on where it stopped, so drafts that must stay never hold back the
 //!   ones after them. A new pass starts at the end of the directory and whenever the process starts.
+//! - Temporary mail files: a draft or a locally delivered mail is first written to `.{eventid}.{lease}.tmp` in its
+//!   folder and then linked into place (`mail.rs`, `persist`). A process that stops in between leaves the temporary
+//!   file behind, with the whole message in it and no event that names it. The walks over `mail/` and
+//!   `mail/prepared/` remove any such file older than [`TEMPORARY_MAIL_AGE`], without looking at the database: the
+//!   write it belonged to ended long ago, and its event may be gone.
 //! - Request records (`gonof_forum_post_request`, `gonof_home_interaction_request`, both with an indexed
 //!   `dateline`): deleted when past the retention period. Submitting again later with the same request key is
 //!   treated as a new request.
@@ -24,6 +29,10 @@
 //!   walked like the drafts and any code file older than the same period is removed whatever became of its row: files
 //!   left by earlier versions, which deleted only the rows, and files of codes sent to a number while its account was
 //!   being deleted (account deletion removes the files of the codes it finds, `privacy/worker.rs`).
+//!
+//! The steps do not depend on each other: one that fails (an unreadable folder, a database error) is logged and
+//! listed in [`MaintenanceReport::failed`], and the others still run, so a broken mail folder does not keep expired
+//! SMS codes or request records past their retention period.
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -36,6 +45,10 @@ pub const BATCH: usize = 500;
 /// How long SMS code rows and their local files are kept (seconds): the per-number daily count only looks at the
 /// current day, so rows from two days ago no longer take part in any limit.
 pub const SMS_CODE_RETENTION: i64 = 2 * 86_400;
+
+/// How old a temporary mail file must be before it is removed (seconds). Writing one takes a moment and the mail
+/// worker's lease lasts a minute, so a file this old belongs to a write that stopped.
+pub const TEMPORARY_MAIL_AGE: i64 = 3600;
 
 /// Outbox event types that can be deleted by retention period: content notifications, content notification mails,
 /// account and moderation mails.
@@ -50,6 +63,10 @@ pub struct MaintenanceReport {
     pub sms_codes: u64,
     /// Local SMS files removed by the walk over `sms/` (those removed with their rows are not counted).
     pub sms_files: usize,
+    /// Temporary mail files left by an interrupted write, removed from `mail/` and `mail/prepared/`.
+    pub temporary_mail: usize,
+    /// The steps that failed this round; each was logged, and the other steps ran anyway.
+    pub failed: Vec<&'static str>,
 }
 
 /// At most this many entries of one directory are read per round.
@@ -60,6 +77,7 @@ pub const SCAN: usize = 2_000;
 pub struct Maintenance {
     /// `identity.local_directory`: delivered local mail in `mail/`, drafts in `mail/prepared/`, SMS in `sms/`.
     directory: PathBuf,
+    mail: DirectoryCursor,
     prepared: DirectoryCursor,
     sms: DirectoryCursor,
 }
@@ -68,6 +86,7 @@ impl Maintenance {
     pub fn new(directory: PathBuf) -> Self {
         Self {
             directory,
+            mail: DirectoryCursor::default(),
             prepared: DirectoryCursor::default(),
             sms: DirectoryCursor::default(),
         }
@@ -76,43 +95,85 @@ impl Maintenance {
     /// One round. The retention periods are the admin settings `settings.maintenance.*` ("Tools & maintenance ›
     /// Maintenance", docs/settings-and-caching.md, "Keys and groups"); the worker takes them from the in-process cache
     /// once per round and passes them in.
+    ///
+    /// Every step runs even when an earlier one fails; the report lists the failed steps.
     pub async fn run(
         &mut self,
         database: &Database,
         config: &crate::runtime::MaintenanceSettings,
         now: i64,
-    ) -> Result<MaintenanceReport> {
+    ) -> MaintenanceReport {
+        let mut report = MaintenanceReport::default();
+        let failed = &mut report.failed;
         let mail_directory = self.directory.join("mail");
-        let outbox = purge_outbox(
-            database,
-            &mail_directory,
-            now.saturating_sub(config.outbox_retention_days.saturating_mul(86_400)),
-        )
-        .await?;
-        let prepared_mail = purge_prepared_mail(
-            database,
-            &mail_directory.join("prepared"),
-            &mut self.prepared,
-            now.saturating_sub(config.prepared_mail_retention_days.saturating_mul(86_400)),
-        )
-        .await?;
+        let temporary_cutoff = now.saturating_sub(TEMPORARY_MAIL_AGE);
+        report.outbox = settle(
+            failed,
+            "outbox",
+            purge_outbox(
+                database,
+                &mail_directory,
+                now.saturating_sub(config.outbox_retention_days.saturating_mul(86_400)),
+            )
+            .await,
+        );
+        let (prepared_mail, prepared_temporary) = settle(
+            failed,
+            "mail drafts",
+            purge_prepared_mail(
+                database,
+                &mail_directory.join("prepared"),
+                &mut self.prepared,
+                now.saturating_sub(config.prepared_mail_retention_days.saturating_mul(86_400)),
+                temporary_cutoff,
+            )
+            .await,
+        );
+        report.prepared_mail = prepared_mail;
+        let delivered_temporary = settle(
+            failed,
+            "temporary mail files",
+            sweep_temporary_mail(&mail_directory, &mut self.mail, temporary_cutoff).await,
+        );
+        report.temporary_mail = prepared_temporary + delivered_temporary;
         let cutoff = now.saturating_sub(config.request_retention_days.saturating_mul(86_400));
-        let post_requests = purge_requests(database, "gonof_forum_post_request", cutoff).await?;
-        let interaction_requests =
-            purge_requests(database, "gonof_home_interaction_request", cutoff).await?;
+        report.post_requests = settle(
+            failed,
+            "post requests",
+            purge_requests(database, "gonof_forum_post_request", cutoff).await,
+        );
+        report.interaction_requests = settle(
+            failed,
+            "interaction requests",
+            purge_requests(database, "gonof_home_interaction_request", cutoff).await,
+        );
         let sms_directory = crate::sms::local_folder(&self.directory);
         let sms_cutoff = now.saturating_sub(SMS_CODE_RETENTION);
-        let sms_codes = purge_sms_codes(database, &sms_directory, sms_cutoff).await?;
-        let sms_files = sweep_sms_files(&sms_directory, &mut self.sms, sms_cutoff).await?;
-        Ok(MaintenanceReport {
-            outbox,
-            prepared_mail,
-            post_requests,
-            interaction_requests,
-            sms_codes,
-            sms_files,
-        })
+        report.sms_codes = settle(
+            failed,
+            "SMS codes",
+            purge_sms_codes(database, &sms_directory, sms_cutoff).await,
+        );
+        report.sms_files = settle(
+            failed,
+            "SMS files",
+            sweep_sms_files(&sms_directory, &mut self.sms, sms_cutoff).await,
+        );
+        report
     }
+}
+
+/// The count of a step that worked; a failed step is logged, added to `failed` and counts nothing.
+fn settle<T: Default>(failed: &mut Vec<&'static str>, step: &'static str, result: Result<T>) -> T {
+    result.unwrap_or_else(|error| {
+        tracing::warn!(
+            step,
+            error = %error,
+            "a retention cleanup step failed; the other steps still run"
+        );
+        failed.push(step);
+        T::default()
+    })
 }
 
 /// A walk over one directory that carries on from round to round: the open directory stream is kept, so each round
@@ -311,20 +372,81 @@ async fn sweep_sms_files(
     Ok(removed)
 }
 
-async fn purge_prepared_mail(
-    database: &Database,
+/// The name `persist` in `mail.rs` gives a file while it is being written: `.{eventid}.{lease}.tmp`.
+fn temporary_mail(name: &str) -> bool {
+    name.strip_prefix('.')
+        .and_then(|name| name.strip_suffix(".tmp"))
+        .and_then(|name| name.split_once('.'))
+        .is_some_and(|(eventid, lease)| eventid.parse::<i64>().is_ok() && !lease.is_empty())
+}
+
+/// Removes `entry` when it is a temporary mail file last written before `cutoff`; whether it did.
+async fn remove_stale_temporary(
+    entry: &tokio::fs::DirEntry,
+    cutoff: std::time::SystemTime,
+) -> Result<bool> {
+    if !entry.file_name().to_str().is_some_and(temporary_mail) {
+        return Ok(false);
+    }
+    // The write it belongs to may have finished and removed it since the walk listed it.
+    let metadata = match entry.metadata().await {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    if !metadata.is_file() || metadata.modified()? >= cutoff {
+        return Ok(false);
+    }
+    remove_if_present(&entry.path()).await?;
+    Ok(true)
+}
+
+/// Removes temporary files of locally delivered mail in `mail/` written before `cutoff`, walking the folder from
+/// round to round: at most [`BATCH`] removals and [`SCAN`] entries read per round. Those in `mail/prepared/` go in the
+/// walk over the drafts.
+async fn sweep_temporary_mail(
     directory: &Path,
     cursor: &mut DirectoryCursor,
     cutoff: i64,
 ) -> Result<usize> {
     let cutoff = std::time::UNIX_EPOCH + std::time::Duration::from_secs(cutoff.max(0) as u64);
+    let mut removed = 0;
+    let mut read = 0;
+    while removed < BATCH && read < SCAN {
+        let Some(entry) = cursor.next(directory).await? else {
+            break;
+        };
+        read += 1;
+        if remove_stale_temporary(&entry, cutoff).await? {
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+/// Drafts removed, and temporary files removed on the way (written before `temporary_cutoff`).
+async fn purge_prepared_mail(
+    database: &Database,
+    directory: &Path,
+    cursor: &mut DirectoryCursor,
+    cutoff: i64,
+    temporary_cutoff: i64,
+) -> Result<(usize, usize)> {
+    let cutoff = std::time::UNIX_EPOCH + std::time::Duration::from_secs(cutoff.max(0) as u64);
+    let temporary_cutoff =
+        std::time::UNIX_EPOCH + std::time::Duration::from_secs(temporary_cutoff.max(0) as u64);
     let mut candidates = Vec::new();
+    let mut temporary = 0;
     let mut read = 0;
     while candidates.len() < BATCH && read < SCAN {
         let Some(entry) = cursor.next(directory).await? else {
             break;
         };
         read += 1;
+        if remove_stale_temporary(&entry, temporary_cutoff).await? {
+            temporary += 1;
+            continue;
+        }
         let name = entry.file_name();
         let Some(eventid) = name
             .to_str()
@@ -344,7 +466,7 @@ async fn purge_prepared_mail(
         }
     }
     if candidates.is_empty() {
-        return Ok(0);
+        return Ok((0, temporary));
     }
     let sql = format!(
         "SELECT eventid,status,last_error FROM gonof_common_outbox WHERE eventid IN ({})",
@@ -381,7 +503,7 @@ async fn purge_prepared_mail(
             Err(error) => return Err(error.into()),
         }
     }
-    Ok(removed)
+    Ok((removed, temporary))
 }
 
 #[cfg(test)]
@@ -438,7 +560,7 @@ mod tests {
         let foreign = aged("notes.txt", old);
         let config = crate::runtime::read(db).await.unwrap().maintenance;
         let mut maintenance = Maintenance::new(services.root.join(".local"));
-        let report = maintenance.run(db, &config, now).await.unwrap();
+        let report = maintenance.run(db, &config, now).await;
         assert_eq!((report.sms_codes, report.sms_files), (2, 1));
         let left: Vec<String> =
             db::query_scalar("SELECT mobile FROM gonof_common_sms_code ORDER BY mobile")
@@ -456,7 +578,7 @@ mod tests {
             "an old code file without a row is swept up"
         );
         assert!(recent.exists() && foreign.exists());
-        let again = maintenance.run(db, &config, now).await.unwrap();
+        let again = maintenance.run(db, &config, now).await;
         assert_eq!((again.sms_codes, again.sms_files), (0, 0));
         services.cleanup().await.unwrap();
     }
@@ -536,7 +658,7 @@ mod tests {
             write(format!("{recent_mail}.eml"), false),
             write("notes.txt".into(), true),
         ];
-        let report = maintenance.run(db, &config, now).await.unwrap();
+        let report = maintenance.run(db, &config, now).await;
         // The draft of old-reset goes with its event, before the draft cleanup counts the other two.
         assert_eq!(
             report,
@@ -576,12 +698,9 @@ mod tests {
             )
             .await;
         }
-        assert_eq!(
-            maintenance.run(db, &config, now).await.unwrap().outbox,
-            BATCH as u64
-        );
-        assert_eq!(maintenance.run(db, &config, now).await.unwrap().outbox, 20);
-        assert_eq!(maintenance.run(db, &config, now).await.unwrap().outbox, 0);
+        assert_eq!(maintenance.run(db, &config, now).await.outbox, BATCH as u64);
+        assert_eq!(maintenance.run(db, &config, now).await.outbox, 20);
+        assert_eq!(maintenance.run(db, &config, now).await.outbox, 0);
         services.cleanup().await.unwrap();
     }
 
@@ -612,7 +731,7 @@ mod tests {
         if locked {
             let report = maintenance.run(db, &config, now).await;
             std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
-            assert_eq!(report.unwrap().outbox, 0);
+            assert_eq!(report.outbox, 0);
             assert!(
                 exists(db, "sent-alert").await,
                 "the event stays while its file does"
@@ -621,7 +740,7 @@ mod tests {
         }
         std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
 
-        assert_eq!(maintenance.run(db, &config, now).await.unwrap().outbox, 1);
+        assert_eq!(maintenance.run(db, &config, now).await.outbox, 1);
         assert!(!exists(db, "sent-alert").await);
         assert!(
             !delivered.exists(),
@@ -707,9 +826,8 @@ mod tests {
         let mut maintenance = Maintenance::new(services.root.join("maintenance-requests"));
         let config = crate::runtime::settings::tests::seeded().maintenance;
         let profile = std::sync::Arc::new(RequestProfile::new());
-        let report = trace::scope(profile.clone(), Box::pin(maintenance.run(db, &config, now)))
-            .await
-            .unwrap();
+        let report =
+            trace::scope(profile.clone(), Box::pin(maintenance.run(db, &config, now))).await;
         assert_eq!((report.post_requests, report.interaction_requests), (1, 1));
         let left: i64 = db::query_scalar(
             "SELECT COUNT(*) FROM gonof_home_interaction_request WHERE request_key=?",
@@ -777,14 +895,7 @@ mod tests {
         }
         // Past the retention period: submitting the same request key again is a new request and posts another reply.
         let later = now + 31 * 86_400;
-        assert_eq!(
-            maintenance
-                .run(db, &config, later)
-                .await
-                .unwrap()
-                .post_requests,
-            1
-        );
+        assert_eq!(maintenance.run(db, &config, later).await.post_requests, 1);
         let fresh = writer
             .reply_at(uid, reply("A new reply after the retention period"), later)
             .await
@@ -871,11 +982,7 @@ mod tests {
             .collect();
         let mut removed = 0;
         for _ in 0..3 {
-            removed += maintenance
-                .run(db, &config, now)
-                .await
-                .unwrap()
-                .prepared_mail;
+            removed += maintenance.run(db, &config, now).await.prepared_mail;
         }
         assert_eq!(
             removed,
@@ -884,6 +991,82 @@ mod tests {
         );
         assert!(orphans.iter().all(|path| !path.exists()));
         assert!(kept.iter().all(|path| path.exists()));
+        services.cleanup().await.unwrap();
+    }
+
+    /// A write that stopped between the temporary file and the link into place leaves the whole message in a `.tmp`
+    /// file that no event names. Those older than an hour are removed from both mail folders whatever the database
+    /// says; newer ones may still be in use and stay, as do files the mail worker does not write.
+    #[tokio::test]
+    async fn stale_temporary_mail_files_are_removed_without_their_events() {
+        let services = crate::test_support::TestFixture::migrated().await.unwrap();
+        let db = &services.db;
+        let now = crate::identity::now();
+        let config = crate::runtime::settings::tests::seeded().maintenance;
+        let mut maintenance = Maintenance::new(services.root.join("temporary-local"));
+        let delivered = services.root.join("temporary-local/mail");
+        let prepared = delivered.join("prepared");
+        std::fs::create_dir_all(&prepared).unwrap();
+        let write = |folder: &Path, name: &str, age: u64| {
+            let path = folder.join(name);
+            std::fs::write(&path, "To: member@example.test\r\n\r\nThe whole message").unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(age))
+                .unwrap();
+            path
+        };
+        let stale = (TEMPORARY_MAIL_AGE + 60) as u64;
+        let gone = [
+            write(&delivered, ".41.leasetoken.tmp", stale),
+            write(&prepared, ".42.leasetoken.tmp", stale),
+        ];
+        let kept = [
+            write(&delivered, ".43.leasetoken.tmp", 60),
+            write(&prepared, ".44.leasetoken.tmp", 60),
+            write(&delivered, "notes.tmp", stale),
+            write(&prepared, ".notes.tmp", stale),
+        ];
+        let report = maintenance.run(db, &config, now).await;
+        assert_eq!((report.temporary_mail, report.failed.len()), (2, 0));
+        assert!(gone.iter().all(|path| !path.exists()));
+        assert!(kept.iter().all(|path| path.exists()));
+        assert_eq!(maintenance.run(db, &config, now).await.temporary_mail, 0);
+        services.cleanup().await.unwrap();
+    }
+
+    /// One step that fails does not stop the others: with `mail/prepared` unreadable (as after restoring a backup
+    /// with the wrong owner), expired SMS codes are still removed, and the report names the step that failed.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_failed_step_does_not_stop_the_other_cleanup() {
+        use std::os::unix::fs::PermissionsExt;
+        let services = crate::test_support::TestFixture::migrated().await.unwrap();
+        let db = &services.db;
+        let now = crate::identity::now();
+        let config = crate::runtime::settings::tests::seeded().maintenance;
+        let old = now - SMS_CODE_RETENTION - 60;
+        db::query("INSERT INTO gonof_common_sms_code(mobile,purpose,code_hash,dateline,expires_at) VALUES('+8613800000009','login',?,?,?)")
+            .bind("b".repeat(64))
+            .bind(old)
+            .bind(old + 300)
+            .execute(db.executor())
+            .await
+            .unwrap();
+        let mut maintenance = Maintenance::new(services.root.join("isolated-local"));
+        let prepared = services.root.join("isolated-local/mail/prepared");
+        std::fs::create_dir_all(&prepared).unwrap();
+        std::fs::set_permissions(&prepared, std::fs::Permissions::from_mode(0o000)).unwrap();
+        // Root reads it anyway, so the rest only runs for other accounts.
+        let unreadable = std::fs::read_dir(&prepared).is_err();
+        let report = maintenance.run(db, &config, now).await;
+        std::fs::set_permissions(&prepared, std::fs::Permissions::from_mode(0o700)).unwrap();
+        if unreadable {
+            assert_eq!(report.failed, ["mail drafts"]);
+        }
+        assert_eq!(report.sms_codes, 1, "{report:?}");
         services.cleanup().await.unwrap();
     }
 }

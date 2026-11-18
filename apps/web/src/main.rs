@@ -361,12 +361,18 @@ async fn main() -> Result<()> {
                 async move {
                     // The retention period is an admin setting, read from the in-process cache once per round.
                     let retention = settings(&global, &db).await?.maintenance.clone();
-                    maintenance
+                    let report = maintenance
                         .lock()
                         .await
                         .run(&db, &retention, identity::now())
-                        .await
-                        .map(drop)
+                        .await;
+                    // Each failed step was logged as it failed, and the others still ran; this names them once more.
+                    anyhow::ensure!(
+                        report.failed.is_empty(),
+                        "retention cleanup steps failed: {}",
+                        report.failed.join(", ")
+                    );
+                    Ok(())
                 }
             }
         },
