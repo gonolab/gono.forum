@@ -86,10 +86,11 @@ pub async fn process_pending(
     cleanup_exports(db, &dir, now).await?;
     let mut count = 0;
     for _ in 0..20 {
-        // Tasks in one batch run one after another, possibly far apart in time. Leases and failure backoff are computed
-        // from the actual claim and failure times; otherwise later tasks would hold an already expired lease the moment
-        // they claim it, and backoff would land in the past. Business times such as export validity still use this
-        // batch's now.
+        // Tasks in one batch run one after another, possibly far apart in time. Leases, failure backoff, the time a task
+        // goes back to the queue ([`finish_task`]) and the download period of a finished export (`export.rs`) are
+        // computed from the actual time, never earlier than this batch's now; otherwise later tasks would hold an
+        // already expired lease the moment they claim it, backoff would land in the past, and an export finished late
+        // in a batch would lose part of its download period. The other business times use this batch's now.
         let Some(claim) = claim(db, identity::now().max(now)).await? else {
             break;
         };
@@ -142,9 +143,14 @@ pub async fn process_pending(
     }
     Ok(count)
 }
+/// Takes the task that has been due longest. A multi-step task goes back to the queue at the time its step ended
+/// ([`finish_task`]), so an erasure of many posts takes turns with requests that came in meanwhile instead of keeping
+/// the queue to itself. The order is not the index order of `gonof_outbox_delivery (status, available_at,
+/// lease_until, eventid)`: both backends read that index as a range on `status` and `available_at` and sort the due
+/// rows, which are few.
 async fn claim(db: &Database, now: i64) -> anyhow::Result<Option<Claim>> {
     let mut tx = db.begin_write().await?;
-    let row=db::query("SELECT eventid,aggregate_id,payload FROM gonof_common_outbox WHERE event_type IN ('privacy.export','privacy.erase') AND status IN ('pending','processing') AND available_at<=? AND lease_until<=? ORDER BY eventid LIMIT 1 FOR UPDATE").bind(now).bind(now).fetch_optional(db.observe(&mut *tx)).await?;
+    let row=db::query("SELECT eventid,aggregate_id,payload FROM gonof_common_outbox WHERE event_type IN ('privacy.export','privacy.erase') AND status IN ('pending','processing') AND available_at<=? AND lease_until<=? ORDER BY available_at,eventid LIMIT 1 FOR UPDATE").bind(now).bind(now).fetch_optional(db.observe(&mut *tx)).await?;
     let Some(row) = row else {
         tx.commit().await?;
         return Ok(None);
@@ -256,14 +262,17 @@ async fn renew(db: &Database, c: &Claim, now: i64) -> anyhow::Result<bool> {
     let updated=db::query("UPDATE gonof_common_outbox SET lease_until=? WHERE eventid=? AND lease_token=? AND status='processing'").bind(now+LEASE_SECONDS).bind(c.eventid).bind(&c.lease).execute(db.executor()).await?;
     Ok(updated.rows_affected() == 1)
 }
+/// Completes the task, or puts it back to run again from `at` on. A task put back is never due earlier than the
+/// current time: the batch's `now` may be long past when a later step ends, and [`claim`] takes the task due longest,
+/// so a step must not move its task ahead of requests that came in meanwhile.
 pub(super) async fn finish_task(
     db: &Database,
     tx: &mut Tx<'_>,
     c: &Claim,
     complete: bool,
-    now: i64,
+    at: i64,
 ) -> anyhow::Result<()> {
-    let updated=db::query("UPDATE gonof_common_outbox SET status=?,available_at=GREATEST(dateline,?),lease_token=NULL,lease_until=0,last_error=NULL WHERE eventid=? AND lease_token=? AND status='processing'").bind(if complete {"sent"} else {"pending"}).bind(now).bind(c.eventid).bind(&c.lease).execute(db.observe(&mut **tx)).await?;
+    let updated=db::query("UPDATE gonof_common_outbox SET status=?,available_at=GREATEST(dateline,?),lease_token=NULL,lease_until=0,last_error=NULL WHERE eventid=? AND lease_token=? AND status='processing'").bind(if complete {"sent"} else {"pending"}).bind(identity::now().max(at)).bind(c.eventid).bind(&c.lease).execute(db.observe(&mut **tx)).await?;
     ensure!(updated.rows_affected() == 1, "privacy lease lost");
     Ok(())
 }
@@ -346,7 +355,9 @@ async fn run(
             .unwrap_or(0);
             r.upper_pid = r.upper_pid.max(latest);
         }
-        db::query("UPDATE gonof_common_data_request SET status='expired',finished_at=?,version=version+1 WHERE uid=? AND kind='export' AND status<>'expired'").bind(now).bind(c.uid).execute(db.observe(&mut *tx)).await?;
+        // Exports the member made earlier no longer hold this data. A cancelled export keeps its state and time: it
+        // never produced an archive to withdraw.
+        db::query("UPDATE gonof_common_data_request SET status='expired',finished_at=?,version=version+1 WHERE uid=? AND kind='export' AND status NOT IN ('expired','cancelled')").bind(now).bind(c.uid).execute(db.observe(&mut *tx)).await?;
         // The upper bound only grows (guaranteed here, not by the schema): the MAX(pid) re-read for account deletion
         // would never be below the value at submission (posts are not physically deleted and authors do not change);
         // taking the larger one stops this from depending on invariants elsewhere, and the in-memory value matches
@@ -924,7 +935,43 @@ async fn cleanup_exports(db: &Database, dir: &Path, now: i64) -> anyhow::Result<
         }
         db::query("UPDATE gonof_common_data_request SET status='expired',artifact_key=NULL,artifact_hash=NULL,artifact_bytes=NULL,artifact_expires_at=NULL,finished_at=?,version=version+1 WHERE id=? AND artifact_key=?").bind(now).bind(r.try_get::<i64,_>("id")?).bind(key).execute(db.executor()).await?;
     }
-    // An expired lease or crash must not leave an unregistered archive containing erased data.
+    if sweep_due(dir, now) {
+        sweep_unregistered(db, dir, now).await?;
+    }
+    Ok(())
+}
+
+/// How often one process sweeps the export directory for archives no request owns. The sweep lists the whole
+/// directory, retained archives included, so it does not run on every round of the worker: such a leftover stays at
+/// most this long past its lease. Each instance sharing the directory sweeps on its own schedule.
+const SWEEP_SECONDS: i64 = 600;
+/// Archive directories looked up per statement during a sweep.
+const SWEEP_BATCH: usize = 100;
+/// The `now` of each export directory's last sweep in this process, by path (tests run several sites in one process).
+static SWEPT: std::sync::Mutex<std::collections::BTreeMap<PathBuf, i64>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// Whether the directory is due for a sweep, and if so records `now` as its last sweep. A clock that went back makes it
+/// due at once.
+fn sweep_due(dir: &Path, now: i64) -> bool {
+    let mut swept = SWEPT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let due = swept
+        .get(dir)
+        .is_none_or(|last| now >= last + SWEEP_SECONDS || now < *last);
+    if due {
+        swept.insert(dir.to_owned(), now);
+    }
+    due
+}
+
+/// An expired lease or crash must not leave an unregistered archive containing erased data. Directories are named
+/// `request-{id}-{lease}`; one is kept while its request is ready with it as the artifact, or still processing under
+/// that lease. The requests and their tasks are read in batches by key, in one snapshot per batch, so a request that
+/// becomes ready between the two reads is not mistaken for an abandoned one.
+async fn sweep_unregistered(db: &Database, dir: &Path, now: i64) -> anyhow::Result<()> {
+    let mut found = Vec::new();
     let mut directories = tokio::fs::read_dir(dir).await?;
     while let Some(entry) = directories.next_entry().await? {
         if !entry.file_type().await?.is_dir() {
@@ -943,28 +990,68 @@ async fn cleanup_exports(db: &Database, dir: &Path, now: i64) -> anyhow::Result<
         if !valid_key(lease) {
             continue;
         }
-        // The event key is built in code before binding (not with CONCAT in SQL), so both backends run the same
+        let lease = lease.to_owned();
+        found.push((entry.path(), name, id, lease));
+    }
+    for batch in found.chunks(SWEEP_BATCH) {
+        let ids: std::collections::BTreeSet<i64> = batch.iter().map(|(_, _, id, _)| *id).collect();
+        let marks = vec!["?"; ids.len()].join(",");
+        let mut tx = db.begin_snapshot().await?;
+        let sql = format!(
+            "SELECT id,status,artifact_key FROM gonof_common_data_request WHERE id IN ({marks})"
+        );
+        let mut query = db::query(&sql);
+        for id in &ids {
+            query = query.bind(*id);
+        }
+        let mut requests = std::collections::BTreeMap::new();
+        for row in query.fetch_all(db.observe(&mut *tx)).await? {
+            requests.insert(
+                row.try_get::<i64, _>("id")?,
+                (
+                    db::text(&row, "status")?,
+                    row.try_get::<Option<String>, _>("artifact_key")?,
+                ),
+            );
+        }
+        // The event keys are built in code before binding (not with CONCAT in SQL), so both backends run the same
         // statement.
-        let row=db::query("SELECT r.status,r.artifact_key,o.lease_token,o.lease_until FROM gonof_common_data_request r LEFT JOIN gonof_common_outbox o ON o.event_key=? WHERE r.id=?")
-            .bind(format!("privacy.request:{id}"))
-            .bind(id).fetch_optional(db.executor()).await?;
-        let keep = if let Some(r) = row {
-            let state = db::text(&r, "status")?;
-            (state == "ready"
-                && r.try_get::<Option<String>, _>("artifact_key")?.as_deref()
-                    == Some(name.as_str()))
-                || (state == "processing"
-                    && r.try_get::<Option<String>, _>("lease_token")?.as_deref() == Some(lease)
-                    && r.try_get::<Option<i64>, _>("lease_until")?
-                        .is_some_and(|t| t > now))
-        } else {
-            false
-        };
-        if !keep {
-            match tokio::fs::remove_dir_all(entry.path()).await {
-                Ok(()) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(e.into()),
+        let sql = format!(
+            "SELECT event_key,lease_token,lease_until FROM gonof_common_outbox WHERE event_key IN ({marks})"
+        );
+        let mut query = db::query(&sql);
+        for id in &ids {
+            query = query.bind(format!("privacy.request:{id}"));
+        }
+        let mut leases = std::collections::BTreeMap::new();
+        for row in query.fetch_all(db.observe(&mut *tx)).await? {
+            leases.insert(
+                db::text(&row, "event_key")?,
+                (
+                    row.try_get::<Option<String>, _>("lease_token")?,
+                    row.try_get::<i64, _>("lease_until")?,
+                ),
+            );
+        }
+        tx.commit().await?;
+        for (path, name, id, lease) in batch {
+            let keep = match requests.get(id) {
+                Some((state, artifact)) if state == "ready" => {
+                    artifact.as_deref() == Some(name.as_str())
+                }
+                Some((state, _)) if state == "processing" => leases
+                    .get(&format!("privacy.request:{id}"))
+                    .is_some_and(|(token, until)| {
+                        token.as_deref() == Some(lease.as_str()) && *until > now
+                    }),
+                _ => false,
+            };
+            if !keep {
+                match tokio::fs::remove_dir_all(path).await {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(e.into()),
+                }
             }
         }
     }

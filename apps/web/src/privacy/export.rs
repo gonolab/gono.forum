@@ -755,13 +755,16 @@ pub(super) async fn build(
     // the directory fsync reaches the final state.
     let ArchiveOutcome { bytes, hash } = archive.finish().await?;
     let mut tx = db.begin_write().await?;
-    let r = locked(db, &mut tx, c, identity::now().max(now)).await?;
+    // The archive exists from now on: the completion time and the download period start here, not when the batch
+    // began (an export late in a batch, or a long one, would otherwise lose part of its period).
+    let finished = identity::now().max(now);
+    let r = locked(db, &mut tx, c, finished).await?;
     ensure!(
         r.status == "processing" && active_member(db, &mut tx, c.uid).await?,
         "export request no longer available"
     );
-    db::query("UPDATE gonof_common_data_request SET status='ready',stage='done',artifact_key=?,artifact_hash=?,artifact_bytes=?,artifact_expires_at=?,finished_at=?,last_error='',version=version+1 WHERE id=? AND uid=?").bind(key).bind(hash).bind(bytes).bind(now+EXPORT_SECONDS).bind(now).bind(c.request_id).bind(c.uid).execute(db.observe(&mut *tx)).await?;
-    finish_task(db, &mut tx, c, true, now).await?;
+    db::query("UPDATE gonof_common_data_request SET status='ready',stage='done',artifact_key=?,artifact_hash=?,artifact_bytes=?,artifact_expires_at=?,finished_at=?,last_error='',version=version+1 WHERE id=? AND uid=?").bind(key).bind(hash).bind(bytes).bind(finished+EXPORT_SECONDS).bind(finished).bind(c.request_id).bind(c.uid).execute(db.observe(&mut *tx)).await?;
+    finish_task(db, &mut tx, c, true, finished).await?;
     tx.commit().await?;
     cleanup.keep = true;
     Ok(())

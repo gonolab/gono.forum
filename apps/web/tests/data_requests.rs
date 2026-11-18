@@ -600,8 +600,20 @@ async fn data_export_is_private_complete_and_idempotent() {
     assert_eq!(reading[0]["custom_css_version"], 1);
     assert!(reading[0].get("language").is_none());
     assert_eq!(reading[0]["timezone"], serde_json::Value::Null);
+    // The download period runs from the archive's completion.
+    let finished = f
+        .scalar(&format!(
+            "SELECT finished_at FROM gonof_common_data_request WHERE id={id}"
+        ))
+        .await;
+    let expires = finished + privacy::EXPORT_SECONDS;
+    assert!(
+        privacy::download(&f.db, &f.access(), id, &dir, expires - 1)
+            .await
+            .is_ok()
+    );
     assert!(matches!(
-        privacy::download(&f.db, &f.access(), id, &dir, now + privacy::EXPORT_SECONDS).await,
+        privacy::download(&f.db, &f.access(), id, &dir, expires).await,
         Err(IdentityError::NotFound)
     ));
     f.services.cleanup_ref().await.unwrap();
@@ -2574,5 +2586,181 @@ async fn erasure_overwrites_the_prizes_conditions_and_removal_reasons_of_own_lot
     .unwrap();
     assert_eq!(won.len(), 1);
     assert!(won[0].prize.starts_with("Prize ") && won[0].note.is_empty());
+    f.services.cleanup_ref().await.unwrap();
+}
+
+/// The download period of an export runs from the moment its archive is finished, and so does the completion time the
+/// member sees: an export that starts late in a batch, or takes long, keeps its whole period.
+#[tokio::test]
+async fn an_export_finished_late_in_a_batch_keeps_its_whole_download_period() {
+    let f = Fixture::new().await;
+    let batch_started = identity::now() - 1000;
+    let id = privacy::submit(
+        &f.db,
+        &f.access(),
+        f.request("export", "retain"),
+        batch_started,
+    )
+    .await
+    .unwrap();
+    let started = identity::now();
+    f.work(batch_started).await;
+    let row = db::query(
+        "SELECT status,finished_at,artifact_expires_at FROM gonof_common_data_request WHERE id=?",
+    )
+    .bind(id)
+    .fetch_one(f.db.executor())
+    .await
+    .unwrap();
+    let finished: i64 = row.try_get("finished_at").unwrap();
+    assert_eq!(db::text(&row, "status").unwrap(), "ready");
+    assert!(finished >= started, "{finished} < {started}");
+    assert_eq!(
+        row.try_get::<Option<i64>, _>("artifact_expires_at")
+            .unwrap(),
+        Some(finished + privacy::EXPORT_SECONDS)
+    );
+    f.services.cleanup_ref().await.unwrap();
+}
+
+/// A cancelled export keeps its state and cancellation time when a content erasure later withdraws the member's
+/// exports: it never produced an archive.
+#[tokio::test]
+async fn erasure_leaves_a_cancelled_export_as_it_was() {
+    let f = Fixture::new().await;
+    let now = identity::now();
+    f.post("CANCELLED_EXPORT").await;
+    let export = privacy::submit(&f.db, &f.access(), f.request("export", "retain"), now)
+        .await
+        .unwrap();
+    privacy::cancel(&f.db, &f.access(), export, now + 1)
+        .await
+        .unwrap();
+    privacy::submit(&f.db, &f.access(), f.request("erase", "erase"), now + 2)
+        .await
+        .unwrap();
+    f.work(now + 2 + privacy::COOLING_SECONDS).await;
+    assert_eq!(
+        f.scalar(
+            "SELECT COUNT(*) FROM gonof_common_data_request WHERE kind='erase' AND stage<>'start'"
+        )
+        .await,
+        1,
+        "the erasure has started"
+    );
+    let row = db::query("SELECT status,finished_at FROM gonof_common_data_request WHERE id=?")
+        .bind(export)
+        .fetch_one(f.db.executor())
+        .await
+        .unwrap();
+    assert_eq!(
+        (
+            db::text(&row, "status").unwrap(),
+            row.try_get::<i64, _>("finished_at").unwrap()
+        ),
+        ("cancelled".to_owned(), now + 1)
+    );
+    f.services.cleanup_ref().await.unwrap();
+}
+
+/// An erasure of many posts goes back to the queue after each post at the time the step ended, and the worker takes
+/// the task due longest: an export another member asks for meanwhile runs in the same batch instead of waiting for
+/// the whole erasure (a batch runs at most 20 steps).
+#[tokio::test]
+async fn a_long_erasure_takes_turns_with_requests_made_meanwhile() {
+    let f = Fixture::new().await;
+    let now = identity::now();
+    for index in 0..25 {
+        f.post(&format!("LONG_ERASURE_{index}")).await;
+    }
+    let erase = privacy::submit(&f.db, &f.access(), f.request("erase", "erase"), now)
+        .await
+        .unwrap();
+    let other = f.member("exportsmeanwhile").await;
+    let due = now + privacy::COOLING_SECONDS;
+    let export = privacy::submit(
+        &f.db,
+        &Access::Session(other.member.actor()),
+        f.request("export", "retain"),
+        due,
+    )
+    .await
+    .unwrap();
+    f.work(due + 10).await;
+    let status = |id: i64| {
+        db::query_scalar::<String>("SELECT status FROM gonof_common_data_request WHERE id=?")
+            .bind(id)
+            .fetch_one(f.db.executor())
+    };
+    assert_eq!(status(export).await.unwrap(), "ready");
+    assert_eq!(status(erase).await.unwrap(), "processing");
+    assert_eq!(
+        f.scalar(&format!(
+            "SELECT COUNT(*) FROM gonof_forum_post WHERE authorid={} AND erased_at>0",
+            f.user.member.uid
+        ))
+        .await,
+        19,
+        "the other 19 steps of the batch erased one post each"
+    );
+    f.services.cleanup_ref().await.unwrap();
+}
+
+/// The sweep for archives no request owns (left by a crash or an expired lease) lists the export directory at most
+/// once every ten minutes per process, and looks the archives up in one batch rather than one query each: retained
+/// downloads no longer slow down every round of the worker.
+#[tokio::test]
+async fn the_unregistered_archive_sweep_is_rate_limited_and_batched() {
+    use gono_forum_web::debug::trace::{self, RequestProfile};
+    use std::sync::Arc;
+    let f = Fixture::new().await;
+    let now = identity::now();
+    let mut ready = vec![];
+    for offset in 0..3 {
+        let id = privacy::submit(
+            &f.db,
+            &f.access(),
+            f.request("export", "retain"),
+            now + offset,
+        )
+        .await
+        .unwrap();
+        f.work(now + offset).await;
+        ready.push(id);
+    }
+    let dir = privacy::directory(
+        &f.services.root,
+        &f.services.config.identity.local_directory,
+    );
+    let leftover = dir.join(format!("request-999999-{}", identity::random_token()));
+    std::fs::create_dir(&leftover).unwrap();
+    let lookups = |profile: &RequestProfile| {
+        profile
+            .snapshot()
+            .iter()
+            .filter(|record| {
+                record.sql.contains("FROM gonof_common_data_request")
+                    && (record.sql.contains("WHERE id IN") || record.sql.contains("WHERE r.id="))
+            })
+            .count()
+    };
+
+    // Within ten minutes of the last sweep a round neither lists the directory nor looks anything up.
+    let profile = Arc::new(RequestProfile::new());
+    trace::scope(profile.clone(), Box::pin(f.work(now + 60))).await;
+    assert!(leftover.exists());
+    assert_eq!(lookups(&profile), 0);
+
+    // Ten minutes on, one sweep removes the leftover, keeps the three downloads and looks them all up at once.
+    let profile = Arc::new(RequestProfile::new());
+    trace::scope(profile.clone(), Box::pin(f.work(now + 600))).await;
+    assert!(!leftover.exists());
+    assert_eq!(lookups(&profile), 1);
+    for id in ready {
+        let (path, _) = privacy::download(&f.db, &f.access(), id, &dir, now + 600)
+            .await
+            .unwrap();
+        assert!(path.exists());
+    }
     f.services.cleanup_ref().await.unwrap();
 }
