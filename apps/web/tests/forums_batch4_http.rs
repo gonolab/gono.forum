@@ -780,3 +780,90 @@ async fn a_refused_move_keeps_what_the_administrator_entered() {
     assert_eq!(site.scalar(moves).await, before);
     site.services.cleanup_ref().await.unwrap();
 }
+
+async fn image(site: &Site, aid: i64, uid: i64, name: &str) {
+    let now = identity::now();
+    db::query(
+        "INSERT INTO gonof_forum_attachment(aid,uid,request_key,request_hash) VALUES(?,?,?,?)",
+    )
+    .bind(aid)
+    .bind(uid)
+    .bind(identity::random_token())
+    .bind(identity::random_token())
+    .execute(site.db().executor())
+    .await
+    .unwrap();
+    db::query("INSERT INTO gonof_forum_attachment_0(aid,filename,filesize,mime_type,content_sha256,attachment,storage_profile_id,description,alt_text,dateline,updated_at,lifecycle,scan_status,scan_detail) VALUES(?,?,10,'image/png',?,'test','test','','',?,?,'ready','clean','')")
+        .bind(aid)
+        .bind(name)
+        .bind("a".repeat(64))
+        .bind(now)
+        .bind(now)
+        .execute(site.db().executor())
+        .await
+        .unwrap();
+}
+
+/// The board icon picker offers only images a save accepts: not trashed and not past their retention period. A board's
+/// current icon stays listed whatever its state, so the form shows what the board has.
+#[tokio::test]
+async fn the_icon_picker_leaves_out_images_a_save_refuses() {
+    let site = Site::new(false).await;
+    let admin = admin(&site).await;
+    image(&site, 9101, admin.uid, "kept.png").await;
+    image(&site, 9102, admin.uid, "trashed.png").await;
+    image(&site, 9103, admin.uid, "expired.png").await;
+    image(&site, 9104, admin.uid, "waiting.png").await;
+    let now = identity::now();
+    site.execute(&format!(
+        "UPDATE gonof_forum_attachment_0 SET trashed_at={now} WHERE aid=9102"
+    ))
+    .await;
+    site.execute(&format!(
+        "UPDATE gonof_forum_attachment_0 SET purge_after={} WHERE aid=9103",
+        now - 60
+    ))
+    .await;
+    site.execute(&format!(
+        "UPDATE gonof_forum_attachment_0 SET purge_after={} WHERE aid=9104",
+        now + 86_400
+    ))
+    .await;
+    let daily = site.fid("daily").await;
+    let page = site
+        .get(&format!("/manage/forums?fid={daily}"), Some(&site.admin))
+        .await;
+    assert_eq!(page.status, StatusCode::OK);
+    assert!(
+        page.body
+            .contains("<option value=\"9101\">kept.png</option>")
+    );
+    assert!(
+        page.body
+            .contains("<option value=\"9104\">waiting.png</option>")
+    );
+    assert!(
+        !page.body.contains("trashed.png"),
+        "a trashed image is offered"
+    );
+    assert!(
+        !page.body.contains("expired.png"),
+        "an expired image is offered"
+    );
+
+    // A board whose icon went to the trash still shows it as chosen.
+    site.execute(&format!(
+        "UPDATE gonof_forum_forum SET icon_aid=9102 WHERE fid={daily}"
+    ))
+    .await;
+    site.changed();
+    let page = site
+        .get(&format!("/manage/forums?fid={daily}"), Some(&site.admin))
+        .await;
+    assert!(
+        page.body
+            .contains("<option value=\"9102\" selected>trashed.png</option>")
+    );
+    assert!(!page.body.contains("expired.png"));
+    site.services.cleanup_ref().await.unwrap();
+}

@@ -734,32 +734,33 @@ async fn save_forum_with_orphan_seconds_inner(
 /// Arranged in parent-child groups (for the layered dropdowns and lists everywhere):
 /// top-level forums keep their original order, each immediately followed by its child forums (also in order); child
 /// forums whose parent is not in the list go last. Returns each item and "whether it is a child forum". Sorting is done
-/// in code on the data already fetched, with no extra SQL.
+/// in code on the data already fetched, with no extra SQL, in one pass over the list (the new-thread and subscription
+/// pages group every board on each request).
 pub fn grouped_by_parent<T>(
     items: &[T],
     key: impl Fn(&T) -> (i64, Option<i64>),
 ) -> Vec<(&T, bool)> {
-    let mut rows = Vec::with_capacity(items.len());
-    for parent in items.iter().filter(|item| key(item).1.is_none()) {
-        rows.push((parent, false));
-        let fid = key(parent).0;
-        rows.extend(
-            items
-                .iter()
-                .filter(|item| key(item).1 == Some(fid))
-                .map(|child| (child, true)),
-        );
+    let listed: std::collections::HashSet<i64> = items.iter().map(|item| key(item).0).collect();
+    let mut parents = Vec::new();
+    let mut children: std::collections::HashMap<i64, Vec<&T>> = std::collections::HashMap::new();
+    let mut orphans = Vec::new();
+    for item in items {
+        match key(item).1 {
+            None => parents.push(item),
+            Some(parent) if listed.contains(&parent) => {
+                children.entry(parent).or_default().push(item)
+            }
+            Some(_) => orphans.push(item),
+        }
     }
-    rows.extend(
-        items
-            .iter()
-            .filter(|item| {
-                key(item)
-                    .1
-                    .is_some_and(|parent| !items.iter().any(|p| key(p).0 == parent))
-            })
-            .map(|child| (child, true)),
-    );
+    let mut rows = Vec::with_capacity(items.len());
+    for parent in parents {
+        rows.push((parent, false));
+        if let Some(group) = children.remove(&key(parent).0) {
+            rows.extend(group.into_iter().map(|child| (child, true)));
+        }
+    }
+    rows.extend(orphans.into_iter().map(|child| (child, true)));
     rows
 }
 
@@ -1640,6 +1641,75 @@ async fn move_thread_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The grouping as it was written before it became one pass, kept as the reference for the order.
+    fn grouped_by_rescanning(items: &[(i64, Option<i64>)]) -> Vec<(i64, bool)> {
+        let mut rows = Vec::new();
+        for parent in items.iter().filter(|item| item.1.is_none()) {
+            rows.push((parent.0, false));
+            rows.extend(
+                items
+                    .iter()
+                    .filter(|item| item.1 == Some(parent.0))
+                    .map(|child| (child.0, true)),
+            );
+        }
+        rows.extend(
+            items
+                .iter()
+                .filter(|item| {
+                    item.1
+                        .is_some_and(|parent| !items.iter().any(|p| p.0 == parent))
+                })
+                .map(|child| (child.0, true)),
+        );
+        rows
+    }
+
+    #[test]
+    fn grouping_keeps_the_order_and_calls_the_key_a_linear_number_of_times() {
+        let items = [
+            (5, Some(2)),
+            (1, None),
+            (7, Some(99)),
+            (2, None),
+            (3, Some(1)),
+            (4, Some(2)),
+            (8, Some(3)),
+            (6, None),
+            (9, Some(98)),
+        ];
+        let grouped: Vec<(i64, bool)> = grouped_by_parent(&items, |item| *item)
+            .into_iter()
+            .map(|(item, child)| (item.0, child))
+            .collect();
+        assert_eq!(grouped, grouped_by_rescanning(&items));
+        assert_eq!(
+            grouped,
+            [
+                (1, false),
+                (3, true),
+                (2, false),
+                (5, true),
+                (4, true),
+                (6, false),
+                (7, true),
+                (9, true)
+            ]
+        );
+        // 1,000 top-level boards with one child each: the old rescanning called the key about a million times.
+        let many: Vec<(i64, Option<i64>)> = (1..=1000)
+            .flat_map(|fid| [(fid, None), (fid + 1000, Some(fid))])
+            .collect();
+        let calls = std::cell::Cell::new(0_usize);
+        let grouped = grouped_by_parent(&many, |item| {
+            calls.set(calls.get() + 1);
+            *item
+        });
+        assert_eq!(grouped.len(), many.len());
+        assert!(calls.get() <= 4 * many.len(), "{} key calls", calls.get());
+    }
+
     #[test]
     fn forum_fields_keep_the_value_rules_the_triggers_had() {
         assert_eq!(

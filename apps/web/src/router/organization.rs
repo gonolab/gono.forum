@@ -278,7 +278,10 @@ async fn forums_response_with(
                 ..Default::default()
             })
     });
-    let icons=match crate::db::query("SELECT a.aid,d.filename FROM gonof_forum_attachment a JOIN gonof_forum_attachment_0 d ON d.aid=a.aid WHERE (a.uid=? OR a.aid=?) AND d.lifecycle='ready' AND d.scan_status='clean' AND d.mime_type LIKE 'image/%' ORDER BY (a.aid=?) DESC,a.aid DESC LIMIT 100").bind(actor.uid).bind(input.icon_aid).bind(input.icon_aid).fetch_all(state.db.executor()).await {
+    // The images a save accepts (`service::save_forum`): not in the trash and not past their retention period, so
+    // they do not push usable older images out of the list. The current icon is listed whatever its state, so the
+    // form shows what the board has.
+    let icons=match crate::db::query("SELECT a.aid,d.filename FROM gonof_forum_attachment a JOIN gonof_forum_attachment_0 d ON d.aid=a.aid WHERE (a.uid=? OR a.aid=?) AND d.lifecycle='ready' AND d.scan_status='clean' AND d.mime_type LIKE 'image/%' AND (a.aid=? OR (d.trashed_at IS NULL AND (d.purge_after IS NULL OR d.purge_after>?))) ORDER BY (a.aid=?) DESC,a.aid DESC LIMIT 100").bind(actor.uid).bind(input.icon_aid).bind(input.icon_aid).bind(identity::now()).bind(input.icon_aid).fetch_all(state.db.executor()).await {
         Ok(rows)=>rows.into_iter().map(|r|Ok(IconChoice{aid:r.try_get("aid")?,name:r.try_get("filename")?})).collect::<anyhow::Result<Vec<_>>>(),
         Err(e)=>Err(e.into()),
     };
