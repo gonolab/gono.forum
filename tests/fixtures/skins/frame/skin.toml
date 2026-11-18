@@ -1,9 +1,10 @@
 # A test fixture for the frame of external skins (docs/skins.md, "Frame"): side navigation instead of the header's
-# boards, the page head as a banner, the board directory home and the behavior modules. Inspired by the NodeBB research prototype "Atrium" (branch claude/nodebb-css-research-0bf3f0); see skin.css.
+# boards, the page head as a banner, the board directory home and the behavior modules; see skin.css. Its id differs
+# from every built-in skin's, since a built-in skin shadows imported and instance skins of the same id.
 contract = 1
-id = "atrium"
+id = "frame"
 version = "1.0.0"
-name = { en = "Atrium" }
+name = { en = "Frame" }
 description = { en = "Side navigation, a banner head and a board directory home (test fixture)" }
 author = "Gono Forum tests"
 license = "MIT OR Apache-2.0"
