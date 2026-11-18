@@ -321,7 +321,13 @@ async fn list_rows_carry_their_classes_states_and_optional_elements() {
 
 #[tokio::test]
 async fn thread_profile_and_directory_hooks_are_present() {
-    let Site { app, services, .. } = site(None).await;
+    let Site {
+        app,
+        services,
+        showcase,
+        ai,
+        daily,
+    } = site(None).await;
 
     // The breadcrumb separators are empty spans the stylesheet draws.
     let child = page(&app, "/ai", None).await;
@@ -338,6 +344,10 @@ async fn thread_profile_and_directory_hooks_are_present() {
     ));
     assert!(thread.contains("id=\"reply-editor\""));
     assert!(thread.contains("<span class=\"thread-stats__views\">"));
+    // The thread's own board on the article, for the board variables.
+    assert!(thread.contains(&format!(
+        "<article class=\"thread\" data-board=\"{showcase}\" aria-labelledby=\"thread-title\">"
+    )));
     // The action icons are <use> references to symbols drawn once per page.
     assert_eq!(
         thread
@@ -382,6 +392,13 @@ async fn thread_profile_and_directory_hooks_are_present() {
     assert_iso_times(&profile);
 
     let directory = page(&app, "/forums", None).await;
+    // Every row of the directory, child boards included, carries its board.
+    for fid in [daily, showcase, ai] {
+        assert!(
+            directory.contains(&format!("data-board=\"{fid}\">")),
+            "{fid}"
+        );
+    }
     for hook in [
         "<span class=\"row-meta__threads\"><span class=\"stat\"><span class=\"stat__value\">",
         "<span class=\"row-meta__today\"><span class=\"stat\"><span class=\"stat__label\">Today</span> <span class=\"stat__value\">",

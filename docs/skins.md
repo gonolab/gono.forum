@@ -256,7 +256,8 @@ do not change the default look: the core stylesheets do not use them; a skin doe
 - **Variables.** While at least one board has a color or a glyph, every page links the board stylesheet
   `/boards.css?k=<skin>&v=<hash>` after `forum.css` (`<link … data-board-style>`), compiled for the page's skin
   (`k` is the hash of the skin's stylesheet, so a colored variant has its own). It sets, on the `data-board="<fid>"`
-  hook of list rows, board blocks and the board head, inside the `core` cascade layer:
+  hook of list rows, board blocks, the board head, the thread page's `article.thread` and the rows of the forum
+  directory (`/forums`), inside the `core` cascade layer:
 
   | Variable | Value |
   | --- | --- |
@@ -591,7 +592,11 @@ Other lists use the same names for the same items where they have them: a member
 `row-meta__board`, `row-meta__time`, `row-meta__replies` on threads, and `row-labels` around the category tag) and the
 following feed (`social/feed.html`: `row-meta__author`, `row-meta__time`, `row-meta__board`, `row-meta__replies`).
 They carry no `data-board`, `data-kind` or `data-state`. The forum directory (`site/forums.html`) has
-`row-meta__threads` and `row-meta__today` for its two counts.
+`row-meta__threads` and `row-meta__today` for its two counts, and each of its rows, child boards included, carries
+the board's `data-board`.
+
+On the thread page, `article.thread` (the thread head and the opening post) carries `data-board` with the `fid` of the
+thread's own board, so the board variables reach the thread head.
 
 ## Counts
 

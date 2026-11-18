@@ -575,6 +575,8 @@ async fn merge_forum(
 
 /// One forum on the directory page.
 struct DirectoryForum {
+    /// Written as `data-board`, for the board variables (docs/skins.md, "Board colors and glyphs").
+    fid: i64,
     slug: String,
     name: String,
     description: String,
@@ -611,6 +613,7 @@ async fn directory(Page(state): Page) -> Response {
         None
     };
     let entry = |forum: &service::ForumRecord| DirectoryForum {
+        fid: forum.fid,
         slug: forum.slug.clone(),
         name: forum.name.clone(),
         description: forum.description.clone(),
