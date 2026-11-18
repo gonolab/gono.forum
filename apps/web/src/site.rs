@@ -786,7 +786,9 @@ mod tests {
                         index + 1
                     ));
                 }
+                // `site.url.cli` is the audit event of `set-site-url`, registered in `manage.rs`, not a read.
                 if code.contains("site.url")
+                    && !code.contains("\"site.url.cli\"")
                     && !allowed_site_url.contains(&path.as_str())
                     && !in_tests(&lines, index)
                 {

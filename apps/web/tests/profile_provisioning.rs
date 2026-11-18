@@ -186,11 +186,15 @@ async fn setting_a_password_from_the_cli_revokes_prior_login_credentials() {
     )
     .await
     .unwrap();
+    // Administrators see every event, so the member's sign-in before the change is listed as well.
     assert_eq!(
-        total, 1,
+        logs.iter()
+            .map(|log| log.operation.as_str())
+            .collect::<Vec<_>>(),
+        ["identity.password.set", "identity.login"],
         "an administrator finds the CLI password record by target member"
     );
-    assert_eq!(logs[0].operation, "identity.password.set");
+    assert_eq!(total, 2);
     assert_eq!(logs[0].label(), "Password set from the command line");
     assert_eq!(logs[0].target, "UID 9201");
     assert_eq!(logs[0].operator, "System");
@@ -211,7 +215,7 @@ async fn setting_a_password_from_the_cli_revokes_prior_login_credentials() {
     .await
     .unwrap();
     assert_eq!(
-        total, 2,
+        total, 3,
         "the target member filter covers account security records the member triggered"
     );
     assert_eq!(logs[0].operation, "identity.password.change");
