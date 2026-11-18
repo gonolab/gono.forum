@@ -2,6 +2,7 @@
 {% block panel %}
 <section class="panel">
   <h1 class="panel__title">{{ p.t.forum_move_heading(title) }}</h1>
+  {% if moved %}<p class="form-feedback form-feedback--success" role="status">{{ p.t.forum_move_done_hidden() }}</p>{% endif %}
   {% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
   <p>{{ p.t.forum_move_lead() }}</p>
   <form class="fields" method="post" action="{{ crate::site::base() }}/manage/threads/{{ tid }}/move">
@@ -14,7 +15,7 @@
     </div>
     <div class="field">
       <label class="field__label" for="move-reason">{{ p.t.forum_move_reason() }}</label>
-      <textarea id="move-reason" name="reason" maxlength="500" required></textarea>
+      <textarea id="move-reason" name="reason" maxlength="500" required>{{ reason }}</textarea>
     </div>
     <div class="form-actions"><button class="button button--primary" type="submit">{{ p.t.forum_move_submit() }}</button></div>
   </form>

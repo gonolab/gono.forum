@@ -698,9 +698,19 @@ struct ThreadTemplate<'a> {
     /// Move targets: grouped by parent and child, marked disabled, admin-only and signed-in members.
     /// `(fid, display name)`.
     forums: Vec<(i64, String)>,
+    /// The selected target: the thread's forum, or the one a refused submission chose.
     fid: i64,
     key: String,
+    /// The reason a refused submission gave.
+    reason: String,
     message: String,
+    /// After a move into a forum this administrator cannot open on the site (disabled or admin-only).
+    moved: bool,
+}
+#[derive(Default, Deserialize)]
+struct ThreadQuery {
+    #[serde(default)]
+    moved: String,
 }
 async fn thread_response(
     state: &AppState,
@@ -708,6 +718,7 @@ async fn thread_response(
     form: Option<ThreadForm>,
     message: String,
     status: StatusCode,
+    moved: bool,
 ) -> Response {
     let actor = match actor(state) {
         Ok(a) => a,
@@ -751,9 +762,12 @@ async fn thread_response(
         Ok(forums) => forum_options(&forums, 0),
         Err(e) => return failure(state, e),
     };
-    let key = form
-        .map(|f| f.request_key)
-        .unwrap_or_else(identity::random_token);
+    // A refused submission comes back as it was sent, with the thread's current version: the request key, the chosen
+    // target and the reason.
+    let (key, fid, reason) = match form {
+        Some(form) => (form.request_key, form.target_fid, form.reason),
+        None => (identity::random_token(), editable.fid, String::new()),
+    };
     let mut response = render(&ThreadTemplate {
         p: meta(
             state,
@@ -767,15 +781,22 @@ async fn thread_response(
         title: editable.title,
         version: editable.thread_version,
         forums,
-        fid: editable.fid,
+        fid,
         key,
+        reason,
         message,
+        moved,
     });
     *response.status_mut() = status;
     response
 }
-async fn thread_settings_manage(Page(state): Page, AxumPath(tid): AxumPath<i64>) -> Response {
-    thread_response(&state, tid, None, String::new(), StatusCode::OK).await
+async fn thread_settings_manage(
+    Page(state): Page,
+    AxumPath(tid): AxumPath<i64>,
+    Query(query): Query<ThreadQuery>,
+) -> Response {
+    let moved = query.moved == "1";
+    thread_response(&state, tid, None, String::new(), StatusCode::OK, moved).await
 }
 async fn move_thread(
     Page(state): Page,
@@ -800,11 +821,16 @@ async fn move_thread(
         // The moved level-2 pin has a new "home".
         Ok(()) => match pins_changed(&state).await {
             Some(response) => response,
+            // Archiving into a disabled or admin-only forum is supported, but the site shows nobody such a thread:
+            // the administrator stays on the move page and is told it worked.
+            None if !state.frame.readable_fids.contains(&form.target_fid) => {
+                auth::redirect(&format!("/manage/threads/{tid}/organization?moved=1"))
+            }
             None => auth::redirect(&format!("/thread-{tid}")),
         },
         Err(e) => {
             let (status, message) = posting::write_error(e);
-            thread_response(&state, tid, Some(form), message, status).await
+            thread_response(&state, tid, Some(form), message, status, false).await
         }
     }
 }

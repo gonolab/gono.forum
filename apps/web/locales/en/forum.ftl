@@ -120,6 +120,8 @@ forum-move-target = Target forum
 forum-move-reason = Reason
 forum-move-submit = Move
 forum-move-back = Back to thread
+# Shown on the move page after a thread was moved into a disabled or admin-only forum, whose threads the site shows nobody.
+forum-move-done-hidden = Thread moved. Its new forum is disabled or admin-only, so the site does not show the thread.
 forum-settings-title = Forum settings
 forum-settings-saved = Forum settings saved.
 forum-settings-lead = Site-wide settings for forums. They are saved with the site settings, separately from saving a single forum.
@@ -244,6 +246,7 @@ forum-move-error-not-found = The thread does not exist.
 forum-move-error-forbidden = Moving threads needs forum management rights.
 forum-move-error-target = The move target or request key is not valid.
 forum-move-error-stale = The thread was changed or moved. Refresh the page.
+forum-move-error-same = The thread is already in that forum. Choose another target forum.
 forum-moderators-error-input = Choose a valid role and its forums, and give a reason of 1–500 characters.
 forum-moderators-error-request = This request was already used for another appointment. Open the form again.
 forum-moderators-error-admin = Administrator roles cannot be changed on this page.

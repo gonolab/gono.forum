@@ -1580,6 +1580,12 @@ async fn move_thread_inner(
         .fetch_optional(db.observe(&mut *tx))
         .await?
         .ok_or(ContentWriteError::NotFound)?;
+    // Staying in the same forum is not a move: no notification, no request key and no audit entry.
+    if fid == target_fid {
+        return Err(ContentWriteError::Validation(
+            crate::i18n::current().forum_move_error_same(),
+        ));
+    }
     lock_forum_paths(db, &mut tx, &[fid, target_fid]).await?;
     for id in BTreeSet::from([fid, target_fid]) {
         let forum = lock_forum_path(db, &mut tx, id).await?;
@@ -1595,28 +1601,26 @@ async fn move_thread_inner(
         ));
     }
     let pid: i64 = row.try_get("pid")?;
-    if fid != target_fid {
-        // The same statement writes the target forum's copies (name, slug, inherited visibility and enabled state), and
-        // the posts' fid is rewritten by the foreign key cascade.
-        crate::content::copies::move_thread(db, &mut tx, tid, version, target_fid).await?;
-        if let Some(uid) = owner.filter(|uid| *uid != actor.uid) {
-            crate::moderation::notify(
-                db,
-                &mut tx,
-                crate::moderation::Notice {
-                    uid,
-                    authorid: actor.uid,
-                    kind: crate::notifications::record::Kind::Moderation,
-                    target: crate::notifications::record::Target::Post(pid),
-                    key: &format!("thread.move:{tid}:{key}"),
-                    // Written in the site language (`/manage` is only served on the main domain); the notification
-                    // list shows the stored sentence.
-                    reason: &crate::i18n::current().forum_notice_thread_moved(why),
-                    now: identity::now(),
-                },
-            )
-            .await?;
-        }
+    // The same statement writes the target forum's copies (name, slug, inherited visibility and enabled state), and the
+    // posts' fid is rewritten by the foreign key cascade.
+    crate::content::copies::move_thread(db, &mut tx, tid, version, target_fid).await?;
+    if let Some(uid) = owner.filter(|uid| *uid != actor.uid) {
+        crate::moderation::notify(
+            db,
+            &mut tx,
+            crate::moderation::Notice {
+                uid,
+                authorid: actor.uid,
+                kind: crate::notifications::record::Kind::Moderation,
+                target: crate::notifications::record::Target::Post(pid),
+                key: &format!("thread.move:{tid}:{key}"),
+                // Written in the site language (`/manage` is only served on the main domain); the notification list
+                // shows the stored sentence.
+                reason: &crate::i18n::current().forum_notice_thread_moved(why),
+                now: identity::now(),
+            },
+        )
+        .await?;
     }
     identity::rules::insert_post_request(db, &mut tx, actor.uid, key, &hash, pid, identity::now())
         .await?;
@@ -1628,9 +1632,7 @@ async fn move_thread_inner(
         serde_json::json!({"tid":tid,"fid":fid,"from":fid,"to":target_fid,"reason":why}),
     )
     .await?;
-    if fid != target_fid {
-        crate::content::copies::bump_site(db, &mut tx).await?;
-    }
+    crate::content::copies::bump_site(db, &mut tx).await?;
     tx.commit().await?;
     Ok(())
 }

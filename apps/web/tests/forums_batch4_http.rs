@@ -591,3 +591,192 @@ async fn subsite_paths_and_board_page_addresses_keep_apart() {
     ));
     site.services.cleanup_ref().await.unwrap();
 }
+
+fn hidden_value<'a>(html: &'a str, name: &str) -> &'a str {
+    let marker = format!("name=\"{name}\" value=\"");
+    let at = html
+        .find(&marker)
+        .unwrap_or_else(|| panic!("no {name} in {html}"))
+        + marker.len();
+    &html[at..at + html[at..].find('"').unwrap()]
+}
+
+async fn thread_version(site: &Site, tid: i64) -> i64 {
+    site.scalar(&format!(
+        "SELECT version FROM gonof_forum_thread WHERE tid={tid}"
+    ))
+    .await
+}
+
+/// Archiving a thread into a disabled or admin-only board works, and the administrator is brought back to the move
+/// page with a notice instead of to a thread page the site shows nobody.
+#[tokio::test]
+async fn moving_a_thread_out_of_sight_returns_to_the_move_page() {
+    let site = Site::new(false).await;
+    let admin = admin(&site).await;
+    let daily = site.fid("daily").await;
+    let (archive, staff) = (site.fid("releases").await, site.fid("hosting").await);
+    site.execute(&format!(
+        "UPDATE gonof_forum_forum SET status=0 WHERE fid={archive}"
+    ))
+    .await;
+    site.execute(&format!(
+        "UPDATE gonof_forum_forum SET visibility='private' WHERE fid={staff}"
+    ))
+    .await;
+    site.changed();
+    for target in [archive, staff] {
+        let tid = thread(&site, admin.uid, daily, "To archive").await;
+        let page = format!("/manage/threads/{tid}/organization");
+        let form = site.get(&page, Some(&site.admin)).await;
+        assert_eq!(form.status, StatusCode::OK);
+        let target_fid = target.to_string();
+        let answer = site
+            .post(
+                &format!("/manage/threads/{tid}/move"),
+                &site.admin,
+                &[
+                    ("version", hidden_value(&form.body, "version")),
+                    ("request_key", hidden_value(&form.body, "request_key")),
+                    ("target_fid", &target_fid),
+                    ("reason", "Archive"),
+                ],
+            )
+            .await;
+        assert!(answer.status.is_redirection(), "{}", answer.body);
+        assert_eq!(
+            answer.header(axum::http::header::LOCATION),
+            format!("{page}?moved=1")
+        );
+        assert_eq!(
+            site.scalar(&format!(
+                "SELECT fid FROM gonof_forum_thread WHERE tid={tid}"
+            ))
+            .await,
+            target
+        );
+        let notice = site
+            .get(&format!("{page}?moved=1"), Some(&site.admin))
+            .await;
+        assert_eq!(notice.status, StatusCode::OK);
+        assert!(
+            notice
+                .body
+                .contains("Thread moved. Its new forum is disabled or admin-only")
+        );
+    }
+    // A move into a board the site shows still opens the thread.
+    let tid = thread(&site, admin.uid, daily, "Moved in sight").await;
+    let form = site
+        .get(
+            &format!("/manage/threads/{tid}/organization"),
+            Some(&site.admin),
+        )
+        .await;
+    let target_fid = site.fid("ai").await.to_string();
+    let answer = site
+        .post(
+            &format!("/manage/threads/{tid}/move"),
+            &site.admin,
+            &[
+                ("version", hidden_value(&form.body, "version")),
+                ("request_key", hidden_value(&form.body, "request_key")),
+                ("target_fid", &target_fid),
+                ("reason", "Better fit"),
+            ],
+        )
+        .await;
+    assert_eq!(
+        answer.header(axum::http::header::LOCATION),
+        format!("/thread-{tid}")
+    );
+    site.services.cleanup_ref().await.unwrap();
+}
+
+/// A move refused because the thread changed meanwhile shows the form again as it was sent (target and reason), with
+/// the thread's current version; a move into the thread's own board is refused and leaves no audit entry.
+#[tokio::test]
+async fn a_refused_move_keeps_what_the_administrator_entered() {
+    let site = Site::new(false).await;
+    let admin = admin(&site).await;
+    let daily = site.fid("daily").await;
+    let tid = thread(&site, admin.uid, daily, "Contested").await;
+    let page = format!("/manage/threads/{tid}/organization");
+    let stale = site.get(&page, Some(&site.admin)).await;
+    // Another tab moves the thread first.
+    let other = site.get(&page, Some(&site.admin)).await;
+    let ai = site.fid("ai").await.to_string();
+    let answer = site
+        .post(
+            &format!("/manage/threads/{tid}/move"),
+            &site.admin,
+            &[
+                ("version", hidden_value(&other.body, "version")),
+                ("request_key", hidden_value(&other.body, "request_key")),
+                ("target_fid", &ai),
+                ("reason", "Other tab"),
+            ],
+        )
+        .await;
+    assert!(answer.status.is_redirection(), "{}", answer.body);
+    let releases = site.fid("releases").await;
+    let target_fid = releases.to_string();
+    let answer = site
+        .post(
+            &format!("/manage/threads/{tid}/move"),
+            &site.admin,
+            &[
+                ("version", hidden_value(&stale.body, "version")),
+                ("request_key", hidden_value(&stale.body, "request_key")),
+                ("target_fid", &target_fid),
+                ("reason", "Belongs with the releases"),
+            ],
+        )
+        .await;
+    assert_eq!(answer.status, StatusCode::CONFLICT, "{}", answer.body);
+    assert!(
+        answer
+            .body
+            .contains(&format!("<option value=\"{releases}\" selected>")),
+        "{}",
+        answer.body
+    );
+    assert!(
+        answer
+            .body
+            .contains(">Belongs with the releases</textarea>")
+    );
+    assert_eq!(
+        hidden_value(&answer.body, "version"),
+        thread_version(&site, tid).await.to_string()
+    );
+    assert_eq!(
+        hidden_value(&answer.body, "request_key"),
+        hidden_value(&stale.body, "request_key")
+    );
+
+    let moves = "SELECT COUNT(*) FROM gonof_common_log WHERE type='content.thread.move'";
+    let before = site.scalar(moves).await;
+    let fresh = site.get(&page, Some(&site.admin)).await;
+    let answer = site
+        .post(
+            &format!("/manage/threads/{tid}/move"),
+            &site.admin,
+            &[
+                ("version", hidden_value(&fresh.body, "version")),
+                ("request_key", hidden_value(&fresh.body, "request_key")),
+                ("target_fid", &ai),
+                ("reason", "Leave it where it is"),
+            ],
+        )
+        .await;
+    assert_eq!(
+        answer.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        answer.body
+    );
+    assert!(answer.body.contains("The thread is already in that forum."));
+    assert_eq!(site.scalar(moves).await, before);
+    site.services.cleanup_ref().await.unwrap();
+}
