@@ -21,7 +21,7 @@ pub(super) fn routes() -> Router<Arc<AppState>> {
         .layer(DefaultBodyLimit::max(16 * 1024))
 }
 fn access(state: &AppState, headers: &HeaderMap) -> Option<service::Access> {
-    if let Some(raw) = auth::cookie(headers, "gonof_privacy") {
+    if let Some(raw) = auth::cookie(headers, &state.viewer.plain_cookie(COOKIE)) {
         return Some(service::Access::Token(raw));
     }
     state
@@ -30,12 +30,17 @@ fn access(state: &AppState, headers: &HeaderMap) -> Option<service::Access> {
         .as_ref()
         .map(|s| service::Access::Session(s.member.actor()))
 }
+/// The data-request access token of a visitor who confirmed by mail; named with this forum's suffix
+/// ([`auth::cookie_name`]).
+pub(super) const COOKIE: &str = "gonof_privacy";
+
 pub(super) fn cookie(response: &mut Response, state: &AppState, value: &str, seconds: i64) {
     let secure = if state.viewer.secure { "; Secure" } else { "" };
     response.headers_mut().append(
         header::SET_COOKIE,
         HeaderValue::from_str(&format!(
-            "gonof_privacy={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}{secure}",
+            "{}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}{secure}",
+            state.viewer.plain_cookie(COOKIE),
             seconds.max(0)
         ))
         .expect("privacy cookie"),
@@ -446,7 +451,7 @@ async fn exit(
     headers: HeaderMap,
     CsrfForm(_): CsrfForm<FormFields>,
 ) -> Response {
-    if let Some(raw) = auth::cookie(&headers, "gonof_privacy")
+    if let Some(raw) = auth::cookie(&headers, &state.viewer.plain_cookie(COOKIE))
         && let Err(e) = service::exit_access(&state.db, &raw, identity::now()).await
     {
         return failure(&state, e);

@@ -98,6 +98,7 @@ async fn stylesheet(
             let previewed = super::auth::own_skin_preview(
                 &state,
                 request.headers(),
+                request.uri(),
                 request.extensions(),
                 |preview| {
                     preview.skin == id
@@ -668,8 +669,13 @@ async fn rescan(AdminPage(state): AdminPage, CsrfForm(_): CsrfForm<CsrfOnly>) ->
     }
 }
 
-pub(super) fn preview_cookie(response: &mut Response, value: &str, seconds: i64) {
-    auth::auxiliary_set_cookie(response, PREVIEW_COOKIE, value, seconds);
+pub(super) fn preview_cookie(
+    response: &mut Response,
+    viewer: &auth::Viewer,
+    value: &str,
+    seconds: i64,
+) {
+    auth::auxiliary_set_cookie(response, viewer, PREVIEW_COOKIE, value, seconds);
 }
 
 /// Starts a preview: the skin is shown on every page to this administrator only, until they exit or publish it.
@@ -687,16 +693,21 @@ async fn preview(AdminPage(state): AdminPage, CsrfForm(form): CsrfForm<ChoiceFor
     ) {
         Ok(sealed) => {
             let mut response = auth::redirect("/");
-            preview_cookie(&mut response, &sealed, crate::identity::SKIN_PREVIEW_TTL);
+            preview_cookie(
+                &mut response,
+                &state.viewer,
+                &sealed,
+                crate::identity::SKIN_PREVIEW_TTL,
+            );
             response
         }
         Err(error) => auth::identity_error(&state, error),
     }
 }
 
-async fn exit_preview(AdminPage(_): AdminPage, CsrfForm(_): CsrfForm<CsrfOnly>) -> Response {
+async fn exit_preview(AdminPage(state): AdminPage, CsrfForm(_): CsrfForm<CsrfOnly>) -> Response {
     let mut response = auth::redirect(PATH);
-    preview_cookie(&mut response, "", 0);
+    preview_cookie(&mut response, &state.viewer, "", 0);
     response
 }
 
@@ -708,7 +719,7 @@ async fn publish(AdminPage(state): AdminPage, CsrfForm(_): CsrfForm<CsrfOnly>) -
         .open_skin_preview(&state.viewer.skin_preview, actor.uid)
     else {
         let mut response = auth::redirect(PATH);
-        preview_cookie(&mut response, "", 0);
+        preview_cookie(&mut response, &state.viewer, "", 0);
         return response;
     };
     if let Some(draft) = preview.layout {
@@ -729,7 +740,7 @@ async fn publish(AdminPage(state): AdminPage, CsrfForm(_): CsrfForm<CsrfOnly>) -
                     None => format!("{}?saved=saved", super::colors::PATH),
                     Some(domain) => format!("/manage/domains/{domain}?colors=saved"),
                 });
-                preview_cookie(&mut response, "", 0);
+                preview_cookie(&mut response, &state.viewer, "", 0);
                 response
             }
             Err(error) => failed(&state, error).await,
@@ -754,7 +765,7 @@ async fn publish(AdminPage(state): AdminPage, CsrfForm(_): CsrfForm<CsrfOnly>) -
     match saved {
         Ok(()) => {
             let mut response = auth::redirect("/manage/skins?saved=selected");
-            preview_cookie(&mut response, "", 0);
+            preview_cookie(&mut response, &state.viewer, "", 0);
             response
         }
         Err(error) => failed(&state, error).await,

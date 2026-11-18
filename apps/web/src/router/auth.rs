@@ -89,14 +89,63 @@ pub(super) fn routes(upload_limit: usize) -> Router<Arc<AppState>> {
         .layer(DefaultBodyLimit::max(16 * 1024))
 }
 
-/// The `__Host-` prefix requires the cookie to carry Secure, so the name and the flag must come from the same
-/// decision; otherwise the browser silently drops a `__Host-` cookie without Secure.
-fn cookie_name(secure: bool, session: bool) -> &'static str {
-    match (secure, session) {
-        (true, true) => "__Host-gonof_session",
-        (true, false) => "__Host-gonof_csrf",
-        (false, true) => "gonof_session",
-        (false, false) => "gonof_csrf",
+/// Name of one of this forum's cookies (docs/install.md, "Reverse proxy"). Browsers keep cookies per host whatever
+/// the port, and send a `Path=/` cookie to every path of the host, so forums on other ports or under other paths of
+/// the same host would read and overwrite each other's cookies. The name therefore ends with this request's path
+/// prefix and the non-default port of its origin (of the site address for a request without `Host`); a forum at the
+/// root on the default port keeps the plain names, and the sessions it issued before. Like the protocol, the port is
+/// a fact of the connection: editing the forum URL does not rename cookies. `transport` is the `__Host-` or
+/// `__Secure-` prefix under HTTPS, empty otherwise.
+pub(super) fn cookie_name(transport: &str, base: &str, origin: Option<&str>) -> String {
+    let current = crate::site::current();
+    // Each deployment path segment only allows lowercase letters, digits and hyphens, so prefixes stay
+    // distinguishable after replacing the slashes with underscores, and none produces the double underscore that
+    // starts the port part.
+    let path = current.prefix.replace('/', "_");
+    let port = origin
+        .or(current.url.as_deref())
+        .and_then(|address| url::Url::parse(address).ok())
+        .and_then(|address| address.port())
+        .map_or_else(String::new, |port| format!("__port{port}"));
+    format!("{transport}{base}{path}{port}")
+}
+
+/// The session (`session`) or CSRF cookie. The `__Host-` prefix requires the cookie to carry Secure, so the name and
+/// the flag must come from the same decision; otherwise the browser silently drops a `__Host-` cookie without Secure.
+fn session_name(secure: bool, origin: Option<&str>, session: bool) -> String {
+    cookie_name(
+        if secure { "__Host-" } else { "" },
+        if session {
+            "gonof_session"
+        } else {
+            "gonof_csrf"
+        },
+        origin,
+    )
+}
+
+impl Viewer {
+    /// A cookie sent to every page of this forum (`Path=/`): `__Host-` under HTTPS. See [`cookie_name`].
+    pub(super) fn host_cookie(&self, base: &str) -> String {
+        cookie_name(
+            if self.secure { "__Host-" } else { "" },
+            base,
+            self.origin.as_deref(),
+        )
+    }
+
+    /// A cookie sent only to some pages, which cannot use `__Host-` (it requires `Path=/`): `__Secure-` under HTTPS.
+    pub(super) fn path_cookie(&self, base: &str) -> String {
+        cookie_name(
+            if self.secure { "__Secure-" } else { "" },
+            base,
+            self.origin.as_deref(),
+        )
+    }
+
+    /// A cookie whose name has no prefix under either protocol.
+    pub(super) fn plain_cookie(&self, base: &str) -> String {
+        cookie_name("", base, self.origin.as_deref())
     }
 }
 
@@ -104,37 +153,30 @@ fn cookie_name(secure: bool, session: bool) -> &'static str {
 /// It is only sent to the reveal page, so it cannot use the `__Host-` prefix (which requires `Path=/`); under HTTPS
 /// it uses `__Secure-`.
 pub(super) struct RevealCookie {
-    plain: &'static str,
-    secure: &'static str,
+    base: &'static str,
     path: &'static str,
     pub(super) kind: identity::SecretReveal,
 }
 
 pub(super) const FEED_REVEAL: RevealCookie = RevealCookie {
-    plain: "gonof_feed_reveal",
-    secure: "__Secure-gonof_feed_reveal",
+    base: "gonof_feed_reveal",
     path: "/my/feed",
     kind: identity::SecretReveal::FeedToken,
 };
 
 pub(super) const API_REVEAL: RevealCookie = RevealCookie {
-    plain: "gonof_api_reveal",
-    secure: "__Secure-gonof_api_reveal",
+    base: "gonof_api_reveal",
     path: "/my/api",
     kind: identity::SecretReveal::ApiKey,
 };
 
 impl RevealCookie {
-    fn name(&self, secure: bool) -> &'static str {
-        if secure { self.secure } else { self.plain }
-    }
-
     /// Writes the cookie (clears it when `max_age` is 0).
-    pub(super) fn set(&self, response: &mut Response, secure: bool, value: &str, max_age: i64) {
-        let flag = if secure { "; Secure" } else { "" };
+    pub(super) fn set(&self, response: &mut Response, viewer: &Viewer, value: &str, max_age: i64) {
+        let flag = if viewer.secure { "; Secure" } else { "" };
         if let Ok(header) = HeaderValue::from_str(&format!(
             "{}={value}; Path={}; HttpOnly; SameSite=Lax; Max-Age={}{flag}",
-            self.name(secure),
+            viewer.path_cookie(self.base),
             // A cookie sent only to the reveal page carries this request's path prefix.
             crate::site::href(self.path),
             max_age.max(0)
@@ -157,7 +199,7 @@ impl RevealCookie {
                 let mut response = redirect(location);
                 self.set(
                     &mut response,
-                    state.viewer.secure,
+                    &state.viewer,
                     &sealed,
                     identity::SECRET_REVEAL_TTL,
                 );
@@ -176,7 +218,7 @@ impl RevealCookie {
 
     /// Reads the member's own unexpired plaintext; `None` when absent, forged or belonging to someone else.
     pub(super) fn read(&self, state: &AppState, headers: &HeaderMap, uid: i64) -> Option<String> {
-        unique_cookie(headers, self.name(state.viewer.secure), 2048)
+        unique_cookie(headers, &state.viewer.path_cookie(self.base), 2048)
             .and_then(|raw| state.identity.revealed_secret(self.kind, raw, uid))
     }
 }
@@ -214,13 +256,13 @@ fn session_cookie(headers: &HeaderMap, name: &str) -> Option<String> {
     unique_cookie(headers, name, 2048).map(str::to_owned)
 }
 
-/// `secure` is given by the caller, not read from `state`: the middleware holds the router's shared `AppState`,
-/// whose `viewer` is not attached yet, so reading it there would always give false.
-fn set_cookie(response: &mut Response, secure: bool, session: bool, value: &str, max_age: i64) {
-    let flag = if secure { "; Secure" } else { "" };
+/// `viewer` is given by the caller, not read from `state`: the middleware holds the router's shared `AppState`,
+/// whose `viewer` is not attached yet, so reading it there would always give the defaults.
+fn set_cookie(response: &mut Response, viewer: &Viewer, session: bool, value: &str, max_age: i64) {
+    let flag = if viewer.secure { "; Secure" } else { "" };
     let value = format!(
         "{}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}{flag}",
-        cookie_name(secure, session),
+        session_name(viewer.secure, viewer.origin.as_deref(), session),
         max_age.max(0)
     );
     response.headers_mut().append(
@@ -432,10 +474,21 @@ pub(super) async fn context(
     {
         return next.run(request).await;
     }
-    // The protocol must be decided before cookies are read: the cookie name itself depends on it, and reading and
-    // writing must use the same decision.
+    // The protocol and the origin must be decided before cookies are read: the cookie names depend on them, and
+    // reading and writing must use the same decision.
     let secure = secure_transport(request.headers(), request.extensions(), state.config.listen);
-    let raw_sid = session_cookie(request.headers(), cookie_name(secure, true)).unwrap_or_default();
+    let origin = request_origin(
+        request.headers(),
+        request.uri(),
+        request.extensions(),
+        state.config.listen,
+    );
+    let plain_cookie = |base: &str| cookie_name("", base, origin.as_deref());
+    let raw_sid = session_cookie(
+        request.headers(),
+        &session_name(secure, origin.as_deref(), true),
+    )
+    .unwrap_or_default();
     let session = if raw_sid.is_empty() {
         None
     } else {
@@ -447,7 +500,10 @@ pub(super) async fn context(
     let unread_notifications = session
         .as_ref()
         .map_or(0, |session| session.member.unread_notifications);
-    let anonymous_csrf = cookie(request.headers(), cookie_name(secure, false));
+    let anonymous_csrf = cookie(
+        request.headers(),
+        &session_name(secure, origin.as_deref(), false),
+    );
     let csrf = session.as_ref().map_or_else(
         || {
             anonymous_csrf
@@ -481,7 +537,11 @@ pub(super) async fn context(
         None
     };
     let skin_preview = if session.is_some() {
-        auxiliary_cookie(request.headers(), super::skins::PREVIEW_COOKIE).unwrap_or_default()
+        auxiliary_cookie(
+            request.headers(),
+            &plain_cookie(super::skins::PREVIEW_COOKIE),
+        )
+        .unwrap_or_default()
     } else {
         String::new()
     };
@@ -490,11 +550,11 @@ pub(super) async fn context(
         csp_nonce,
         unread_notifications,
         published: if consume_publication {
-            auxiliary_cookie(request.headers(), "gonof_published").unwrap_or_default()
+            auxiliary_cookie(request.headers(), &plain_cookie(PUBLISHED_COOKIE)).unwrap_or_default()
         } else {
             String::new()
         },
-        return_to: auxiliary_cookie(request.headers(), "gonof_return")
+        return_to: auxiliary_cookie(request.headers(), &plain_cookie(RETURN_COOKIE))
             .map(|v| safe_return(&v))
             .unwrap_or_default(),
         raw_sid: session
@@ -504,12 +564,7 @@ pub(super) async fn context(
         csrf,
         client_ip: client_ip(&request, state.config.listen),
         secure,
-        origin: request_origin(
-            request.headers(),
-            request.uri(),
-            request.extensions(),
-            state.config.listen,
-        ),
+        origin,
         skin_preview,
     };
     request.extensions_mut().insert(viewer.clone());
@@ -545,6 +600,7 @@ pub(super) async fn context(
         header::CONTENT_SECURITY_POLICY,
         HeaderValue::from_str(&csp).expect("hex nonce"),
     );
+    let published = format!("{}=", viewer.plain_cookie(PUBLISHED_COOKIE));
     if !viewer.published.is_empty()
         && !response.status().is_redirection()
         && response
@@ -555,16 +611,16 @@ pub(super) async fn context(
             .headers()
             .get_all(header::SET_COOKIE)
             .iter()
-            .any(|value| value.as_bytes().starts_with(b"gonof_published="))
+            .any(|value| value.as_bytes().starts_with(published.as_bytes()))
     {
-        auxiliary_set_cookie(&mut response, "gonof_published", "", 0);
+        auxiliary_set_cookie(&mut response, &viewer, PUBLISHED_COOKIE, "", 0);
     }
     if response.extensions().get::<IdentityChanged>().is_none() {
         if let Some(session) = &viewer.session {
             if let Some(renewed) = &session.renewed_cookie {
                 set_cookie(
                     &mut response,
-                    secure,
+                    &viewer,
                     true,
                     renewed,
                     session.expires_at - identity::now(),
@@ -575,10 +631,10 @@ pub(super) async fn context(
             }
         } else {
             if !viewer.raw_sid.is_empty() {
-                set_cookie(&mut response, secure, true, "", 0);
+                set_cookie(&mut response, &viewer, true, "", 0);
             }
             if anonymous_csrf.is_none() && !data_api {
-                set_cookie(&mut response, secure, false, &viewer.csrf, 3600);
+                set_cookie(&mut response, &viewer, false, &viewer.csrf, 3600);
             }
         }
     }
@@ -900,7 +956,13 @@ async fn login_page(Page(state): Page, Query(query): Query<ReturnQuery>) -> Resp
     };
     let mut response = account_page(&state, false, &form, message, StatusCode::OK).await;
     if !form.return_to.is_empty() {
-        auxiliary_set_cookie(&mut response, "gonof_return", &form.return_to, 3600);
+        auxiliary_set_cookie(
+            &mut response,
+            &state.viewer,
+            RETURN_COOKIE,
+            &form.return_to,
+            3600,
+        );
     }
     response
 }
@@ -925,7 +987,13 @@ async fn register_page(Page(state): Page, Query(query): Query<ReturnQuery>) -> R
     }
     let mut response = account_page(&state, true, &form, "", StatusCode::OK).await;
     if !form.return_to.is_empty() {
-        auxiliary_set_cookie(&mut response, "gonof_return", &form.return_to, 3600);
+        auxiliary_set_cookie(
+            &mut response,
+            &state.viewer,
+            RETURN_COOKIE,
+            &form.return_to,
+            3600,
+        );
     }
     response
 }
@@ -956,39 +1024,37 @@ fn grant_response(state: &AppState, grant: SessionGrant, path: &str) -> Response
     response.extensions_mut().insert(IdentityChanged);
     set_cookie(
         &mut response,
-        state.viewer.secure,
+        &state.viewer,
         true,
         &grant.session_token,
         grant.expires_at - identity::now(),
     );
-    set_cookie(&mut response, state.viewer.secure, false, "", 0);
+    set_cookie(&mut response, &state.viewer, false, "", 0);
     if let Some(marker) = &grant.device_marker {
-        set_device_marker(&mut response, state.viewer.secure, marker);
+        set_device_marker(&mut response, &state.viewer, marker);
     }
     response
 }
 
 /// Device marker cookie: only used to detect a "new device login" and send fewer alerts; it is not a credential.
 /// Logging out does not clear it.
-fn device_marker_name(secure: bool) -> &'static str {
-    if secure {
-        "__Host-gonof_device"
-    } else {
-        "gonof_device"
-    }
-}
+const DEVICE_COOKIE: &str = "gonof_device";
+/// The address to go back to after signing in or verifying the email.
+pub(super) const RETURN_COOKIE: &str = "gonof_return";
+/// Marks the draft a publish just saved, for the page that follows (`Viewer::published`).
+pub(super) const PUBLISHED_COOKIE: &str = "gonof_published";
 
 fn device_marker(state: &AppState, headers: &HeaderMap) -> String {
-    unique_cookie(headers, device_marker_name(state.viewer.secure), 2048)
+    unique_cookie(headers, &state.viewer.host_cookie(DEVICE_COOKIE), 2048)
         .unwrap_or_default()
         .to_owned()
 }
 
-fn set_device_marker(response: &mut Response, secure: bool, marker: &str) {
-    let flag = if secure { "; Secure" } else { "" };
+fn set_device_marker(response: &mut Response, viewer: &Viewer, marker: &str) {
+    let flag = if viewer.secure { "; Secure" } else { "" };
     if let Ok(value) = HeaderValue::from_str(&format!(
         "{}={marker}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}{flag}",
-        device_marker_name(secure),
+        viewer.host_cookie(DEVICE_COOKIE),
         identity::DEVICE_MARKER_MAX_AGE
     )) {
         response.headers_mut().append(header::SET_COOKIE, value);
@@ -1081,7 +1147,7 @@ async fn login(Page(state): Page, headers: HeaderMap, form: CheckedForm<AuthForm
             let mut response = redirect(&path);
             two_factor::set_pending(
                 &mut response,
-                state.viewer.secure,
+                &state.viewer,
                 &pending.token,
                 identity::SECOND_FACTOR_PENDING_TTL,
             );
@@ -1197,7 +1263,8 @@ async fn register(Page(state): Page, headers: HeaderMap, form: CheckedForm<AuthF
             }
             auxiliary_set_cookie(
                 &mut response,
-                "gonof_return",
+                &state.viewer,
+                RETURN_COOKIE,
                 &safe_return(&form.return_to),
                 3600,
             );
@@ -1294,7 +1361,7 @@ async fn logout(
     headers: HeaderMap,
     CsrfForm(_): CsrfForm<ActionForm>,
 ) -> Response {
-    if let Some(raw) = cookie(&headers, "gonof_privacy")
+    if let Some(raw) = cookie(&headers, &state.viewer.plain_cookie(super::privacy::COOKIE))
         && let Err(error) =
             crate::privacy::exit_access(&state.db, &raw, crate::identity::now()).await
     {
@@ -1303,12 +1370,12 @@ async fn logout(
     let mut response = redirect("/");
     super::privacy::cookie(&mut response, &state, "", 0);
     response.extensions_mut().insert(IdentityChanged);
-    set_cookie(&mut response, state.viewer.secure, true, "", 0);
-    set_cookie(&mut response, state.viewer.secure, false, "", 0);
+    set_cookie(&mut response, &state.viewer, true, "", 0);
+    set_cookie(&mut response, &state.viewer, false, "", 0);
     super::appeals::clear_cookie(&mut response, &state);
     // A skin preview belongs to the session that started it (docs/skins.md, "Preview").
     if !state.viewer.skin_preview.is_empty() {
-        auxiliary_set_cookie(&mut response, super::skins::PREVIEW_COOKIE, "", 0);
+        super::skins::preview_cookie(&mut response, &state.viewer, "", 0);
     }
     response
 }
@@ -1406,7 +1473,7 @@ async fn verify_page(
             && !state.viewer.return_to.is_empty()
         {
             let mut response = redirect(&state.viewer.return_to);
-            auxiliary_set_cookie(&mut response, "gonof_return", "", 0);
+            auxiliary_set_cookie(&mut response, &state.viewer, RETURN_COOKIE, "", 0);
             return response;
         }
         let message = if query.verified {
@@ -1432,7 +1499,13 @@ async fn verify_page(
         };
         let mut response = verification_page(&state, "", false, message, StatusCode::OK);
         if !return_to.is_empty() {
-            auxiliary_set_cookie(&mut response, "gonof_return", &return_to, 3600);
+            auxiliary_set_cookie(
+                &mut response,
+                &state.viewer,
+                RETURN_COOKIE,
+                &return_to,
+                3600,
+            );
         }
         return response;
     }
@@ -1767,21 +1840,35 @@ fn auxiliary_cookie(headers: &HeaderMap, name: &str) -> Option<String> {
 pub(super) async fn own_skin_preview(
     state: &AppState,
     headers: &HeaderMap,
+    uri: &axum::http::Uri,
     extensions: &axum::http::Extensions,
     wanted: impl FnOnce(&crate::identity::SkinPreview) -> bool,
 ) -> Option<crate::identity::SkinPreview> {
-    let raw = auxiliary_cookie(headers, super::skins::PREVIEW_COOKIE)?;
+    let origin = request_origin(headers, uri, extensions, state.config.listen);
+    let raw = auxiliary_cookie(
+        headers,
+        &cookie_name("", super::skins::PREVIEW_COOKIE, origin.as_deref()),
+    )?;
     let preview = state.identity.sealed_skin_preview(&raw)?;
     if !wanted(&preview) {
         return None;
     }
     let secure = secure_transport(headers, extensions, state.config.listen);
-    let raw_sid = session_cookie(headers, cookie_name(secure, true))?;
+    let raw_sid = session_cookie(headers, &session_name(secure, origin.as_deref(), true))?;
     let session = state.identity.session(&raw_sid).await.ok()??;
     (session.member.is_admin && session.member.uid == preview.uid).then_some(preview)
 }
 
-pub(super) fn auxiliary_set_cookie(response: &mut Response, name: &str, value: &str, seconds: i64) {
+/// Writes one of the cookies that carry no credential (`gonof_return`, `gonof_published`, the skin preview); the name
+/// is `base` with this forum's suffix ([`cookie_name`]).
+pub(super) fn auxiliary_set_cookie(
+    response: &mut Response,
+    viewer: &Viewer,
+    base: &str,
+    value: &str,
+    seconds: i64,
+) {
+    let name = viewer.plain_cookie(base);
     let value: String = url::form_urlencoded::byte_serialize(value.as_bytes()).collect();
     if let Ok(header) = HeaderValue::from_str(&format!(
         "{name}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={seconds}"

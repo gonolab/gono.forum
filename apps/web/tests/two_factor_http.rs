@@ -159,10 +159,13 @@ struct Cookies(BTreeMap<String, String>);
 
 impl Cookies {
     fn session(raw: &str) -> Self {
-        Self(BTreeMap::from([("gonof_session".into(), raw.into())]))
+        Self(BTreeMap::from([(
+            "gonof_session__port58833".into(),
+            raw.into(),
+        )]))
     }
     fn session_token(&self) -> Option<&String> {
-        self.0.get("gonof_session")
+        self.0.get("gonof_session__port58833")
     }
     async fn csrf(&self, identity: &Identity) -> String {
         if let Some(raw) = self.session_token() {
@@ -173,7 +176,10 @@ impl Cookies {
                 .map(|session| session.csrf_token)
                 .unwrap_or_default()
         } else {
-            self.0.get("gonof_csrf").cloned().unwrap_or_default()
+            self.0
+                .get("gonof_csrf__port58833")
+                .cloned()
+                .unwrap_or_default()
         }
     }
     fn update(&mut self, headers: &HeaderMap) {
@@ -361,7 +367,7 @@ async fn enable(fixture: &Fixture, cookies: &mut Cookies) -> (String, Vec<String
     )
     .await;
     enabled.redirect("/my/account/recovery-codes?enabled=true");
-    let reveal = enabled.set_cookie("gonof_recovery").unwrap();
+    let reveal = enabled.set_cookie("gonof_recovery__port58833").unwrap();
     assert!(reveal.contains("Path=/my/account/recovery-codes; HttpOnly"));
     let page = get(fixture, "/my/account/recovery-codes?enabled=true", cookies).await;
     assert_eq!(page.status, StatusCode::OK);
@@ -374,7 +380,7 @@ async fn enable(fixture: &Fixture, cookies: &mut Cookies) -> (String, Vec<String
             .all(|code| code.len() == 19 && code.matches('-').count() == 3)
     );
     // Shown only once: the display Cookie has been cleared, so it does not appear after a refresh.
-    assert!(!cookies.0.contains_key("gonof_recovery"));
+    assert!(!cookies.0.contains_key("gonof_recovery__port58833"));
     let again = get(fixture, "/my/account/recovery-codes", cookies).await;
     assert!(again.html.contains("data-recovery-empty"));
     assert!(!again.html.contains(&codes[0]));
@@ -401,7 +407,7 @@ async fn password_step(fixture: &Fixture, password: &str) -> Cookies {
         cookies.session_token().is_none(),
         "a correct password alone issues no session"
     );
-    assert!(cookies.0.contains_key("gonof_2fa"));
+    assert!(cookies.0.contains_key("gonof_2fa__port58833"));
     let page = get(fixture, "/login/verify?return_to=%2Fmy", &mut cookies).await;
     assert_eq!(page.status, StatusCode::OK);
     assert!(page.html.contains("Two-step verification"));
@@ -445,7 +451,7 @@ async fn totp_login_accepts_fresh_codes_and_rejects_wrong_expired_and_replayed_o
     )
     .await;
     assert_eq!(wrong_password.status, StatusCode::UNAUTHORIZED);
-    assert!(!stranger.0.contains_key("gonof_2fa"));
+    assert!(!stranger.0.contains_key("gonof_2fa__port58833"));
 
     let mut login = password_step(&fixture, PASSWORD).await;
     // A wrong code.
@@ -465,7 +471,7 @@ async fn totp_login_accepts_fresh_codes_and_rejects_wrong_expired_and_replayed_o
     let granted = second_step(&fixture, &mut login, &current).await;
     granted.redirect("/my");
     assert!(login.session_token().is_some());
-    assert!(!login.0.contains_key("gonof_2fa"));
+    assert!(!login.0.contains_key("gonof_2fa__port58833"));
     assert_eq!(
         fixture
             .scalar("SELECT failed_attempts FROM gonof_common_member_two_factor WHERE uid=?")

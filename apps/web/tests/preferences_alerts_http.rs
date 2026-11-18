@@ -443,9 +443,9 @@ async fn send(
 /// Web login: get the anonymous CSRF first, then submit the form. The session cookie stays in the jar, and so does the
 /// device marker.
 async fn web_login(f: &Fixture, jar: &mut Jar, username: &str) -> Reply {
-    jar.0.remove("gonof_session");
+    jar.0.remove("gonof_session__port58833");
     send(&f.app, "GET", "/login", jar, &[], &[]).await;
-    let csrf = jar.0.get("gonof_csrf").cloned().unwrap();
+    let csrf = jar.0.get("gonof_csrf__port58833").cloned().unwrap();
     send(
         &f.app,
         "POST",
@@ -471,7 +471,7 @@ async fn login_alert_fires_only_on_new_devices_and_leaks_no_secrets() {
     assert_eq!(first.status, StatusCode::SEE_OTHER, "{}", first.html);
     let marker = laptop
         .0
-        .get("gonof_device")
+        .get("gonof_device__port58833")
         .cloned()
         .expect("a device marker is issued");
     let cookie = first
@@ -479,7 +479,7 @@ async fn login_alert_fires_only_on_new_devices_and_leaks_no_secrets() {
         .get_all(header::SET_COOKIE)
         .iter()
         .map(|v| v.to_str().unwrap().to_owned())
-        .find(|v| v.starts_with("gonof_device="))
+        .find(|v| v.starts_with("gonof_device__port58833="))
         .unwrap();
     assert!(cookie.contains("HttpOnly") && cookie.contains("SameSite=Lax"));
     assert!(cookie.contains(&format!("Max-Age={}", 400 * 86_400)));
@@ -490,7 +490,7 @@ async fn login_alert_fires_only_on_new_devices_and_leaks_no_secrets() {
     );
 
     // Logging in again in the same browser after logging out: it carries the device marker, so no alert.
-    let session = laptop.0.get("gonof_session").cloned().unwrap();
+    let session = laptop.0.get("gonof_session__port58833").cloned().unwrap();
     let csrf = f
         .identity
         .session(&session)
@@ -508,7 +508,7 @@ async fn login_alert_fires_only_on_new_devices_and_leaks_no_secrets() {
     )
     .await;
     assert_eq!(
-        laptop.0.get("gonof_device"),
+        laptop.0.get("gonof_device__port58833"),
         Some(&marker),
         "logging out keeps the device marker"
     );
@@ -535,7 +535,7 @@ async fn login_alert_fires_only_on_new_devices_and_leaks_no_secrets() {
     assert!(mail.contains("(UTC+8)"));
     assert!(mail.contains(&format!("{ORIGIN}/my/account")));
     // Contains no password, session, CSRF or device marker, and not the raw UA either.
-    let phone_session = phone.0.get("gonof_session").cloned().unwrap();
+    let phone_session = phone.0.get("gonof_session__port58833").cloned().unwrap();
     let phone_csrf = f
         .identity
         .session(&phone_session)
@@ -547,7 +547,7 @@ async fn login_alert_fires_only_on_new_devices_and_leaks_no_secrets() {
         PASSWORD,
         phone_session.as_str(),
         phone_csrf.as_str(),
-        phone.0["gonof_device"].as_str(),
+        phone.0["gonof_device__port58833"].as_str(),
         marker.as_str(),
         "AppleWebKit",
     ] {
@@ -686,7 +686,7 @@ async fn notification_preference_form_saves_the_two_new_switches() {
         page.html
             .contains("name=\"email_login\" value=\"true\" checked>")
     );
-    let session = jar.0["gonof_session"].clone();
+    let session = jar.0["gonof_session__port58833"].clone();
     let csrf = f
         .identity
         .session(&session)
@@ -812,7 +812,7 @@ async fn reading_preferences_drive_list_sort_title_links_and_permalink_view_with
     assert!(page.html.contains("name=\"list_sort\" value=\"\" checked"));
     assert!(page.html.contains("Follow the site (now Latest replies)"));
     assert!(page.html.contains("data-device-settings hidden"));
-    let session = viewer.0["gonof_session"].clone();
+    let session = viewer.0["gonof_session__port58833"].clone();
     let csrf = f
         .identity
         .session(&session)

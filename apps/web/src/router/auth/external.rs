@@ -33,28 +33,15 @@ pub(super) fn routes() -> Router<Arc<AppState>> {
         .route("/my/account/password/external", post(password_set))
 }
 
-fn flow_name(secure: bool) -> &'static str {
-    if secure {
-        "__Host-gonof_oauth"
-    } else {
-        "gonof_oauth"
-    }
+const FLOW_COOKIE: &str = "gonof_oauth";
+const PENDING_COOKIE: &str = "gonof_external";
+
+fn set_flow(response: &mut Response, viewer: &Viewer, value: &str, max_age: i64) {
+    super::sms::set_named(response, viewer, FLOW_COOKIE, value, max_age);
 }
 
-fn pending_name(secure: bool) -> &'static str {
-    if secure {
-        "__Host-gonof_external"
-    } else {
-        "gonof_external"
-    }
-}
-
-fn set_flow(response: &mut Response, secure: bool, value: &str, max_age: i64) {
-    super::sms::set_named(response, flow_name(secure), secure, value, max_age);
-}
-
-fn set_pending(response: &mut Response, secure: bool, value: &str, max_age: i64) {
-    super::sms::set_named(response, pending_name(secure), secure, value, max_age);
+fn set_pending(response: &mut Response, viewer: &Viewer, value: &str, max_age: i64) {
+    super::sms::set_named(response, viewer, PENDING_COOKIE, value, max_age);
 }
 
 /// The identity confirmed by this request's callback; `None` when the purpose or member does not match, or it expired.
@@ -64,7 +51,7 @@ pub(super) fn pending(
     purpose: FlowPurpose,
     uid: i64,
 ) -> Option<(String, identity::external::Pending)> {
-    let raw = unique_cookie(headers, pending_name(state.viewer.secure), 4096)?;
+    let raw = unique_cookie(headers, &state.viewer.host_cookie(PENDING_COOKIE), 4096)?;
     state
         .identity
         .open_pending(raw, purpose, uid)
@@ -199,7 +186,7 @@ async fn start(
             );
         }
     };
-    set_flow(&mut response, state.viewer.secure, &sealed, FLOW_TTL);
+    set_flow(&mut response, &state.viewer, &sealed, FLOW_TTL);
     response
 }
 
@@ -226,22 +213,39 @@ async fn callback(
             crate::i18n::current().common_error_page_not_found(),
         );
     };
-    let flow = unique_cookie(&headers, flow_name(state.viewer.secure), 4096)
+    let flow = unique_cookie(&headers, &state.viewer.host_cookie(FLOW_COOKIE), 4096)
         .and_then(|raw| state.identity.open_flow(raw))
         .filter(|flow| flow.provider == provider);
-    let mut response = match flow {
-        Some(flow) => finish(&state, &headers, provider, flow, &query).await,
-        None => {
-            login_failure(
-                &state,
-                crate::i18n::current().account_error_flow_login(),
-                StatusCode::FORBIDDEN,
-            )
-            .await
-        }
+    let Some(flow) = flow else {
+        return login_failure(
+            &state,
+            crate::i18n::current().account_error_flow_login(),
+            StatusCode::FORBIDDEN,
+        )
+        .await;
     };
+    // A callback whose state is not this browser's latest authorization (an older tab coming back after a newer one
+    // started) is refused and leaves the cookie alone, so the newer authorization can still finish.
+    let state_ok = !query.state.is_empty()
+        && bool::from(
+            query
+                .state
+                .as_bytes()
+                .ct_eq(flow.challenge.state.as_bytes()),
+        );
+    if !state_ok {
+        return failure(
+            &state,
+            &headers,
+            flow.purpose,
+            crate::i18n::current().account_error_flow_retry(),
+            StatusCode::FORBIDDEN,
+        )
+        .await;
+    }
+    let mut response = finish(&state, &headers, provider, flow, &query).await;
     // One authorization is used only once.
-    set_flow(&mut response, state.viewer.secure, "", 0);
+    set_flow(&mut response, &state.viewer, "", 0);
     response
 }
 
@@ -277,6 +281,7 @@ async fn failure(
     }
 }
 
+/// The rest of a callback whose state matched the flow cookie, which the caller then clears.
 async fn finish(
     state: &AppState,
     headers: &HeaderMap,
@@ -285,23 +290,6 @@ async fn finish(
     query: &CallbackQuery,
 ) -> Response {
     let purpose = flow.purpose;
-    let state_ok = !query.state.is_empty()
-        && bool::from(
-            query
-                .state
-                .as_bytes()
-                .ct_eq(flow.challenge.state.as_bytes()),
-        );
-    if !state_ok {
-        return failure(
-            state,
-            headers,
-            purpose,
-            crate::i18n::current().account_error_flow_retry(),
-            StatusCode::FORBIDDEN,
-        )
-        .await;
-    }
     if !query.error.is_empty() || query.code.is_empty() {
         let message = crate::i18n::current().account_error_provider_cancelled(provider.label());
         return failure(state, headers, purpose, &message, StatusCode::OK).await;
@@ -377,7 +365,7 @@ async fn finish(
             {
                 Ok(token) => {
                     let mut response = redirect(ACCOUNT_EXTERNAL);
-                    set_pending(&mut response, state.viewer.secure, &token, PENDING_TTL);
+                    set_pending(&mut response, &state.viewer, &token, PENDING_TTL);
                     response
                 }
                 Err(IdentityError::Conflict(message) | IdentityError::Validation(message)) => {
@@ -396,7 +384,7 @@ async fn finish(
                     let mut response = redirect("/my/account#password");
                     set_pending(
                         &mut response,
-                        state.viewer.secure,
+                        &state.viewer,
                         &token,
                         identity::external::CONFIRM_TTL,
                     );
@@ -438,7 +426,7 @@ async fn login_outcome(
             let mut response = redirect(&with_return("/login/verify", destination));
             two_factor::set_pending(
                 &mut response,
-                state.viewer.secure,
+                &state.viewer,
                 &pending.token,
                 identity::SECOND_FACTOR_PENDING_TTL,
             );
@@ -446,7 +434,7 @@ async fn login_outcome(
         }
         Ok(ExternalLoginOutcome::Register(token)) => {
             let mut response = redirect(&with_return(REGISTER_PATH, destination));
-            set_pending(&mut response, state.viewer.secure, &token, PENDING_TTL);
+            set_pending(&mut response, &state.viewer, &token, PENDING_TTL);
             response
         }
         Err(IdentityError::Validation(message) | IdentityError::Conflict(message)) => {
@@ -645,12 +633,18 @@ async fn register(Page(state): Page, headers: HeaderMap, form: CheckedForm<AuthF
                 &destination
             };
             let mut response = grant_response(&state, grant, path);
-            set_pending(&mut response, state.viewer.secure, "", 0);
+            set_pending(&mut response, &state.viewer, "", 0);
             if channel.is_some() {
                 registration_source::write(&mut response, &state.viewer, None);
             }
             if unverified_email {
-                auxiliary_set_cookie(&mut response, "gonof_return", &destination, 3600);
+                auxiliary_set_cookie(
+                    &mut response,
+                    &state.viewer,
+                    RETURN_COOKIE,
+                    &destination,
+                    3600,
+                );
             }
             response
         }
@@ -747,7 +741,7 @@ async fn link(Page(state): Page, headers: HeaderMap, form: CheckedForm<ExternalF
                 provider.value()
             ));
             response.extensions_mut().insert(IdentityChanged);
-            set_pending(&mut response, state.viewer.secure, "", 0);
+            set_pending(&mut response, &state.viewer, "", 0);
             response
         }
         Err(IdentityError::Unauthorized) => {
@@ -859,7 +853,7 @@ async fn password_set(
     {
         Ok(()) => {
             let mut response = security::signed_out(&state, "/login?password_set=true");
-            set_pending(&mut response, state.viewer.secure, "", 0);
+            set_pending(&mut response, &state.viewer, "", 0);
             response
         }
         Err(IdentityError::Unauthorized) => {

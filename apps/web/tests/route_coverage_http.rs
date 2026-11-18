@@ -146,7 +146,7 @@ impl Fixture {
         if let Some(session) = session {
             builder = builder.header(
                 header::COOKIE,
-                format!("gonof_session={}", session.session_token),
+                format!("gonof_session__port58833={}", session.session_token),
             );
         }
         if htmx {
@@ -167,7 +167,7 @@ impl Fixture {
                 .uri(path)
                 .header(
                     header::COOKIE,
-                    format!("gonof_session={}", session.session_token),
+                    format!("gonof_session__port58833={}", session.session_token),
                 )
                 .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .header(header::ORIGIN, ORIGIN)
@@ -206,7 +206,7 @@ impl Fixture {
                 .uri("/api/media")
                 .header(
                     header::COOKIE,
-                    format!("gonof_session={}", session.session_token),
+                    format!("gonof_session__port58833={}", session.session_token),
                 )
                 .header(
                     header::CONTENT_TYPE,
@@ -353,7 +353,7 @@ async fn editor_attachment_routes_report_continue_cancel_and_download() {
                 .uri(format!("/media/{aid}"))
                 .header(
                     header::COOKIE,
-                    format!("gonof_session={}", f.member.session_token),
+                    format!("gonof_session__port58833={}", f.member.session_token),
                 )
                 .header(header::IF_NONE_MATCH, format!("W/{etag}"))
                 .body(Body::empty())
@@ -373,7 +373,7 @@ async fn editor_attachment_routes_report_continue_cancel_and_download() {
                 .uri(format!("/media/{aid}"))
                 .header(
                     header::COOKIE,
-                    format!("gonof_session={}", f.member.session_token),
+                    format!("gonof_session__port58833={}", f.member.session_token),
                 )
                 .body(Body::empty())
                 .unwrap(),
@@ -1178,7 +1178,7 @@ async fn data_access_tickets_are_capped_per_email_without_changing_the_reply() {
         .get_all(header::SET_COOKIE)
         .iter()
         .filter_map(|value| value.to_str().ok())
-        .find_map(|cookie| cookie.strip_prefix("gonof_csrf="))
+        .find_map(|cookie| cookie.strip_prefix("gonof_csrf__port58833="))
         .and_then(|rest| rest.split(';').next())
         .expect("an anonymous page must issue the CSRF cookie")
         .to_owned();
@@ -1190,7 +1190,7 @@ async fn data_access_tickets_are_capped_per_email_without_changing_the_reply() {
         Request::builder()
             .method("POST")
             .uri("/data/access")
-            .header(header::COOKIE, format!("gonof_csrf={csrf}"))
+            .header(header::COOKIE, format!("gonof_csrf__port58833={csrf}"))
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
             .header(header::ORIGIN, ORIGIN)
             .header(header::HOST, gono_forum_web::test_support::host_of(ORIGIN))

@@ -234,7 +234,10 @@ impl Fixture {
                 .uri(path)
                 .header(
                     header::COOKIE,
-                    format!("gonof_session={}", self.session(uid).session_token),
+                    format!(
+                        "gonof_session__port58833={}",
+                        self.session(uid).session_token
+                    ),
                 )
                 .body(Body::empty())
                 .unwrap(),
@@ -255,7 +258,7 @@ impl Fixture {
                 .uri(path)
                 .header(
                     header::COOKIE,
-                    format!("gonof_session={}", session.session_token),
+                    format!("gonof_session__port58833={}", session.session_token),
                 )
                 .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .header(header::ORIGIN, ORIGIN)

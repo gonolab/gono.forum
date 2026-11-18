@@ -313,7 +313,7 @@ async fn unavailable_redis_rejects_rate_limited_requests_with_503() {
             cookie
                 .split(';')
                 .next()
-                .and_then(|pair| pair.strip_prefix("gonof_csrf="))
+                .and_then(|pair| pair.strip_prefix("gonof_csrf__port58833="))
                 .map(str::to_owned)
         })
         .expect("the login page sets the CSRF cookie");
@@ -330,7 +330,7 @@ async fn unavailable_redis_rejects_rate_limited_requests_with_503() {
             .uri("/login")
             .header(header::HOST, host)
             .header(header::ORIGIN, origin)
-            .header(header::COOKIE, format!("gonof_csrf={csrf}"))
+            .header(header::COOKIE, format!("gonof_csrf__port58833={csrf}"))
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
             .body(Body::from(form))
             .unwrap(),

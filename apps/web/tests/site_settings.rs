@@ -298,7 +298,7 @@ async fn missing_bad_or_out_of_range_rows_fail_loudly_everywhere() {
             .uri(path)
             .header(
                 axum::http::header::COOKIE,
-                format!("gonof_session={}", admin.session_token),
+                format!("gonof_session__port58833={}", admin.session_token),
             )
             .body(axum::body::Body::empty())
             .unwrap();

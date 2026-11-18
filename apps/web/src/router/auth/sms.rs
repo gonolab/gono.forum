@@ -31,44 +31,34 @@ pub(super) fn routes() -> Router<Arc<AppState>> {
         .route("/my/account/password/set", post(password_set))
 }
 
-fn step_name(secure: bool) -> &'static str {
-    if secure {
-        "__Host-gonof_sms"
-    } else {
-        "gonof_sms"
-    }
-}
+const STEP_COOKIE: &str = "gonof_sms";
+const SIGNUP_COOKIE: &str = "gonof_signup";
 
-fn signup_name(secure: bool) -> &'static str {
-    if secure {
-        "__Host-gonof_signup"
-    } else {
-        "gonof_signup"
-    }
-}
-
+/// Writes one of the encrypted `Path=/` cookies of these flows (clears it when `max_age` is 0); the name is `base`
+/// with the `__Host-` prefix under HTTPS and this forum's suffix ([`Viewer::host_cookie`]).
 pub(super) fn set_named(
     response: &mut Response,
-    name: &str,
-    secure: bool,
+    viewer: &Viewer,
+    base: &str,
     value: &str,
     max_age: i64,
 ) {
-    let flag = if secure { "; Secure" } else { "" };
+    let flag = if viewer.secure { "; Secure" } else { "" };
     if let Ok(header) = HeaderValue::from_str(&format!(
-        "{name}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}{flag}",
+        "{}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}{flag}",
+        viewer.host_cookie(base),
         max_age.max(0)
     )) {
         response.headers_mut().append(header::SET_COOKIE, header);
     }
 }
 
-fn set_step(response: &mut Response, secure: bool, value: &str, max_age: i64) {
-    set_named(response, step_name(secure), secure, value, max_age);
+fn set_step(response: &mut Response, viewer: &Viewer, value: &str, max_age: i64) {
+    set_named(response, viewer, STEP_COOKIE, value, max_age);
 }
 
-fn set_signup(response: &mut Response, secure: bool, value: &str, max_age: i64) {
-    set_named(response, signup_name(secure), secure, value, max_age);
+fn set_signup(response: &mut Response, viewer: &Viewer, value: &str, max_age: i64) {
+    set_named(response, viewer, SIGNUP_COOKIE, value, max_age);
 }
 
 /// This request's "enter the code" step; `None` when the initiator or purpose does not match, or it has expired.
@@ -78,12 +68,12 @@ pub(super) fn step(
     uid: i64,
     purpose: SmsPurpose,
 ) -> Option<identity::phone::SmsStep> {
-    let raw = unique_cookie(headers, step_name(state.viewer.secure), 2048)?;
+    let raw = unique_cookie(headers, &state.viewer.host_cookie(STEP_COOKIE), 2048)?;
     state.identity.open_sms_step(raw, uid, purpose)
 }
 
 fn signup_token(state: &AppState, headers: &HeaderMap) -> Option<String> {
-    unique_cookie(headers, signup_name(state.viewer.secure), 2048).map(str::to_owned)
+    unique_cookie(headers, &state.viewer.host_cookie(SIGNUP_COOKIE), 2048).map(str::to_owned)
 }
 
 fn with_return(path: &str, return_to: &str) -> String {
@@ -329,7 +319,7 @@ async fn send(Page(state): Page, headers: HeaderMap, form: CheckedForm<SmsForm>)
     let mut response = redirect(&with_return(LOGIN_PATH, &form.return_to));
     set_step(
         &mut response,
-        state.viewer.secure,
+        &state.viewer,
         &sealed,
         identity::phone::STEP_TTL,
     );
@@ -409,29 +399,29 @@ async fn login(Page(state): Page, headers: HeaderMap, form: CheckedForm<SmsForm>
                     &destination
                 },
             );
-            set_step(&mut response, state.viewer.secure, "", 0);
+            set_step(&mut response, &state.viewer, "", 0);
             response
         }
         Ok(SmsLoginOutcome::Login(identity::LoginOutcome::SecondFactor(pending))) => {
             let mut response = redirect(&with_return("/login/verify", &destination));
             two_factor::set_pending(
                 &mut response,
-                state.viewer.secure,
+                &state.viewer,
                 &pending.token,
                 identity::SECOND_FACTOR_PENDING_TTL,
             );
-            set_step(&mut response, state.viewer.secure, "", 0);
+            set_step(&mut response, &state.viewer, "", 0);
             response
         }
         Ok(SmsLoginOutcome::Register(token)) => {
             let mut response = redirect(&with_return(REGISTER_PATH, &destination));
             set_signup(
                 &mut response,
-                state.viewer.secure,
+                &state.viewer,
                 &token,
                 identity::phone::REGISTRATION_TTL,
             );
-            set_step(&mut response, state.viewer.secure, "", 0);
+            set_step(&mut response, &state.viewer, "", 0);
             response
         }
         Err(IdentityError::Validation(message) | IdentityError::Conflict(message)) => sms_page(
@@ -622,12 +612,18 @@ async fn register(Page(state): Page, headers: HeaderMap, form: CheckedForm<AuthF
                 &destination
             };
             let mut response = grant_response(&state, grant, path);
-            set_signup(&mut response, state.viewer.secure, "", 0);
+            set_signup(&mut response, &state.viewer, "", 0);
             if channel.is_some() {
                 registration_source::write(&mut response, &state.viewer, None);
             }
             if with_email {
-                auxiliary_set_cookie(&mut response, "gonof_return", &destination, 3600);
+                auxiliary_set_cookie(
+                    &mut response,
+                    &state.viewer,
+                    RETURN_COOKIE,
+                    &destination,
+                    3600,
+                );
             }
             response
         }
@@ -767,7 +763,7 @@ async fn send_then_step(
     let mut response = redirect(back);
     set_step(
         &mut response,
-        state.viewer.secure,
+        &state.viewer,
         &sealed,
         identity::phone::STEP_TTL,
     );
@@ -824,7 +820,7 @@ async fn mobile_bind(
         Ok(()) => {
             let mut response = redirect("/my/account?mobile_bound=true#mobile");
             response.extensions_mut().insert(IdentityChanged);
-            set_step(&mut response, state.viewer.secure, "", 0);
+            set_step(&mut response, &state.viewer, "", 0);
             response
         }
         Err(IdentityError::Unauthorized) => {
@@ -958,7 +954,7 @@ async fn password_set(
     {
         Ok(()) => {
             let mut response = security::signed_out(&state, "/login?password_set=true");
-            set_step(&mut response, state.viewer.secure, "", 0);
+            set_step(&mut response, &state.viewer, "", 0);
             response
         }
         Err(IdentityError::Unauthorized) => {

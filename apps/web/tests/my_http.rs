@@ -91,7 +91,10 @@ impl Fixture {
                 Request::builder()
                     .method("POST")
                     .uri(path)
-                    .header(header::COOKIE, format!("gonof_session={}", self.session))
+                    .header(
+                        header::COOKIE,
+                        format!("gonof_session__port58833={}", self.session),
+                    )
                     .header(header::ORIGIN, &self.origin)
                     .header(
                         header::HOST,
@@ -126,7 +129,10 @@ impl Fixture {
     async fn get(&self, path: &str, signed_in: bool) -> (StatusCode, String, String) {
         let mut builder = Request::builder().uri(path);
         if signed_in {
-            builder = builder.header(header::COOKIE, format!("gonof_session={}", self.session));
+            builder = builder.header(
+                header::COOKIE,
+                format!("gonof_session__port58833={}", self.session),
+            );
         }
         let response = self
             .app
@@ -1074,7 +1080,10 @@ async fn private_messages_pair_once_mark_read_and_respect_blocks() {
             Request::builder()
                 .method("POST")
                 .uri("/my/messages/new")
-                .header(header::COOKIE, format!("gonof_session={}", fixture.session))
+                .header(
+                    header::COOKIE,
+                    format!("gonof_session__port58833={}", fixture.session),
+                )
                 .header(header::ORIGIN, &fixture.origin)
                 .header(
                     header::HOST,

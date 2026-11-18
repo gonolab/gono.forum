@@ -252,10 +252,13 @@ struct Cookies(BTreeMap<String, String>);
 
 impl Cookies {
     fn session(raw: &str) -> Self {
-        Self(BTreeMap::from([("gonof_session".into(), raw.into())]))
+        Self(BTreeMap::from([(
+            "gonof_session__port58833".into(),
+            raw.into(),
+        )]))
     }
     async fn csrf(&self, identity: &Identity) -> String {
-        if let Some(raw) = self.0.get("gonof_session") {
+        if let Some(raw) = self.0.get("gonof_session__port58833") {
             identity
                 .session(raw)
                 .await
@@ -263,7 +266,10 @@ impl Cookies {
                 .map(|session| session.csrf_token)
                 .unwrap_or_default()
         } else {
-            self.0.get("gonof_csrf").cloned().unwrap_or_default()
+            self.0
+                .get("gonof_csrf__port58833")
+                .cloned()
+                .unwrap_or_default()
         }
     }
     fn update(&mut self, headers: &HeaderMap) {
@@ -367,6 +373,17 @@ async fn post(
     request(fixture, TEST_SITE_URL, "POST", path, cookies, &fields).await
 }
 
+/// The name a forum at `origin` gives its cookie `base`: with the path prefix and a non-default port
+/// (docs/install.md, "Reverse proxy").
+fn cookie_name(origin: &str, base: &str) -> String {
+    let url = url::Url::parse(origin).unwrap();
+    let path = url.path().trim_end_matches('/').replace('/', "_");
+    let port = url
+        .port()
+        .map_or_else(String::new, |port| format!("__port{port}"));
+    format!("{base}{path}{port}")
+}
+
 /// Starts authorization: a 302 to the provider; returns the query parameters of the authorization URL.
 async fn start(
     fixture: &Fixture,
@@ -377,7 +394,7 @@ async fn start(
     let reply = request(fixture, origin, "GET", path, cookies, &[]).await;
     assert_eq!(reply.status, StatusCode::FOUND, "{}", reply.html);
     assert!(
-        cookies.0.contains_key("gonof_oauth"),
+        cookies.0.contains_key(&cookie_name(origin, "gonof_oauth")),
         "the authorization start cookie is set"
     );
     let location = url::Url::parse(reply.headers[header::LOCATION].to_str().unwrap()).unwrap();
@@ -438,7 +455,7 @@ async fn authorize(
     );
     let reply = request(fixture, origin, "GET", &callback, cookies, &[]).await;
     assert!(
-        !cookies.0.contains_key("gonof_oauth"),
+        !cookies.0.contains_key(&cookie_name(origin, "gonof_oauth")),
         "the callback voids the authorization start cookie"
     );
     reply
@@ -508,7 +525,8 @@ async fn google_registers_with_its_verified_email_and_logs_in_again() {
     assert_eq!(params["client_id"], GOOGLE_ID);
     assert_eq!(params["code_challenge_method"], "S256");
     assert_eq!(params["scope"], "openid email profile");
-    // Mismatched state, or no cookie from starting authorization: both refused, and the cookie is voided.
+    // Mismatched state: refused, and the authorization stays pending (it may be an older tab coming back after this
+    // one started). No cookie from starting authorization: refused as well.
     let forged = get(
         &f,
         &format!(
@@ -519,6 +537,8 @@ async fn google_registers_with_its_verified_email_and_logs_in_again() {
     )
     .await;
     assert_eq!(forged.status, StatusCode::FORBIDDEN, "{}", forged.html);
+    assert!(visitor.0.contains_key("gonof_oauth__port58833"));
+    visitor.0.remove("gonof_oauth__port58833");
     let replay = get(
         &f,
         &format!(
@@ -532,7 +552,7 @@ async fn google_registers_with_its_verified_email_and_logs_in_again() {
     assert_eq!(
         replay.status,
         StatusCode::FORBIDDEN,
-        "one authorization is used only once"
+        "no authorization was started in this browser"
     );
     // Mismatched nonce: what the provider signed is not for this attempt, so it counts as authorization not completed.
     let wrong_nonce = authorize(&f, TEST_SITE_URL, "google", "", &mut visitor, |_| {
@@ -603,7 +623,7 @@ async fn google_registers_with_its_verified_email_and_logs_in_again() {
     .await
     .redirect("/");
     assert!(
-        !visitor.0.contains_key("gonof_external"),
+        !visitor.0.contains_key("gonof_external__port58833"),
         "the pending identity is used up"
     );
     let (uid, email, emailstatus, password) = member_row(&f, "googlemember").await;
@@ -645,7 +665,7 @@ async fn google_registers_with_its_verified_email_and_logs_in_again() {
     })
     .await
     .redirect("/");
-    assert!(again.0.contains_key("gonof_session"));
+    assert!(again.0.contains_key("gonof_session__port58833"));
     assert_eq!(
         f.scalar(&format!(
             "SELECT COUNT(*) FROM gonof_common_member_external WHERE uid={uid} AND last_login_at>0"
@@ -714,6 +734,52 @@ async fn google_registers_with_its_verified_email_and_logs_in_again() {
     )
     .await;
     assert_eq!(frozen.status, StatusCode::UNAUTHORIZED, "{}", frozen.html);
+    f.services.cleanup().await.unwrap();
+}
+
+/// Two sign-in attempts in one browser share the authorization cookie, which holds the newer one. The older tab
+/// coming back is refused without voiding the newer authorization, which still completes.
+#[tokio::test]
+async fn an_older_tab_returning_does_not_cancel_the_newer_authorization() {
+    let f = Fixture::new().await;
+    f.configure("github", GITHUB_ID, GITHUB_SECRET).await;
+    let mut browser = Cookies::default();
+    let older = start(&f, TEST_SITE_URL, "/auth/github", &mut browser).await;
+    let newer = start(&f, TEST_SITE_URL, "/auth/github", &mut browser).await;
+    assert_ne!(older["state"], newer["state"]);
+    let stale = request(
+        &f,
+        TEST_SITE_URL,
+        "GET",
+        &format!(
+            "/auth/github/callback?state={}&code={}",
+            older["state"],
+            github_code(5150, "two-tabs", None)
+        ),
+        &mut browser,
+        &[],
+    )
+    .await;
+    assert_eq!(stale.status, StatusCode::FORBIDDEN, "{}", stale.html);
+    assert!(
+        browser.0.contains_key("gonof_oauth__port58833"),
+        "the newer authorization is still pending"
+    );
+    let reply = request(
+        &f,
+        TEST_SITE_URL,
+        "GET",
+        &format!(
+            "/auth/github/callback?state={}&code={}",
+            newer["state"],
+            github_code(5150, "two-tabs", None)
+        ),
+        &mut browser,
+        &[],
+    )
+    .await;
+    reply.redirect("/register/external");
+    assert!(!browser.0.contains_key("gonof_oauth__port58833"));
     f.services.cleanup().await.unwrap();
 }
 
@@ -854,7 +920,7 @@ async fn github_only_accounts_participate_by_binding_and_set_a_password() {
     .await
     .redirect("/login?password_set=true");
     assert!(
-        !member.0.contains_key("gonof_session"),
+        !member.0.contains_key("gonof_session__port58833"),
         "setting the password signs out every device"
     );
     assert_eq!(
@@ -1020,7 +1086,7 @@ async fn password_members_link_and_unlink_github() {
     .redirect("/");
     let session = f
         .identity
-        .session(&fresh.0["gonof_session"])
+        .session(&fresh.0["gonof_session__port58833"])
         .await
         .unwrap()
         .unwrap();
@@ -1183,7 +1249,7 @@ async fn recovering_an_unverified_account_shuts_out_whoever_set_it_up() {
             .contains(Lang::EN.account_error_verify_email_first())
     );
     assert!(
-        !squatter.0.contains_key("gonof_oauth"),
+        !squatter.0.contains_key("gonof_oauth__port58833"),
         "the provider is not even asked"
     );
     let two_factor = post(
@@ -1209,7 +1275,7 @@ async fn recovering_an_unverified_account_shuts_out_whoever_set_it_up() {
         .identity
         .prepare_link(
             &f.identity
-                .session(&squatter.0["gonof_session"])
+                .session(&squatter.0["gonof_session__port58833"])
                 .await
                 .unwrap()
                 .unwrap()
@@ -1278,7 +1344,7 @@ async fn recovering_an_unverified_account_shuts_out_whoever_set_it_up() {
     })
     .await
     .redirect("/");
-    assert!(squatter.0.contains_key("gonof_session"));
+    assert!(squatter.0.contains_key("gonof_session__port58833"));
     for sql in [
         format!("UPDATE gonof_common_member SET mobile='+8613800006060' WHERE uid={uid}"),
         format!(
@@ -1312,7 +1378,7 @@ async fn recovering_an_unverified_account_shuts_out_whoever_set_it_up() {
     let new_password = recover(&f, uid, "second-owner@example.test", true).await;
     assert!(
         f.identity
-            .session(&squatter.0["gonof_session"])
+            .session(&squatter.0["gonof_session__port58833"])
             .await
             .unwrap()
             .is_none()
@@ -1323,7 +1389,7 @@ async fn recovering_an_unverified_account_shuts_out_whoever_set_it_up() {
     })
     .await
     .redirect("/register/external");
-    assert!(!again.0.contains_key("gonof_session"));
+    assert!(!again.0.contains_key("gonof_session__port58833"));
     let row = db::query("SELECT emailstatus, mobile FROM gonof_common_member WHERE uid=?")
         .bind(uid)
         .fetch_one(f.db.executor())
@@ -1424,7 +1490,7 @@ async fn recovering_a_verified_account_keeps_its_links() {
     .redirect("/");
     assert_eq!(
         f.identity
-            .session(&again.0["gonof_session"])
+            .session(&again.0["gonof_session__port58833"])
             .await
             .unwrap()
             .unwrap()

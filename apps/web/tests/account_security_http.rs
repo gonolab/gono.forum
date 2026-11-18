@@ -114,13 +114,16 @@ impl Cookies {
         Self::session(&fixture.member.session_token)
     }
     fn session(raw: &str) -> Self {
-        Self(BTreeMap::from([("gonof_session".into(), raw.into())]))
+        Self(BTreeMap::from([(
+            "gonof_session__port58833".into(),
+            raw.into(),
+        )]))
     }
     async fn csrf(&self, identity: &Identity) -> String {
         if let Some(raw) = self
             .0
-            .get("gonof_session")
-            .or_else(|| self.0.get("__Host-gonof_session"))
+            .get("gonof_session__port58833")
+            .or_else(|| self.0.get("__Host-gonof_session__port58833"))
         {
             identity
                 .session(raw)
@@ -130,8 +133,8 @@ impl Cookies {
                 .unwrap_or_default()
         } else {
             self.0
-                .get("gonof_csrf")
-                .or_else(|| self.0.get("__Host-gonof_csrf"))
+                .get("gonof_csrf__port58833")
+                .or_else(|| self.0.get("__Host-gonof_csrf__port58833"))
                 .cloned()
                 .unwrap_or_default()
         }
@@ -326,8 +329,8 @@ async fn changing_password_requires_current_password_and_signs_out_every_device(
     )
     .await;
     changed.redirect("/login?password_changed=true");
-    assert!(!cookies.0.contains_key("gonof_session"));
-    assert!(!cookies.0.contains_key("gonof_csrf"));
+    assert!(!cookies.0.contains_key("gonof_session__port58833"));
+    assert!(!cookies.0.contains_key("gonof_csrf__port58833"));
     for sid in [&fixture.member.session_token, &second.session_token] {
         assert!(fixture.identity.session(sid).await.unwrap().is_none());
     }
@@ -432,7 +435,7 @@ async fn forgot_password_masks_account_eligibility_and_normalizes_throttle_keys(
         .header(header::ORIGIN, ORIGIN)
         .header(header::HOST, gono_forum_web::test_support::host_of(ORIGIN));
     let csrf = cookies.csrf(&fixture.identity).await;
-    builder = builder.header(header::COOKIE, format!("gonof_csrf={csrf}"));
+    builder = builder.header(header::COOKIE, format!("gonof_csrf__port58833={csrf}"));
     let body = url::form_urlencoded::Serializer::new(String::new())
         .extend_pairs([("_csrf", csrf.as_str()), ("email", "security@example.test")])
         .finish();
@@ -523,8 +526,8 @@ async fn reset_get_is_read_only_post_is_single_use_and_clears_cookies() {
     )
     .await
     .redirect("/login?password_reset=true");
-    assert!(!cookies.0.contains_key("gonof_session"));
-    assert!(!cookies.0.contains_key("gonof_csrf"));
+    assert!(!cookies.0.contains_key("gonof_session__port58833"));
+    assert!(!cookies.0.contains_key("gonof_csrf__port58833"));
     assert!(
         fixture
             .identity
@@ -618,7 +621,7 @@ async fn local_logout_clears_only_this_browser_and_account_logout_invalidates_ev
     post(&fixture, "/logout", &mut cookies, &[])
         .await
         .redirect("/");
-    assert!(!cookies.0.contains_key("gonof_session"));
+    assert!(!cookies.0.contains_key("gonof_session__port58833"));
     // Clearing the cookie does not revoke copied credentials; a single device cannot be revoked on its own.
     for raw in [&original, &second.session_token] {
         assert!(fixture.identity.session(raw).await.unwrap().is_some());
@@ -632,7 +635,7 @@ async fn local_logout_clears_only_this_browser_and_account_logout_invalidates_ev
     post(&fixture, "/my/account/logout-all", &mut cookies, &[])
         .await
         .redirect("/login?logged_out_all=true");
-    assert!(!cookies.0.contains_key("gonof_session"));
+    assert!(!cookies.0.contains_key("gonof_session__port58833"));
     assert_eq!(
         fixture
             .scalar(
@@ -656,7 +659,7 @@ async fn local_logout_clears_only_this_browser_and_account_logout_invalidates_ev
     get(&fixture, "/my/account", &mut stale)
         .await
         .redirect("/login?return_to=%2Fmy%2Faccount");
-    assert!(!stale.0.contains_key("gonof_session"));
+    assert!(!stale.0.contains_key("gonof_session__port58833"));
     fixture.db.pool.close().await;
     fixture._services.cleanup_ref().await.unwrap();
 }

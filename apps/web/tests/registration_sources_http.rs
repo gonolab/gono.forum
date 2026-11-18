@@ -100,7 +100,14 @@ async fn register(
 ) -> Response {
     let form = request(app, origin, path, source, None).await;
     assert_eq!(form.status, StatusCode::OK, "{}", form.html);
-    let csrf = pair(form.cookie("gonof_csrf"));
+    // Each site on the host names its cookies after its path prefix and port (docs/install.md, "Reverse proxy").
+    let port = url::Url::parse(origin)
+        .unwrap()
+        .port()
+        .map_or_else(String::new, |port| format!("__port{port}"));
+    let prefix = path.strip_suffix("/register").unwrap().replace('/', "_");
+    let csrf_name = format!("gonof_csrf{prefix}{port}");
+    let csrf = pair(form.cookie(&csrf_name));
     let [terms, privacy] = gono_forum_web::test_support::policy_fields(&form.html);
     let mut cookies = csrf.to_owned();
     if !source.is_empty() {
@@ -109,7 +116,10 @@ async fn register(
     }
     let body = url::form_urlencoded::Serializer::new(String::new())
         .extend_pairs([
-            ("_csrf", csrf.strip_prefix("gonof_csrf=").unwrap()),
+            (
+                "_csrf",
+                csrf.strip_prefix(&format!("{csrf_name}=")).unwrap(),
+            ),
             ("username", username),
             ("email", &format!("{username}@example.test")),
             ("password", PASSWORD),
@@ -147,7 +157,7 @@ async fn admin_app(f: &TestFixture) -> (Router, identity::Identity, String) {
         f.global.clone(),
     );
     let admin = http_auth::login(&identity, &f.db, 1).await;
-    let admin_cookie = format!("gonof_session={}", admin.session_token);
+    let admin_cookie = format!("gonof_session__port58833={}", admin.session_token);
     let app = gono_forum_web::router::build_with_global(
         f.config.clone(),
         &f.root,
@@ -249,7 +259,7 @@ async fn registration_source_totals_follow_committed_signups_and_privacy_cleanup
             .cookie(ROOT_CHANNEL_COOKIE)
             .contains("Max-Age=0")
     );
-    let member_cookie = pair(root_registration.cookie("gonof_session"));
+    let member_cookie = pair(root_registration.cookie("gonof_session__port58833"));
 
     // Additionally attach the main site's channel cookie to simulate a wrong replay; the sub-site only accepts cookies
     // under its own path too.
@@ -304,7 +314,7 @@ async fn registration_source_totals_follow_committed_signups_and_privacy_cleanup
     );
     for cookie in [
         member_cookie.to_owned(),
-        format!("gonof_session={}", moderator.session_token),
+        format!("gonof_session__port58833={}", moderator.session_token),
     ] {
         let denied = request(&app, TEST_SITE_URL, REPORT, &cookie, None).await;
         assert_eq!(denied.status, StatusCode::FORBIDDEN);
@@ -334,7 +344,11 @@ async fn registration_source_totals_follow_committed_signups_and_privacy_cleanup
     assert!(!report.html.contains("old-tag") && !report.html.contains("unregistered.test"));
 
     let session = identity
-        .session(member_cookie.strip_prefix("gonof_session=").unwrap())
+        .session(
+            member_cookie
+                .strip_prefix("gonof_session__port58833=")
+                .unwrap(),
+        )
         .await
         .unwrap()
         .unwrap();

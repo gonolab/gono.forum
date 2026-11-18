@@ -144,7 +144,7 @@ async fn api_page(
         .and_then(|session| super::API_REVEAL.read(&state, &headers, session.member.uid))
         .unwrap_or_default();
     let mut response = api_response(&state, &secret, message, success, StatusCode::OK).await;
-    super::API_REVEAL.set(&mut response, state.viewer.secure, "", 0);
+    super::API_REVEAL.set(&mut response, &state.viewer, "", 0);
     response
 }
 

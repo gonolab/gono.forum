@@ -200,7 +200,7 @@ impl Site {
 
     async fn get(&self, path: &str, session: Option<&(String, String)>) -> Answer {
         let cookies: Vec<String> = session
-            .map(|(token, _)| vec![format!("gonof_session={token}")])
+            .map(|(token, _)| vec![format!("gonof_session__port58833={token}")])
             .unwrap_or_default();
         self.get_on(TEST_SITE_URL, path, &cookies).await
     }
@@ -212,7 +212,7 @@ impl Site {
         extra_cookies: &[String],
         fields: &[(&str, &str)],
     ) -> Answer {
-        let mut cookies = vec![format!("gonof_session={}", session.0)];
+        let mut cookies = vec![format!("gonof_session__port58833={}", session.0)];
         cookies.extend(extra_cookies.iter().cloned());
         let mut all: Vec<(&str, &str)> = vec![("_csrf", session.1.as_str())];
         all.extend_from_slice(fields);
@@ -246,7 +246,7 @@ impl Site {
             TEST_SITE_URL,
             "POST",
             "/manage/skins/import",
-            &[format!("gonof_session={}", session.0)],
+            &[format!("gonof_session__port58833={}", session.0)],
         )
         .header(
             header::CONTENT_TYPE,
@@ -830,13 +830,16 @@ async fn a_preview_is_only_seen_by_the_administrator_who_started_it() {
     let cookie = started
         .cookies
         .iter()
-        .find(|cookie| cookie.starts_with("gonof_skin_preview="))
+        .find(|cookie| cookie.starts_with("gonof_skin_preview__port58833="))
         .expect("the preview cookie")
         .split(';')
         .next()
         .unwrap()
         .to_owned();
-    let admin_cookies = vec![format!("gonof_session={}", site.admin.0), cookie.clone()];
+    let admin_cookies = vec![
+        format!("gonof_session__port58833={}", site.admin.0),
+        cookie.clone(),
+    ];
     let previewed = site.get_on(TEST_SITE_URL, "/", &admin_cookies).await;
     assert!(
         html_tag(&previewed.html).contains("data-skin=\"ruled\" data-skin-source=\"instance\"")
@@ -852,7 +855,10 @@ async fn a_preview_is_only_seen_by_the_administrator_who_started_it() {
         .get_on(
             TEST_SITE_URL,
             "/",
-            &[format!("gonof_session={}", site.member.0), cookie.clone()],
+            &[
+                format!("gonof_session__port58833={}", site.member.0),
+                cookie.clone(),
+            ],
         )
         .await;
     assert!(html_tag(&member.html).contains("data-skin=\"default\""));
@@ -881,7 +887,7 @@ async fn a_preview_is_only_seen_by_the_administrator_who_started_it() {
     assert!(
         exit.cookies
             .iter()
-            .any(|c| c.starts_with("gonof_skin_preview=;") && c.contains("Max-Age=0"))
+            .any(|c| c.starts_with("gonof_skin_preview__port58833=;") && c.contains("Max-Age=0"))
     );
     let published = site
         .post_with(
@@ -897,7 +903,7 @@ async fn a_preview_is_only_seen_by_the_administrator_who_started_it() {
         logout
             .cookies
             .iter()
-            .any(|c| c.starts_with("gonof_skin_preview=;") && c.contains("Max-Age=0")),
+            .any(|c| c.starts_with("gonof_skin_preview__port58833=;") && c.contains("Max-Age=0")),
         "{:?}",
         logout.cookies
     );
@@ -1439,13 +1445,13 @@ async fn a_domain_color_preview_shows_on_that_domain_and_publishes_there() {
     let cookie = started
         .cookies
         .iter()
-        .find(|cookie| cookie.starts_with("gonof_skin_preview="))
+        .find(|cookie| cookie.starts_with("gonof_skin_preview__port58833="))
         .expect("the preview cookie")
         .split(';')
         .next()
         .unwrap()
         .to_owned();
-    let cookies = vec![format!("gonof_session={}", site.admin.0), cookie];
+    let cookies = vec![format!("gonof_session__port58833={}", site.admin.0), cookie];
     // On that domain the administrator sees the colors; on the main domain the page keeps its own, with the bar.
     let there = site.get_on(OTHER, "/", &cookies).await;
     assert!(skin_href(&there.html).contains("c=e11d487c3aed"));
@@ -1493,13 +1499,16 @@ async fn a_color_preview_is_only_seen_by_the_administrator_who_started_it() {
     let cookie = started
         .cookies
         .iter()
-        .find(|cookie| cookie.starts_with("gonof_skin_preview="))
+        .find(|cookie| cookie.starts_with("gonof_skin_preview__port58833="))
         .expect("the preview cookie")
         .split(';')
         .next()
         .unwrap()
         .to_owned();
-    let admin_cookies = vec![format!("gonof_session={}", site.admin.0), cookie.clone()];
+    let admin_cookies = vec![
+        format!("gonof_session__port58833={}", site.admin.0),
+        cookie.clone(),
+    ];
     let previewed = site.get_on(TEST_SITE_URL, "/", &admin_cookies).await;
     let href = skin_href(&previewed.html);
     assert!(href.contains("c=e11d487c3aed"), "{href}");
@@ -1531,7 +1540,7 @@ async fn a_color_preview_is_only_seen_by_the_administrator_who_started_it() {
     let fresh_cookie = fresh
         .cookies
         .iter()
-        .find(|cookie| cookie.starts_with("gonof_skin_preview="))
+        .find(|cookie| cookie.starts_with("gonof_skin_preview__port58833="))
         .unwrap()
         .split(';')
         .next()
@@ -1546,10 +1555,13 @@ async fn a_color_preview_is_only_seen_by_the_administrator_who_started_it() {
     let before = site.compiled().await;
     for cookies in [
         vec![
-            format!("gonof_session={}", site.member.0),
+            format!("gonof_session__port58833={}", site.member.0),
             fresh_cookie.clone(),
         ],
-        vec![format!("gonof_session={}", site.admin.0), cookie.clone()],
+        vec![
+            format!("gonof_session__port58833={}", site.admin.0),
+            cookie.clone(),
+        ],
         vec![fresh_cookie.clone()],
     ] {
         let refused = site.get_on(TEST_SITE_URL, &fresh_path, &cookies).await;
@@ -1561,7 +1573,10 @@ async fn a_color_preview_is_only_seen_by_the_administrator_who_started_it() {
         .get_on(
             TEST_SITE_URL,
             &fresh_path,
-            &[format!("gonof_session={}", site.admin.0), fresh_cookie],
+            &[
+                format!("gonof_session__port58833={}", site.admin.0),
+                fresh_cookie,
+            ],
         )
         .await;
     assert_eq!(compiled.cache, "private, max-age=31536000, immutable");
@@ -1573,7 +1588,10 @@ async fn a_color_preview_is_only_seen_by_the_administrator_who_started_it() {
         .get_on(
             TEST_SITE_URL,
             "/",
-            &[format!("gonof_session={}", site.member.0), cookie.clone()],
+            &[
+                format!("gonof_session__port58833={}", site.member.0),
+                cookie.clone(),
+            ],
         )
         .await;
     assert!(!skin_href(&member.html).contains("c="));
@@ -1601,7 +1619,7 @@ async fn a_color_preview_is_only_seen_by_the_administrator_who_started_it() {
     let skin_cookie = skin_preview
         .cookies
         .iter()
-        .find(|cookie| cookie.starts_with("gonof_skin_preview="))
+        .find(|cookie| cookie.starts_with("gonof_skin_preview__port58833="))
         .unwrap()
         .split(';')
         .next()
@@ -1611,7 +1629,10 @@ async fn a_color_preview_is_only_seen_by_the_administrator_who_started_it() {
         .get_on(
             TEST_SITE_URL,
             "/",
-            &[format!("gonof_session={}", site.admin.0), skin_cookie],
+            &[
+                format!("gonof_session__port58833={}", site.admin.0),
+                skin_cookie,
+            ],
         )
         .await;
     assert!(skin_href(&page.html).contains("c=0f766ef97316"));
@@ -1626,13 +1647,16 @@ async fn a_color_preview_is_only_seen_by_the_administrator_who_started_it() {
     let other_cookie = other_skin
         .cookies
         .iter()
-        .find(|cookie| cookie.starts_with("gonof_skin_preview="))
+        .find(|cookie| cookie.starts_with("gonof_skin_preview__port58833="))
         .unwrap()
         .split(';')
         .next()
         .unwrap()
         .to_owned();
-    let other_cookies = vec![format!("gonof_session={}", site.admin.0), other_cookie];
+    let other_cookies = vec![
+        format!("gonof_session__port58833={}", site.admin.0),
+        other_cookie,
+    ];
     let page = site.get_on(TEST_SITE_URL, "/", &other_cookies).await;
     let ruled = unescape(&skin_href(&page.html));
     assert!(
@@ -1666,7 +1690,7 @@ async fn a_color_preview_is_only_seen_by_the_administrator_who_started_it() {
         published
             .cookies
             .iter()
-            .any(|c| c.starts_with("gonof_skin_preview=;") && c.contains("Max-Age=0"))
+            .any(|c| c.starts_with("gonof_skin_preview__port58833=;") && c.contains("Max-Age=0"))
     );
     assert!(skin_href(&site.get("/", None).await.html).contains("c=e11d487c3aed"));
     assert_eq!(

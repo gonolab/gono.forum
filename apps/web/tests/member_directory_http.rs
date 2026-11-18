@@ -27,7 +27,7 @@ async fn get(
     if let Some(session) = session {
         req = req.header(
             header::COOKIE,
-            format!("gonof_session={}", session.session_token),
+            format!("gonof_session__port58833={}", session.session_token),
         );
     }
     let response = app

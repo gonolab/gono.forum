@@ -264,7 +264,7 @@ impl Fixture {
         if let Some(session) = session {
             builder = builder.header(
                 header::COOKIE,
-                format!("gonof_session={}", session.session_token),
+                format!("gonof_session__port58833={}", session.session_token),
             );
         }
         self.send(builder.body(Body::empty()).unwrap()).await
@@ -282,7 +282,7 @@ impl Fixture {
                 .uri(path)
                 .header(
                     header::COOKIE,
-                    format!("gonof_session={}", session.session_token),
+                    format!("gonof_session__port58833={}", session.session_token),
                 )
                 .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .header(header::ORIGIN, ORIGIN)

@@ -19,7 +19,7 @@ async fn request(
 ) -> (StatusCode, HeaderMap, String) {
     let mut req = Request::builder().method(method).uri(path);
     if let Some(cookie) = cookie {
-        req = req.header(header::COOKIE, format!("gonof_session={cookie}"));
+        req = req.header(header::COOKIE, format!("gonof_session__port58833={cookie}"));
     }
     if method == "POST" {
         req = req

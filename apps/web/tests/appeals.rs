@@ -621,7 +621,7 @@ async fn appeal_http_uses_csrf_single_use_link_cookie_and_staff_authorization() 
     let sid = f.sanction(2, "freeze", now).await;
     let raw = f.token(2, now).await;
     let csrf = identity::random_token();
-    let anon = format!("gonof_csrf={csrf}");
+    let anon = format!("gonof_csrf__port58833={csrf}");
     let origin = gono_forum_web::test_support::TEST_SITE_URL;
     let url = format!("/appeals/access?token={raw}");
     let (status, headers, body) = f.call(&anon, "GET", &url, vec![], origin).await;
@@ -669,7 +669,7 @@ async fn appeal_http_uses_csrf_single_use_link_cookie_and_staff_authorization() 
         .get_all(header::SET_COOKIE)
         .iter()
         .map(|h| h.to_str().unwrap())
-        .find(|h| h.starts_with("gonof_appeal="))
+        .find(|h| h.starts_with("gonof_appeal__port58833="))
         .unwrap();
     assert!(cookie.contains("HttpOnly"));
     assert!(cookie.contains("Path=/appeals"));
@@ -690,7 +690,7 @@ async fn appeal_http_uses_csrf_single_use_link_cookie_and_staff_authorization() 
             .0,
         StatusCode::SEE_OTHER
     );
-    let mixed = format!("{client}; gonof_session={}", f.sessions[0]);
+    let mixed = format!("{client}; gonof_session__port58833={}", f.sessions[0]);
     let (status, _, body) = f.call(&mixed, "GET", &detail, vec![], origin).await;
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("Account UID 2"));
@@ -722,20 +722,20 @@ async fn appeal_http_uses_csrf_single_use_link_cookie_and_staff_authorization() 
         headers
             .get_all(header::SET_COOKIE)
             .iter()
-            .any(|v| v.to_str().unwrap().contains("gonof_appeal=;"))
+            .any(|v| v.to_str().unwrap().contains("gonof_appeal__port58833=;"))
     );
     assert_eq!(
         f.call(&client, "GET", &detail, vec![], origin).await.0,
         StatusCode::SEE_OTHER
     );
-    let moderator = format!("gonof_session={}", f.sessions[3]);
+    let moderator = format!("gonof_session__port58833={}", f.sessions[3]);
     assert_eq!(
         f.call(&moderator, "GET", "/manage/appeals", vec![], origin)
             .await
             .0,
         StatusCode::FORBIDDEN
     );
-    let admin = format!("gonof_session={}", f.sessions[0]);
+    let admin = format!("gonof_session__port58833={}", f.sessions[0]);
     let (_, _, body) = f
         .call(&admin, "GET", "/manage/appeals", vec![], origin)
         .await;

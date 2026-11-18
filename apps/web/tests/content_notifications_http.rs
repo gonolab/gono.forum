@@ -92,7 +92,7 @@ impl Fixture {
         if let Some(user) = user {
             req = req.header(
                 header::COOKIE,
-                format!("gonof_session={}", self.sessions[user]),
+                format!("gonof_session__port58833={}", self.sessions[user]),
             );
         }
         if method == "POST" {

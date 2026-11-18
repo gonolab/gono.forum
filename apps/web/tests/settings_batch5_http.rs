@@ -88,7 +88,7 @@ impl Fixture {
         if signed_in {
             request = request.header(
                 header::COOKIE,
-                format!("gonof_session={}", self.admin.session_token),
+                format!("gonof_session__port58833={}", self.admin.session_token),
             );
         }
         let response = self

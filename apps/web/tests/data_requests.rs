@@ -1503,7 +1503,7 @@ impl DataBrowser {
         if method == "POST" {
             let csrf = self
                 .cookies
-                .get("gonof_csrf")
+                .get("gonof_csrf__port58833")
                 .expect("an earlier page sets the CSRF cookie")
                 .clone();
             body = url::form_urlencoded::Serializer::new(String::new())
@@ -1607,7 +1607,7 @@ async fn frozen_members_without_a_password_export_and_close_through_the_email_li
         .post("/data/access", &[("token", &ticket)])
         .await
         .redirects_to("/my/data");
-    assert!(browser.cookies.contains_key("gonof_privacy"));
+    assert!(browser.cookies.contains_key("gonof_privacy__port58833"));
 
     let page = browser.get("/my/data").await;
     assert_eq!(page.status, StatusCode::OK, "{}", page.text());

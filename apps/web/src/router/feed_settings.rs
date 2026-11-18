@@ -218,7 +218,7 @@ async fn feed_page(
         .and_then(|session| auth::FEED_REVEAL.read(&state, &headers, session.member.uid))
         .unwrap_or_default();
     let mut response = feed_response(&state, &secret, message, success, StatusCode::OK).await;
-    auth::FEED_REVEAL.set(&mut response, state.viewer.secure, "", 0);
+    auth::FEED_REVEAL.set(&mut response, &state.viewer, "", 0);
     response
 }
 

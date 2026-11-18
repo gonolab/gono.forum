@@ -39,7 +39,7 @@ fn cookie(answer: &site::Answer) -> String {
         .get_all(header::SET_COOKIE)
         .iter()
         .map(|value| value.to_str().unwrap().to_owned())
-        .find(|value| value.starts_with("gonof_skin_preview="))
+        .find(|value| value.starts_with("gonof_skin_preview__port58833="))
         .map(|value| value[..value.find(';').unwrap_or(value.len())].to_owned())
         .unwrap_or_default()
 }
@@ -187,7 +187,7 @@ async fn edits_go_to_a_draft_that_is_previewed_and_published() {
             None,
             &[(
                 "cookie",
-                &format!("gonof_session={}; {sealed}", site.admin.0),
+                &format!("gonof_session__port58833={}; {sealed}", site.admin.0),
             )],
         )
         .await;
@@ -207,7 +207,7 @@ async fn edits_go_to_a_draft_that_is_previewed_and_published() {
             None,
             &[(
                 "cookie",
-                &format!("gonof_session={}; {sealed}", site.member.0),
+                &format!("gonof_session__port58833={}; {sealed}", site.member.0),
             )],
         )
         .await;
@@ -232,7 +232,7 @@ async fn edits_go_to_a_draft_that_is_previewed_and_published() {
             .ends_with("saved=published")
     );
     assert!(
-        cookie(&published).ends_with("gonof_skin_preview="),
+        cookie(&published).ends_with("gonof_skin_preview__port58833="),
         "the preview ends"
     );
     assert!(draft_body(&site, "site").await.is_none());
@@ -455,7 +455,7 @@ async fn the_home_page_choice_is_drafted_previewed_and_published() {
             None,
             &[(
                 "cookie",
-                &format!("gonof_session={}; {sealed}", site.admin.0),
+                &format!("gonof_session__port58833={}; {sealed}", site.admin.0),
             )],
         )
         .await;

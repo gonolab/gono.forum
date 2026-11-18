@@ -83,7 +83,7 @@ impl Fixture {
             .uri(path)
             .header(
                 header::COOKIE,
-                format!("gonof_session={}", self.admin.session_token),
+                format!("gonof_session__port58833={}", self.admin.session_token),
             )
             .body(Body::empty())
             .unwrap();
@@ -104,7 +104,7 @@ impl Fixture {
             .uri(path)
             .header(
                 header::COOKIE,
-                format!("gonof_session={}", self.admin.session_token),
+                format!("gonof_session__port58833={}", self.admin.session_token),
             )
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
             .body(Body::from(body.finish()))

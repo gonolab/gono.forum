@@ -85,7 +85,7 @@ impl Fixture {
     ) -> (StatusCode, String) {
         let mut request = Request::builder().method(method).uri(path).header(
             header::COOKIE,
-            format!("gonof_session={}", grant.session_token),
+            format!("gonof_session__port58833={}", grant.session_token),
         );
         let body = if method == "POST" {
             request = request.header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");

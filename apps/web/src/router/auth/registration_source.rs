@@ -69,18 +69,10 @@ pub(super) fn landing(request: &Request) -> Option<String> {
 }
 
 fn cookie_name(viewer: &Viewer) -> Option<String> {
-    // Browsers send cookies per host regardless of port; name it by the non-default port of the actual origin.
-    let origin = url::Url::parse(viewer.origin.as_deref()?).ok()?;
-    let port_suffix = origin
-        .port()
-        .map_or_else(String::new, |port| format!("__port{port}"));
-    // Each deployment path segment only allows lowercase letters, digits and hyphens, so paths stay distinguishable
-    // after replacing them with underscores.
-    let path_suffix = crate::site::prefix().replace('/', "_");
-    let transport = if viewer.secure { "__Secure-" } else { "" };
-    Some(format!(
-        "{transport}gonof_registration_source{path_suffix}{port_suffix}"
-    ))
+    // Named by the path prefix and the non-default port of the actual origin, like every cookie of this forum
+    // ([`super::cookie_name`]); without a usable origin there is no channel to keep.
+    url::Url::parse(viewer.origin.as_deref()?).ok()?;
+    Some(viewer.path_cookie("gonof_registration_source"))
 }
 
 pub(super) fn read(headers: &HeaderMap, viewer: &Viewer) -> Option<String> {

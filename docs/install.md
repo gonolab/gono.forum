@@ -148,6 +148,11 @@ server {
   trailing slash on `proxy_pass`) and set the forum address with the path. The application strips the prefix
   itself; `/forum/healthz` is the health check (on the listen address itself `/healthz` answers too). If the admin area becomes unreachable after a wrong address, fix it
   with `gono-forum-cli set-site-url` (see "Command-line tool").
+- Several forums can share one host under different paths or on different ports. Browsers keep cookies per host,
+  whatever the port, so each forum names its cookies after its path prefix and its port when that is not the default
+  one (`gonof_session_forum`, `__Host-gonof_session__port8443`), and signing in to one does not sign out of another.
+  A forum at the root on the default port keeps the plain names; moving a forum to another path or port signs
+  everyone out of it once.
 - Under a sub-path, crawlers still read only `/robots.txt` at the domain root, so the forum's own
   `/forum/robots.txt` has no effect. The SEO section of Search & performance (`/manage/settings/search`) shows the
   text to merge into the domain root's `robots.txt` (rules with the path prefix and the sitemap line); merge it again

@@ -154,7 +154,7 @@ impl Site {
             .uri(path)
             .header(header::HOST, test_support::host_of(TEST_SITE_URL));
         if let Some((token, _)) = session {
-            request = request.header(header::COOKIE, format!("gonof_session={token}"));
+            request = request.header(header::COOKIE, format!("gonof_session__port58833={token}"));
         }
         if method == "POST" {
             request = request.header(header::ORIGIN, TEST_SITE_URL);

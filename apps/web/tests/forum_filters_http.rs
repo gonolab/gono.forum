@@ -136,7 +136,7 @@ impl Fixture {
         if let Some(session) = session {
             builder = builder.header(
                 header::COOKIE,
-                format!("gonof_session={}", session.session_token),
+                format!("gonof_session__port58833={}", session.session_token),
             );
         }
         self.send(builder.body(Body::empty()).unwrap()).await
@@ -154,7 +154,7 @@ impl Fixture {
                 .uri(path)
                 .header(
                     header::COOKIE,
-                    format!("gonof_session={}", self.viewer.session_token),
+                    format!("gonof_session__port58833={}", self.viewer.session_token),
                 )
                 .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .header(header::ORIGIN, ORIGIN)
@@ -194,7 +194,7 @@ impl Fixture {
             .get_all(header::SET_COOKIE)
             .iter()
             .map(|value| value.to_str().unwrap())
-            .find(|value| value.starts_with("gonof_feed_reveal="))
+            .find(|value| value.starts_with("gonof_feed_reveal__port58833="))
             .expect("creating must set the one-time reveal cookie")
             .to_owned();
         assert!(
@@ -210,7 +210,10 @@ impl Fixture {
                 .headers
                 .get_all(header::SET_COOKIE)
                 .iter()
-                .any(|value| value.to_str().unwrap().starts_with("gonof_feed_reveal=;")),
+                .any(|value| value
+                    .to_str()
+                    .unwrap()
+                    .starts_with("gonof_feed_reveal__port58833=;")),
             "the reveal page clears the cookie once read"
         );
         let token = token_in(&shown.body);
@@ -228,7 +231,10 @@ impl Fixture {
                 .uri("/my/feed")
                 .header(
                     header::COOKIE,
-                    format!("gonof_session={}; {reveal}", self.viewer.session_token),
+                    format!(
+                        "gonof_session__port58833={}; {reveal}",
+                        self.viewer.session_token
+                    ),
                 )
                 .body(Body::empty())
                 .unwrap(),

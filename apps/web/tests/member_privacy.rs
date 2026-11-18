@@ -181,7 +181,7 @@ async fn request(
 ) -> Response {
     let mut builder = Request::builder().method(method).uri(path);
     if let Some(sid) = sid {
-        builder = builder.header(header::COOKIE, format!("gonof_session={sid}"));
+        builder = builder.header(header::COOKIE, format!("gonof_session__port58833={sid}"));
     }
     if htmx {
         builder = builder.header("HX-Request", "true");

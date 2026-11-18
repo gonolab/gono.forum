@@ -108,13 +108,19 @@ impl Fixture {
         }
     }
 
+    /// The administrator's session cookie as the forum on `host` names it: with the port when the host has one
+    /// (docs/install.md, "Reverse proxy").
+    fn session_cookie(&self, host: &str) -> String {
+        let port = host
+            .rsplit_once(':')
+            .map_or_else(String::new, |(_, port)| format!("__port{port}"));
+        format!("gonof_session{port}={}", self.admin.session_token)
+    }
+
     async fn get(&self, host: &str, path: &str, signed_in: bool) -> Reply {
         let mut request = Request::builder().uri(path).header(header::HOST, host);
         if signed_in {
-            request = request.header(
-                header::COOKIE,
-                format!("gonof_session={}", self.admin.session_token),
-            );
+            request = request.header(header::COOKIE, self.session_cookie(host));
         }
         self.send(request.body(Body::empty()).unwrap()).await
     }
@@ -130,10 +136,7 @@ impl Fixture {
                 .method("POST")
                 .uri(path)
                 .header(header::HOST, host)
-                .header(
-                    header::COOKIE,
-                    format!("gonof_session={}", self.admin.session_token),
-                )
+                .header(header::COOKIE, self.session_cookie(host))
                 .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .body(Body::from(body.finish()))
                 .unwrap(),

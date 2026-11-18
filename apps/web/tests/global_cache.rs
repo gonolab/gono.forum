@@ -369,7 +369,7 @@ async fn a_failed_publish_answers_503_but_keeps_the_save() {
         .uri("/manage/settings")
         .header(
             header::COOKIE,
-            format!("gonof_session={}", session.session_token),
+            format!("gonof_session__port58833={}", session.session_token),
         )
         .body(Body::empty())
         .unwrap();
@@ -390,7 +390,7 @@ async fn a_failed_publish_answers_503_but_keeps_the_save() {
         .uri("/manage/settings")
         .header(
             header::COOKIE,
-            format!("gonof_session={}", session.session_token),
+            format!("gonof_session__port58833={}", session.session_token),
         )
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .body(Body::from(form.finish()))

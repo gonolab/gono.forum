@@ -45,7 +45,10 @@ async fn scalar(db: &Database, sql: &str) -> i64 {
 async fn page(app: &Router, path: &str, session: Option<&str>) -> (StatusCode, String) {
     let mut request = Request::builder().uri(path);
     if let Some(session) = session {
-        request = request.header(header::COOKIE, format!("gonof_session={session}"));
+        request = request.header(
+            header::COOKIE,
+            format!("gonof_session__port58833={session}"),
+        );
     }
     let response = app
         .clone()

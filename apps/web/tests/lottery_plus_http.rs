@@ -102,7 +102,7 @@ impl Fixture {
     ) -> Response {
         let mut request = Request::builder().method(method).uri(path);
         if let Some(token) = token {
-            request = request.header(header::COOKIE, format!("gonof_session={token}"));
+            request = request.header(header::COOKIE, format!("gonof_session__port58833={token}"));
         }
         let mut form = url::form_urlencoded::Serializer::new(String::new());
         form.extend_pairs(fields.iter().copied());

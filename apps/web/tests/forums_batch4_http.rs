@@ -1022,11 +1022,14 @@ async fn a_sub_path_site_profiles_its_pages_but_not_sensitive_ones() {
         .await
         .unwrap();
     site.changed();
-    let page = site.get("/bbs/privacy", Some(&site.admin)).await;
+    // The forum under /bbs names its session cookie after the path (docs/install.md, "Reverse proxy").
+    let session = format!("gonof_session_bbs__port58833={}", site.admin.0);
+    let cookie = [("cookie", session.as_str())];
+    let page = site.get_with("/bbs/privacy", None, &cookie).await;
     assert_eq!(page.status, StatusCode::OK);
     assert!(page.body.contains("<details id=\"gonof-debug\""));
     for path in ["/bbs/my/api", "/bbs/robots.txt"] {
-        let answer = site.get(path, Some(&site.admin)).await;
+        let answer = site.get_with(path, None, &cookie).await;
         assert_eq!(answer.status, StatusCode::OK, "{path}");
         assert!(!answer.body.contains("gonof-debug"), "{path}");
     }

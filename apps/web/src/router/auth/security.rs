@@ -354,9 +354,9 @@ async fn account(
 pub(super) fn signed_out(state: &AppState, path: &str) -> Response {
     let mut response = redirect(path);
     response.extensions_mut().insert(IdentityChanged);
-    set_cookie(&mut response, state.viewer.secure, true, "", 0);
-    set_cookie(&mut response, state.viewer.secure, false, "", 0);
-    auxiliary_set_cookie(&mut response, "gonof_return", "", 0);
+    set_cookie(&mut response, &state.viewer, true, "", 0);
+    set_cookie(&mut response, &state.viewer, false, "", 0);
+    auxiliary_set_cookie(&mut response, &state.viewer, RETURN_COOKIE, "", 0);
     response
 }
 

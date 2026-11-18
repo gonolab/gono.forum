@@ -286,7 +286,7 @@ async fn board_colors_are_fitted_to_the_skin_in_use() {
         .get_all(header::SET_COOKIE)
         .iter()
         .map(|value| value.to_str().unwrap().to_owned())
-        .find(|value| value.starts_with("gonof_skin_preview="))
+        .find(|value| value.starts_with("gonof_skin_preview__port58833="))
         .map(|value| value[..value.find(';').unwrap()].to_owned())
         .unwrap();
     let previewed = site
@@ -295,7 +295,7 @@ async fn board_colors_are_fitted_to_the_skin_in_use() {
             None,
             &[(
                 "cookie",
-                &format!("gonof_session={}; {sealed}", site.admin.0),
+                &format!("gonof_session__port58833={}; {sealed}", site.admin.0),
             )],
         )
         .await;

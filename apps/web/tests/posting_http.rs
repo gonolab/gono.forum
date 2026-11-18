@@ -51,7 +51,7 @@ impl Fixture {
         let admin_password = gono_forum_web::test_support::create_admin(&identity).await;
         let grant = identity.login("admin", &admin_password).await.unwrap();
         let admin = Cookies(BTreeMap::from([(
-            "gonof_session".into(),
+            "gonof_session__port58833".into(),
             grant.session_token,
         )]));
         let forum = gono_forum_web::db::query("SELECT fid,slug FROM gonof_forum_forum WHERE visibility='public' AND status=1 ORDER BY fid LIMIT 1")
@@ -141,8 +141,8 @@ impl Cookies {
     async fn csrf(&self, identity: &Identity) -> String {
         if let Some(raw) = self
             .0
-            .get("gonof_session")
-            .or_else(|| self.0.get("__Host-gonof_session"))
+            .get("gonof_session__port58833")
+            .or_else(|| self.0.get("__Host-gonof_session__port58833"))
         {
             identity
                 .session(raw)
@@ -152,8 +152,8 @@ impl Cookies {
                 .unwrap_or_default()
         } else {
             self.0
-                .get("gonof_csrf")
-                .or_else(|| self.0.get("__Host-gonof_csrf"))
+                .get("gonof_csrf__port58833")
+                .or_else(|| self.0.get("__Host-gonof_csrf__port58833"))
                 .cloned()
                 .unwrap_or_default()
         }
@@ -816,7 +816,7 @@ async fn replies_resolve_root_and_child_pages_with_native_and_htmx_navigation() 
     assert_eq!(cross_child.headers["HX-Redirect"], child_location);
     let marker = admin
         .0
-        .get("gonof_published")
+        .get("gonof_published__port58833")
         .expect("a cross-page success keeps the new confirmation; clearing the old marker must not overwrite it")
         .clone();
     assert!(marker.contains(&child_key));
@@ -824,7 +824,7 @@ async fn replies_resolve_root_and_child_pages_with_native_and_htmx_navigation() 
         .await
         .status(StatusCode::OK);
     assert_eq!(
-        admin.0.get("gonof_published"),
+        admin.0.get("gonof_published__port58833"),
         Some(&marker),
         "API polling must not consume the full-page draft confirmation"
     );
@@ -832,7 +832,7 @@ async fn replies_resolve_root_and_child_pages_with_native_and_htmx_navigation() 
     page.status(StatusCode::OK);
     assert!(page.html.contains("id=\"floor-23\""));
     assert!(page.html.contains(&child_key));
-    assert!(!admin.0.contains_key("gonof_published"));
+    assert!(!admin.0.contains_key("gonof_published__port58833"));
     assert!(!page.html.contains("id=\"floor-3\""));
     let mut replay = child_fields;
     replay[2] = ("location", child_location.split('#').next().unwrap());

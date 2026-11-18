@@ -75,8 +75,10 @@ impl Fixture {
             .unwrap();
         let grant = http_auth::login(&self.identity, self.db(), uid).await;
         let mut jar = Jar::default();
-        jar.cookies
-            .insert("gonof_session".into(), grant.session_token.clone());
+        jar.cookies.insert(
+            "gonof_session__port58833".into(),
+            grant.session_token.clone(),
+        );
         jar.csrf = grant.csrf_token;
         jar
     }
@@ -85,7 +87,7 @@ impl Fixture {
     async fn anonymous(&self) -> Jar {
         let mut jar = Jar::default();
         send(&self.app, "GET", "/", &mut jar, &[], &[]).await;
-        jar.csrf = jar.cookies.get("gonof_csrf").cloned().unwrap();
+        jar.csrf = jar.cookies.get("gonof_csrf__port58833").cloned().unwrap();
         jar
     }
 

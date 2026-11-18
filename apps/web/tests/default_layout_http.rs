@@ -40,7 +40,7 @@ async fn execute(db: &Database, sql: &str) {
 async fn page(app: &Router, path: &str, session: Option<&str>) -> String {
     let mut request = Request::builder().uri(path);
     if let Some(token) = session {
-        request = request.header(header::COOKIE, format!("gonof_session={token}"));
+        request = request.header(header::COOKIE, format!("gonof_session__port58833={token}"));
     }
     let response = app
         .clone()

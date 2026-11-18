@@ -229,7 +229,7 @@ impl Fixture {
         if let Some(grant) = grant {
             builder = builder.header(
                 header::COOKIE,
-                format!("gonof_session={}", grant.session_token),
+                format!("gonof_session__port58833={}", grant.session_token),
             );
         }
         let response = self
@@ -257,7 +257,7 @@ impl Fixture {
             .header("HX-Request", "false")
             .header(
                 header::COOKIE,
-                format!("gonof_session={}; {cookie}", grant.session_token),
+                format!("gonof_session__port58833={}; {cookie}", grant.session_token),
             )
             .body(Body::empty())
             .unwrap();
@@ -286,7 +286,7 @@ impl Fixture {
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
             .header(
                 header::COOKIE,
-                format!("gonof_session={}", grant.session_token),
+                format!("gonof_session__port58833={}", grant.session_token),
             )
             .body(Body::from(body))
             .unwrap();
@@ -321,7 +321,7 @@ fn reveal_cookie(headers: &HeaderMap) -> String {
         .get_all(header::SET_COOKIE)
         .iter()
         .map(|value| value.to_str().unwrap())
-        .find(|value| value.starts_with("gonof_api_reveal="))
+        .find(|value| value.starts_with("gonof_api_reveal__port58833="))
         .expect("creating a token must set the one-time display cookie");
     assert!(line.contains("; Path=/my/api;"), "{line}");
     assert!(
@@ -370,7 +370,7 @@ async fn bearer_tokens_are_the_only_credential_and_failures_are_throttled() {
     );
     assert!(headers.get(header::SET_COOKIE).is_none());
 
-    let cookie = format!("gonof_session={}", grant.session_token);
+    let cookie = format!("gonof_session__port58833={}", grant.session_token);
     let (status, _, body) = f
         .api(
             "GET",
@@ -1772,7 +1772,7 @@ async fn settings_page_generates_rotates_and_disables_tokens() {
         headers.get_all(header::SET_COOKIE).iter().any(|value| value
             .to_str()
             .unwrap()
-            .starts_with("gonof_api_reveal=;")
+            .starts_with("gonof_api_reveal__port58833=;")
             && value.to_str().unwrap().contains("Max-Age=0")),
         "the display page clears the cookie once read"
     );

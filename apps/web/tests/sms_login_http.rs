@@ -173,10 +173,13 @@ struct Cookies(BTreeMap<String, String>);
 
 impl Cookies {
     fn session(raw: &str) -> Self {
-        Self(BTreeMap::from([("gonof_session".into(), raw.into())]))
+        Self(BTreeMap::from([(
+            "gonof_session__port58833".into(),
+            raw.into(),
+        )]))
     }
     async fn csrf(&self, identity: &Identity) -> String {
-        if let Some(raw) = self.0.get("gonof_session") {
+        if let Some(raw) = self.0.get("gonof_session__port58833") {
             identity
                 .session(raw)
                 .await
@@ -184,7 +187,10 @@ impl Cookies {
                 .map(|session| session.csrf_token)
                 .unwrap_or_default()
         } else {
-            self.0.get("gonof_csrf").cloned().unwrap_or_default()
+            self.0
+                .get("gonof_csrf__port58833")
+                .cloned()
+                .unwrap_or_default()
         }
     }
     fn update(&mut self, headers: &HeaderMap) {
@@ -410,7 +416,7 @@ async fn sms_login_registers_logs_in_and_enforces_limits() {
     .await
     .redirect("/");
     assert!(
-        visitor.0.contains_key("gonof_session"),
+        visitor.0.contains_key("gonof_session__port58833"),
         "signed in after registering"
     );
     let (uid, mobile, email, password) = f.member("sms-member").await;
@@ -431,7 +437,7 @@ async fn sms_login_registers_logs_in_and_enforces_limits() {
     assert!(register_log.contains("138****8000") && !register_log.contains(E164));
     // The same pending-registration credential cannot create a second account.
     let mut replay = visitor.clone();
-    replay.0.remove("gonof_session");
+    replay.0.remove("gonof_session__port58833");
     let twice = post(
         &f,
         "/register/mobile",
@@ -459,7 +465,7 @@ async fn sms_login_registers_logs_in_and_enforces_limits() {
     f.age_codes().await;
     let mut fresh = Cookies::default();
     sms_login(&f, &mut fresh, MOBILE).await.redirect("/");
-    assert!(fresh.0.contains_key("gonof_session"));
+    assert!(fresh.0.contains_key("gonof_session__port58833"));
     let (_, used) = f.latest_sms(E164);
     let mut replayer = Cookies::default();
     get(&f, "/login/sms", &mut replayer).await;
@@ -698,8 +704,8 @@ async fn sms_login_follows_registration_mode_and_two_factor_choice() {
     sms_login(&f, &mut second, MOBILE)
         .await
         .redirect("/login/verify");
-    assert!(!second.0.contains_key("gonof_session"));
-    assert!(second.0.contains_key("gonof_2fa"));
+    assert!(!second.0.contains_key("gonof_session__port58833"));
+    assert!(second.0.contains_key("gonof_2fa__port58833"));
     set_setting(&f.db, "settings.login.external_two_factor", "skip")
         .await
         .unwrap();
@@ -707,7 +713,7 @@ async fn sms_login_follows_registration_mode_and_two_factor_choice() {
     f.age_codes().await;
     let mut direct = Cookies::default();
     sms_login(&f, &mut direct, MOBILE).await.redirect("/");
-    assert!(direct.0.contains_key("gonof_session"));
+    assert!(direct.0.contains_key("gonof_session__port58833"));
     let method: String = db::query_scalar(
         "SELECT data FROM gonof_common_log WHERE uid=? AND type='identity.login' ORDER BY id DESC LIMIT 1",
     )
@@ -726,7 +732,7 @@ async fn sms_login_follows_registration_mode_and_two_factor_choice() {
     let mut frozen = Cookies::default();
     let refused = sms_login(&f, &mut frozen, MOBILE).await;
     assert_ne!(refused.status, StatusCode::SEE_OTHER);
-    assert!(!frozen.0.contains_key("gonof_session"));
+    assert!(!frozen.0.contains_key("gonof_session__port58833"));
     f.services.cleanup().await.unwrap();
 }
 
@@ -816,7 +822,7 @@ async fn account_security_sets_password_and_binds_changes_unbinds_mobile() {
     )
     .await
     .redirect("/login?password_set=true");
-    assert!(!member.0.contains_key("gonof_session"));
+    assert!(!member.0.contains_key("gonof_session__port58833"));
     let (uid, _, _, password) = f.member("no-password-member").await;
     assert!(password.is_some());
     assert_eq!(

@@ -37,9 +37,13 @@ async fn fixture() -> (TestFixture, Actor, Actor) {
     )
 }
 async fn get(app: &Router, path: &str, cookie: Option<&str>) -> (StatusCode, String) {
-    let mut req = Request::builder().uri(path);
+    // Like a browser, every request names its host: the cookie names follow the connection's port.
+    let mut req = Request::builder().uri(path).header(
+        header::HOST,
+        gono_forum_web::test_support::host_of(gono_forum_web::test_support::TEST_SITE_URL),
+    );
     if let Some(cookie) = cookie {
-        req = req.header(header::COOKIE, format!("gonof_session={cookie}"));
+        req = req.header(header::COOKIE, format!("gonof_session__port58833={cookie}"));
     }
     let r = app
         .clone()
@@ -67,8 +71,12 @@ async fn post(
         .method("POST")
         .uri(path)
         .header(
+            header::HOST,
+            gono_forum_web::test_support::host_of(gono_forum_web::test_support::TEST_SITE_URL),
+        )
+        .header(
             header::COOKIE,
-            format!("gonof_session={}", session.session_token),
+            format!("gonof_session__port58833={}", session.session_token),
         )
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .body(Body::from(body.finish()))

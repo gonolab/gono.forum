@@ -24,44 +24,25 @@ pub(super) fn routes() -> Router<Arc<AppState>> {
 }
 
 /// Cookie for awaiting the second step: the same `__Host-` and Secure rules as the session Cookie.
-fn pending_name(secure: bool) -> &'static str {
-    if secure {
-        "__Host-gonof_2fa"
-    } else {
-        "gonof_2fa"
-    }
-}
+const PENDING_COOKIE: &str = "gonof_2fa";
 
-pub(super) fn set_pending(response: &mut Response, secure: bool, value: &str, max_age: i64) {
-    let flag = if secure { "; Secure" } else { "" };
-    if let Ok(header) = HeaderValue::from_str(&format!(
-        "{}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}{flag}",
-        pending_name(secure),
-        max_age.max(0)
-    )) {
-        response.headers_mut().append(header::SET_COOKIE, header);
-    }
+pub(super) fn set_pending(response: &mut Response, viewer: &Viewer, value: &str, max_age: i64) {
+    super::sms::set_named(response, viewer, PENDING_COOKIE, value, max_age);
 }
 
 fn pending(state: &AppState, headers: &HeaderMap) -> Option<String> {
-    unique_cookie(headers, pending_name(state.viewer.secure), 2048).map(str::to_owned)
+    unique_cookie(headers, &state.viewer.host_cookie(PENDING_COOKIE), 2048).map(str::to_owned)
 }
 
 /// The display Cookie for new recovery codes is sent only to the display page, so it cannot use the `__Host-` prefix,
 /// which requires `Path=/`.
-fn reveal_name(secure: bool) -> &'static str {
-    if secure {
-        "__Secure-gonof_recovery"
-    } else {
-        "gonof_recovery"
-    }
-}
+const REVEAL_COOKIE: &str = "gonof_recovery";
 
-fn set_reveal(response: &mut Response, secure: bool, value: &str, max_age: i64) {
-    let flag = if secure { "; Secure" } else { "" };
+fn set_reveal(response: &mut Response, viewer: &Viewer, value: &str, max_age: i64) {
+    let flag = if viewer.secure { "; Secure" } else { "" };
     if let Ok(header) = HeaderValue::from_str(&format!(
         "{}={value}; Path={}; HttpOnly; SameSite=Lax; Max-Age={}{flag}",
-        reveal_name(secure),
+        viewer.path_cookie(REVEAL_COOKIE),
         // Sent only to the display page, with this request's path prefix.
         crate::site::href(RECOVERY_PATH),
         max_age.max(0)
@@ -130,7 +111,7 @@ fn verify_response(
 
 fn expired(state: &AppState) -> Response {
     let mut response = redirect(EXPIRED_LOGIN);
-    set_pending(&mut response, state.viewer.secure, "", 0);
+    set_pending(&mut response, &state.viewer, "", 0);
     response
 }
 
@@ -215,7 +196,7 @@ async fn verify(Page(state): Page, headers: HeaderMap, form: CheckedForm<VerifyF
                     .unwrap_or_else(|| "/".into())
             };
             let mut response = grant_response(&state, *grant, &destination);
-            set_pending(&mut response, state.viewer.secure, "", 0);
+            set_pending(&mut response, &state.viewer, "", 0);
             response
         }
         Ok(identity::SecondFactorOutcome::Rejected) => verify_response(
@@ -249,7 +230,7 @@ async fn verify(Page(state): Page, headers: HeaderMap, form: CheckedForm<VerifyF
                 StatusCode::FORBIDDEN,
             )
             .await;
-            set_pending(&mut response, state.viewer.secure, "", 0);
+            set_pending(&mut response, &state.viewer, "", 0);
             response
         }
         Err(error) => identity_error(&state, error),
@@ -446,7 +427,7 @@ async fn enable(
             );
             set_reveal(
                 &mut response,
-                state.viewer.secure,
+                &state.viewer,
                 &enabled.reveal,
                 identity::RECOVERY_REVEAL_TTL,
             );
@@ -543,7 +524,7 @@ async fn regenerate(
             let mut response = redirect(&format!("{RECOVERY_PATH}?regenerated=true"));
             set_reveal(
                 &mut response,
-                state.viewer.secure,
+                &state.viewer,
                 &reveal,
                 identity::RECOVERY_REVEAL_TTL,
             );
@@ -580,7 +561,7 @@ async fn recovery_page(
     let Some(session) = &state.viewer.session else {
         return redirect(LOGIN_RETURN);
     };
-    let codes = unique_cookie(&headers, reveal_name(state.viewer.secure), 2048)
+    let codes = unique_cookie(&headers, &state.viewer.path_cookie(REVEAL_COOKIE), 2048)
         .and_then(|raw| {
             state
                 .identity
@@ -611,6 +592,6 @@ async fn recovery_page(
         codes,
         notice,
     });
-    set_reveal(&mut response, state.viewer.secure, "", 0);
+    set_reveal(&mut response, &state.viewer, "", 0);
     response
 }

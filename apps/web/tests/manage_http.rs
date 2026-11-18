@@ -118,7 +118,7 @@ impl Fixture {
     ) -> (StatusCode, String, String) {
         let mut request = Request::builder().method(method).uri(path);
         if let Some(raw) = session {
-            request = request.header(header::COOKIE, format!("gonof_session={raw}"));
+            request = request.header(header::COOKIE, format!("gonof_session__port58833={raw}"));
         }
         if method == "POST" {
             request = request

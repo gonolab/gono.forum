@@ -347,7 +347,8 @@ pub(super) fn gate(state: &AppState, destination: &str) -> Option<Response> {
     let mut response = auth::redirect(&format!("{base}?{}", params.finish()));
     auth::auxiliary_set_cookie(
         &mut response,
-        "gonof_return",
+        &state.viewer,
+        auth::RETURN_COOKIE,
         &auth::safe_return(destination),
         3600,
     );
@@ -881,7 +882,13 @@ pub(super) async fn published(
         HeaderValue::from_str(&trigger).expect("JSON header"),
     );
     if !hx(headers) || response.headers().contains_key("HX-Redirect") {
-        auth::auxiliary_set_cookie(&mut response, "gonof_published", &marker, 60);
+        auth::auxiliary_set_cookie(
+            &mut response,
+            &state.viewer,
+            auth::PUBLISHED_COOKIE,
+            &marker,
+            60,
+        );
     }
     response
 }
@@ -904,7 +911,13 @@ fn saved_redirect(state: &AppState, headers: &HeaderMap, e: &Editor, location: &
     } else {
         auth::redirect(location)
     };
-    auth::auxiliary_set_cookie(&mut response, "gonof_published", &marker, 60);
+    auth::auxiliary_set_cookie(
+        &mut response,
+        &state.viewer,
+        auth::PUBLISHED_COOKIE,
+        &marker,
+        60,
+    );
     response
 }
 pub(super) fn serde_urlencoded_query(path: &str) -> BrowseQuery {

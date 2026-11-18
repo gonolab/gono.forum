@@ -195,7 +195,10 @@ impl Fixture {
         if let Some(uid) = uid {
             builder = builder.header(
                 header::COOKIE,
-                format!("gonof_session={}", self.sessions[&uid].session_token),
+                format!(
+                    "gonof_session__port58833={}",
+                    self.sessions[&uid].session_token
+                ),
             );
         }
         builder.body(Body::empty()).unwrap()
@@ -294,7 +297,7 @@ async fn youtube_placeholders_load_nothing_until_clicked_and_csp_only_adds_the_p
                 .uri("/api/preview")
                 .header(
                     header::COOKIE,
-                    format!("gonof_session={}", session.session_token),
+                    format!("gonof_session__port58833={}", session.session_token),
                 )
                 .header("HX-Request", "true")
                 .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")

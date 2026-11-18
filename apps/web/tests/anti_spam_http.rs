@@ -1042,7 +1042,7 @@ impl Http {
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
             .header(
                 header::COOKIE,
-                format!("gonof_session={}", grant.session_token),
+                format!("gonof_session__port58833={}", grant.session_token),
             )
             .body(Body::from(body.finish()))
             .unwrap();
@@ -1057,7 +1057,7 @@ impl Http {
             .uri(path)
             .header(
                 header::COOKIE,
-                format!("gonof_session={}", grant.session_token),
+                format!("gonof_session__port58833={}", grant.session_token),
             )
             .body(Body::empty())
             .unwrap();

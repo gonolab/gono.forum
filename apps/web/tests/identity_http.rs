@@ -121,9 +121,9 @@ impl Cookies {
     fn for_session(raw: &str, secure: bool) -> Self {
         Self(BTreeMap::from([(
             if secure {
-                "__Host-gonof_session"
+                "__Host-gonof_session__port58833"
             } else {
-                "gonof_session"
+                "gonof_session__port58833"
             }
             .into(),
             raw.into(),
@@ -150,19 +150,21 @@ impl Cookies {
         }
     }
 
+    /// The session cookie of a forum at the root of the test site's port, or of one on a default port.
     fn session(&self) -> Option<&str> {
-        self.0
-            .get("gonof_session")
-            .or_else(|| self.0.get("__Host-gonof_session"))
-            .map(String::as_str)
+        [
+            "gonof_session__port58833",
+            "__Host-gonof_session__port58833",
+            "gonof_session",
+            "__Host-gonof_session",
+        ]
+        .iter()
+        .find_map(|name| self.0.get(*name))
+        .map(String::as_str)
     }
 
     async fn csrf(&self, identity: &Identity) -> String {
-        if let Some(raw) = self
-            .0
-            .get("gonof_session")
-            .or_else(|| self.0.get("__Host-gonof_session"))
-        {
+        if let Some(raw) = self.session() {
             identity
                 .session(raw)
                 .await
@@ -170,11 +172,16 @@ impl Cookies {
                 .map(|session| session.csrf_token)
                 .unwrap_or_default()
         } else {
-            self.0
-                .get("gonof_csrf")
-                .or_else(|| self.0.get("__Host-gonof_csrf"))
-                .cloned()
-                .unwrap_or_default()
+            [
+                "gonof_csrf__port58833",
+                "__Host-gonof_csrf__port58833",
+                "gonof_csrf",
+                "__Host-gonof_csrf",
+            ]
+            .iter()
+            .find_map(|name| self.0.get(*name))
+            .cloned()
+            .unwrap_or_default()
         }
     }
 }
@@ -219,9 +226,14 @@ async fn request(
     fields: &[(&str, &str)],
     extra: &[(&str, &str)],
 ) -> Response {
+    // A forum under a sub-path has its address with the path; Host and Origin carry only the scheme, host and port.
+    let site_origin = url::Url::parse(&fixture.origin)
+        .unwrap()
+        .origin()
+        .ascii_serialization();
     let mut builder = Request::builder().method(method).uri(path).header(
         header::HOST,
-        gono_forum_web::test_support::host_of(&fixture.origin),
+        gono_forum_web::test_support::host_of(&site_origin),
     );
     // The Secure flag and the __Host- prefix of the cookie depend on the connection protocol, not on the site
     // URL: an HTTPS site has to forward X-Forwarded-Proto like a reverse proxy does, plus a loopback peer, before
@@ -238,7 +250,7 @@ async fn request(
             .iter()
             .any(|(name, _)| name.eq_ignore_ascii_case("origin"))
         {
-            builder = builder.header(header::ORIGIN, &fixture.origin);
+            builder = builder.header(header::ORIGIN, &site_origin);
         }
     }
     for (name, value) in extra {
@@ -361,7 +373,7 @@ async fn native_forms_connect_invitation_registration_verification_login_and_log
     // A long-lived form may outlive its anonymous cookie. Keep its non-password inputs
     // and issue a fresh CSRF token so re-entering the password is enough to recover.
     let stale_csrf = member.csrf(&fixture.identity).await;
-    member.0.remove("gonof_csrf");
+    member.0.remove("gonof_csrf__port58833");
     let mut stale_fields = fields.to_vec();
     stale_fields.push(("_csrf", &stale_csrf));
     let expired_form = request(
@@ -720,6 +732,53 @@ async fn registration_requires_consent_and_logs_the_policy_versions() {
     );
     assert_eq!(data["consent"]["privacy_digest"], latest_privacy.1.as_str());
     assert_eq!(latest_privacy.1.len(), 64);
+}
+
+/// Two independent forums on one host, one at the root and one under `/bbs`, each with its own database: a browser
+/// signed in to both keeps both sessions, because each forum names its cookies after its path (and port).
+#[tokio::test]
+async fn forums_on_different_paths_of_one_host_keep_their_own_sessions() {
+    let root = Fixture::new(false, ORIGIN).await;
+    let sub = Fixture::new(false, &format!("{ORIGIN}/bbs")).await;
+    let mut browser = Cookies::default();
+    get(&root, "/login", &mut browser)
+        .await
+        .status(StatusCode::OK);
+    post(
+        &root,
+        "/login",
+        &mut browser,
+        &[("username", "admin"), ("password", &root.admin_password)],
+    )
+    .await
+    .redirect("/");
+    get(&sub, "/bbs/login", &mut browser)
+        .await
+        .status(StatusCode::OK);
+    let sub_csrf = browser
+        .0
+        .get("gonof_csrf_bbs__port58833")
+        .cloned()
+        .expect("the sub-path forum issues its own CSRF cookie");
+    let mut fields = vec![
+        ("username", "admin"),
+        ("password", sub.admin_password.as_str()),
+    ];
+    fields.push(("_csrf", &sub_csrf));
+    request(&sub, "POST", "/bbs/login", &mut browser, &fields, &[])
+        .await
+        .redirect("/bbs/");
+    assert!(browser.0.contains_key("gonof_session__port58833"));
+    assert!(browser.0.contains_key("gonof_session_bbs__port58833"));
+    let home = get(&root, "/", &mut browser).await;
+    home.status(StatusCode::OK);
+    assert!(
+        home.html.contains("action=\"/logout\""),
+        "the root forum still knows the member after signing in to the other forum"
+    );
+    let sub_home = get(&sub, "/bbs/", &mut browser).await;
+    sub_home.status(StatusCode::OK);
+    assert!(sub_home.html.contains("action=\"/bbs/logout\""));
 }
 
 /// When the return URL contains non-ASCII characters, a successful sign-in is still 303 and Location is the same
@@ -1133,14 +1192,19 @@ async fn cookie_rotation_preserves_csrf_and_identity_changes_never_restore_old_l
             .headers
             .get_all(header::SET_COOKIE)
             .iter()
-            .filter(|value| value.to_str().unwrap().starts_with("gonof_session="))
+            .filter(|value| {
+                value
+                    .to_str()
+                    .unwrap()
+                    .starts_with("gonof_session__port58833=")
+            })
             .collect();
         assert_eq!(session_headers.len(), 1);
         assert!(
             session_headers[0]
                 .to_str()
                 .unwrap()
-                .starts_with("gonof_session=;")
+                .starts_with("gonof_session__port58833=;")
         );
         assert!(session_headers[0].to_str().unwrap().contains("Max-Age=0"));
         assert!(original_jar.session().is_none());
@@ -1170,7 +1234,7 @@ async fn malformed_encrypted_cookies_and_duplicates_cannot_establish_a_member_co
         response.redirect("/login?return_to=%2Fmy%2Faccount");
         response.debug(false);
     }
-    let cookie = format!("gonof_session={}", grant.session_token);
+    let cookie = format!("gonof_session__port58833={}", grant.session_token);
     let response = request(
         &fixture,
         "GET",
@@ -1190,7 +1254,7 @@ async fn malformed_encrypted_cookies_and_duplicates_cannot_establish_a_member_co
                 .header(header::COOKIE, &cookie)
                 .header(
                     header::COOKIE,
-                    axum::http::HeaderValue::from_bytes(b"gonof_session=\xff").unwrap(),
+                    axum::http::HeaderValue::from_bytes(b"gonof_session__port58833=\xff").unwrap(),
                 )
                 .body(Body::empty())
                 .unwrap(),
@@ -1208,7 +1272,10 @@ async fn malformed_encrypted_cookies_and_duplicates_cannot_establish_a_member_co
         "/login",
         &mut Cookies::default(),
         &[],
-        &[("Cookie", &format!("gonof_csrf={}", grant.session_token))],
+        &[(
+            "Cookie",
+            &format!("gonof_csrf__port58833={}", grant.session_token),
+        )],
     )
     .await;
     response.status(StatusCode::OK);
@@ -1216,7 +1283,12 @@ async fn malformed_encrypted_cookies_and_duplicates_cannot_establish_a_member_co
         .headers
         .get_all(header::SET_COOKIE)
         .iter()
-        .find_map(|header| header.to_str().unwrap().strip_prefix("gonof_csrf="))
+        .find_map(|header| {
+            header
+                .to_str()
+                .unwrap()
+                .strip_prefix("gonof_csrf__port58833=")
+        })
         .unwrap()
         .split(';')
         .next()
@@ -1278,7 +1350,7 @@ async fn transport_and_csrf_ignore_the_configured_site_address() {
         .to_str()
         .unwrap()
         .to_owned();
-    assert!(issued.starts_with("gonof_csrf="), "got {issued}");
+    assert!(issued.starts_with("gonof_csrf__port58833="), "got {issued}");
     assert!(
         !issued.contains("Secure"),
         "a plain-text connection gets no Secure cookie"
@@ -1294,7 +1366,7 @@ async fn transport_and_csrf_ignore_the_configured_site_address() {
         .to_str()
         .unwrap()
         .to_owned();
-    assert!(issued_secure.starts_with("__Host-gonof_csrf="));
+    assert!(issued_secure.starts_with("__Host-gonof_csrf__port58833="));
     assert!(issued_secure.contains("; Secure"));
 
     // CSRF: passes when Origin matches this request's Host, even though it is completely different from the site
@@ -1316,7 +1388,7 @@ async fn transport_and_csrf_ignore_the_configured_site_address() {
         "POST",
         Some("http://127.0.0.1:58833"),
         None,
-        Some(format!("gonof_csrf={token}")),
+        Some(format!("gonof_csrf__port58833={token}")),
         form.clone(),
     )
     .await;
@@ -1331,7 +1403,7 @@ async fn transport_and_csrf_ignore_the_configured_site_address() {
         "POST",
         Some("https://evil.example.test"),
         None,
-        Some(format!("gonof_csrf={token}")),
+        Some(format!("gonof_csrf__port58833={token}")),
         form,
     )
     .await;

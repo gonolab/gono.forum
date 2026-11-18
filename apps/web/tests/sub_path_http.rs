@@ -97,13 +97,24 @@ impl Fixture {
         }
     }
 
+    /// The administrator's session cookie as the forum named by the start of `path` calls it: after its path
+    /// prefix and port (docs/install.md, "Reverse proxy").
+    fn session_cookie(&self, path: &str) -> String {
+        let prefix = ["/bbs", "/forum"]
+            .into_iter()
+            .find(|prefix| path == *prefix || path.starts_with(&format!("{prefix}/")))
+            .unwrap_or_default()
+            .replace('/', "_");
+        format!(
+            "gonof_session{prefix}__port58833={}",
+            self.admin.session_token
+        )
+    }
+
     async fn get(&self, path: &str, signed_in: bool) -> Reply {
         let mut request = Request::builder().uri(path);
         if signed_in {
-            request = request.header(
-                header::COOKIE,
-                format!("gonof_session={}", self.admin.session_token),
-            );
+            request = request.header(header::COOKIE, self.session_cookie(path));
         }
         self.send(request.body(Body::empty()).unwrap()).await
     }
@@ -118,10 +129,7 @@ impl Fixture {
             Request::builder()
                 .method("POST")
                 .uri(path)
-                .header(
-                    header::COOKIE,
-                    format!("gonof_session={}", self.admin.session_token),
-                )
+                .header(header::COOKIE, self.session_cookie(path))
                 .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .body(Body::from(body.finish()))
                 .unwrap(),
@@ -344,7 +352,7 @@ async fn everything_is_served_and_linked_under_the_prefix() {
     assert!(
         cookies
             .iter()
-            .any(|c| c.starts_with("gonof_csrf=") && c.contains("Path=/;")),
+            .any(|c| c.starts_with("gonof_csrf_bbs__port58833=") && c.contains("Path=/;")),
         "{cookies:?}"
     );
 
@@ -418,7 +426,8 @@ async fn everything_is_served_and_linked_under_the_prefix() {
     assert!(
         reveal
             .iter()
-            .any(|c| c.starts_with("gonof_feed_reveal=") && c.contains("Path=/bbs/my/feed;")),
+            .any(|c| c.starts_with("gonof_feed_reveal_bbs__port58833=")
+                && c.contains("Path=/bbs/my/feed;")),
         "{reveal:?}"
     );
 

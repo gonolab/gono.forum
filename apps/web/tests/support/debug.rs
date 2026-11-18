@@ -163,7 +163,7 @@ async fn debug_account(db: &Database) -> DebugAccount {
     let grant = identity.login("admin", &password).await.unwrap();
     DebugAccount {
         uid: grant.member.uid,
-        cookie: format!("gonof_session={}", grant.session_token),
+        cookie: format!("gonof_session__port58833={}", grant.session_token),
         root,
     }
 }

@@ -111,13 +111,16 @@ impl Cookies {
         Self::session(&fixture.member.session_token)
     }
     fn session(raw: &str) -> Self {
-        Self(BTreeMap::from([("gonof_session".into(), raw.into())]))
+        Self(BTreeMap::from([(
+            "gonof_session__port58833".into(),
+            raw.into(),
+        )]))
     }
     async fn csrf(&self, identity: &Identity) -> String {
         if let Some(raw) = self
             .0
-            .get("gonof_session")
-            .or_else(|| self.0.get("__Host-gonof_session"))
+            .get("gonof_session__port58833")
+            .or_else(|| self.0.get("__Host-gonof_session__port58833"))
         {
             identity
                 .session(raw)
@@ -127,8 +130,8 @@ impl Cookies {
                 .unwrap_or_default()
         } else {
             self.0
-                .get("gonof_csrf")
-                .or_else(|| self.0.get("__Host-gonof_csrf"))
+                .get("gonof_csrf__port58833")
+                .or_else(|| self.0.get("__Host-gonof_csrf__port58833"))
                 .cloned()
                 .unwrap_or_default()
         }
@@ -471,8 +474,8 @@ async fn email_confirmation_is_read_only_until_post_then_switches_email_and_revo
     )
     .await
     .redirect("/login?email_changed=true");
-    assert!(!anonymous.0.contains_key("gonof_session"));
-    assert!(!anonymous.0.contains_key("gonof_csrf"));
+    assert!(!anonymous.0.contains_key("gonof_session__port58833"));
+    assert!(!anonymous.0.contains_key("gonof_csrf__port58833"));
     for sid in [&fixture.member.session_token, &other.session_token] {
         assert!(fixture.identity.session(sid).await.unwrap().is_none());
     }

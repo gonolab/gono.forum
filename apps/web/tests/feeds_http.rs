@@ -476,7 +476,7 @@ async fn feeds_leave_out_everything_anonymous_cannot_read() {
         gono_forum_web::test_support::detached_global(),
     );
     let member = http_auth::login(&identity, &f.db, MEMBER).await;
-    let cookie = format!("gonof_session={}", member.session_token);
+    let cookie = format!("gonof_session__port58833={}", member.session_token);
     let ai = get(&app, "/ai", &[(header::COOKIE, &cookie)]).await;
     assert_eq!(ai.status, StatusCode::OK);
     assert!(!ai.body.contains("rel=\"alternate\""));
@@ -648,7 +648,7 @@ async fn topic_pages_share_article_metadata_and_structured_data() {
         gono_forum_web::test_support::detached_global(),
     );
     let member = http_auth::login(&identity, &f.db, MEMBER).await;
-    let cookie = format!("gonof_session={}", member.session_token);
+    let cookie = format!("gonof_session__port58833={}", member.session_token);
     let site_description = runtime::read(&f.db).await.unwrap().site.description;
     for tid in [121, 104] {
         let path = format!("/thread-{tid}");

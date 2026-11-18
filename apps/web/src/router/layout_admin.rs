@@ -588,7 +588,12 @@ async fn preview(AdminPage(state): AdminPage, CsrfForm(form): CsrfForm<TargetFor
     ) {
         Ok(sealed) => {
             let mut response = auth::redirect("/");
-            super::skins::preview_cookie(&mut response, &sealed, crate::identity::SKIN_PREVIEW_TTL);
+            super::skins::preview_cookie(
+                &mut response,
+                &state.viewer,
+                &sealed,
+                crate::identity::SKIN_PREVIEW_TTL,
+            );
             response
         }
         Err(error) => auth::identity_error(&state, error),
@@ -622,7 +627,7 @@ pub(super) async fn publish_draft(state: &AppState, domain: Option<i64>) -> Resp
         address(domain),
         if domain.is_some() { "&" } else { "?" }
     ));
-    super::skins::preview_cookie(&mut response, "", 0);
+    super::skins::preview_cookie(&mut response, &state.viewer, "", 0);
     response
 }
 
@@ -640,7 +645,7 @@ async fn discard(AdminPage(state): AdminPage, CsrfForm(form): CsrfForm<TargetFor
                 if domain.is_some() { "&" } else { "?" }
             ));
             if state.frame.preview_layout {
-                super::skins::preview_cookie(&mut response, "", 0);
+                super::skins::preview_cookie(&mut response, &state.viewer, "", 0);
             }
             response
         }

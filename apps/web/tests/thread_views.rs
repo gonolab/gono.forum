@@ -66,7 +66,10 @@ async fn send(
 ) -> (StatusCode, String) {
     let mut request = Request::builder().method(method).uri(path);
     if let Some(session) = session {
-        request = request.header(header::COOKIE, format!("gonof_session={session}"));
+        request = request.header(
+            header::COOKIE,
+            format!("gonof_session__port58833={session}"),
+        );
     }
     for (name, value) in headers {
         request = request.header(*name, *value);

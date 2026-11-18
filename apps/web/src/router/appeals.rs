@@ -30,7 +30,7 @@ fn failure(state: &AppState, error: ContentWriteError) -> Response {
 fn access(state: &AppState, headers: &HeaderMap) -> Option<governance::AppealAccess> {
     // An explicit email grant determines the account within the appeal area even
     // when the browser already has a different ordinary forum session.
-    if let Some(raw) = auth::cookie(headers, "gonof_appeal") {
+    if let Some(raw) = auth::cookie(headers, &state.viewer.plain_cookie(COOKIE)) {
         return Some(governance::AppealAccess::Token(raw));
     }
     state
@@ -40,12 +40,17 @@ fn access(state: &AppState, headers: &HeaderMap) -> Option<governance::AppealAcc
         .map(|session| governance::AppealAccess::Session(session.member.actor()))
 }
 
+/// The appeal access token of a member who confirmed by mail; named with this forum's suffix
+/// ([`auth::cookie_name`]).
+const COOKIE: &str = "gonof_appeal";
+
 fn cookie(response: &mut Response, state: &AppState, value: &str, seconds: i64) {
     let secure = if state.viewer.secure { "; Secure" } else { "" };
     response.headers_mut().append(
         header::SET_COOKIE,
         HeaderValue::from_str(&format!(
-            "gonof_appeal={value}; Path={}; HttpOnly; SameSite=Lax; Max-Age={}{secure}",
+            "{}={value}; Path={}; HttpOnly; SameSite=Lax; Max-Age={}{secure}",
+            state.viewer.plain_cookie(COOKIE),
             // Sent only to the appeal pages, with this request's path prefix.
             crate::site::href("/appeals"),
             seconds.max(0)
@@ -492,7 +497,7 @@ async fn exit(
     headers: HeaderMap,
     CsrfForm(_): CsrfForm<AccessForm>,
 ) -> Response {
-    if let Some(raw) = auth::cookie(&headers, "gonof_appeal")
+    if let Some(raw) = auth::cookie(&headers, &state.viewer.plain_cookie(COOKIE))
         && let Err(e) = governance::revoke_appeal_access(&state.db, &raw, identity::now()).await
     {
         return failure(&state, e);

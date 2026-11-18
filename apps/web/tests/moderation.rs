@@ -142,7 +142,7 @@ impl Fixture {
         if let Some(uid) = uid {
             request = request.header(
                 header::COOKIE,
-                format!("gonof_session={}", self.tokens[uid - 1]),
+                format!("gonof_session__port58833={}", self.tokens[uid - 1]),
             );
         }
         let body = if method == "POST" {

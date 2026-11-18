@@ -382,7 +382,12 @@ async fn preview(AdminPage(state): AdminPage, CsrfForm(form): CsrfForm<SeedsForm
     ) {
         Ok(sealed) => {
             let mut response = auth::redirect("/");
-            preview_cookie(&mut response, &sealed, crate::identity::SKIN_PREVIEW_TTL);
+            preview_cookie(
+                &mut response,
+                &state.viewer,
+                &sealed,
+                crate::identity::SKIN_PREVIEW_TTL,
+            );
             response
         }
         Err(error) => auth::identity_error(&state, error),
@@ -539,7 +544,12 @@ async fn domain_preview(state: &AppState, domain_id: i64, colors: Colors) -> Res
     ) {
         Ok(sealed) => {
             let mut response = auth::redirect("/");
-            preview_cookie(&mut response, &sealed, crate::identity::SKIN_PREVIEW_TTL);
+            preview_cookie(
+                &mut response,
+                &state.viewer,
+                &sealed,
+                crate::identity::SKIN_PREVIEW_TTL,
+            );
             response
         }
         Err(error) => auth::identity_error(state, error),
