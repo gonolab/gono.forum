@@ -19,8 +19,15 @@ A skin is a directory named after its id:
   skin.css                 the skin's stylesheet, optional
 ```
 
-Other files are ignored with a warning. The built-in skins live in `apps/web/skins/` (today only `default`, which is
-the standard look: the core color scheme unchanged and no stylesheet).
+Other files are ignored with a warning. The built-in skins live in `apps/web/skins/`:
+
+- `default`, the standard look: the core color scheme unchanged and no stylesheet.
+- `harbor`: the boards and the new-thread button in side navigation (the header leaves the boards out), the page head
+  as a banner, round avatars, flat topic lists with each row's board as a label in the board's color and a reply count
+  column, title bands in the board's color over board and thread pages, posts beside a 64px avatar, and all four
+  behavior modules; the home and board pages have no aside, the thread page's holds the member card and the timeline.
+  Palettes: `main` (slate), `contrast` (stronger secondary text, lines and field borders) and `colored` (the header in
+  the main color).
 
 ### The manifest
 

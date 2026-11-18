@@ -1,0 +1,866 @@
+/* Harbor, a built-in skin (apps/web/skins/harbor): board navigation in a column at the side, a white ground with
+   flat surfaces, 4px corners, round avatars, a topic list with board labels and a reply count column, title bands in
+   the board's color over boards and threads, and posts beside a large avatar column. It keeps every rule of
+   docs/styles.md: the header keeps the sizes router/nav_fit.rs measured, the post actions stay visible, and colors
+   come from the palettes. Blocks: sizes, avatars, masthead, colored masthead, controls, side navigation, layout and
+   aside, listing, topic rows, labels, banner and board head, topic page, floors, actions, post body, board
+   directories, breakpoints. */
+
+/* ------------------------------------------------------------------ */
+/* Sizes                                                               */
+/* ------------------------------------------------------------------ */
+
+:root {
+  --r-sm: 4px;
+  --r-input: 4px;
+  --r: 4px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Avatars: initials in capitals on a strong ground                    */
+/* ------------------------------------------------------------------ */
+
+.avatar--initials {
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+/* The guest placeholder of the member card is not an .avatar, so the fixed circle does not reach it. */
+.person__avatar--guest {
+  border-radius: 50%;
+}
+
+/* ------------------------------------------------------------------ */
+/* Masthead: colors and corners only; every size stays as measured     */
+/* ------------------------------------------------------------------ */
+
+.masthead__brand,
+.theme-switch {
+  border-radius: var(--r-sm);
+}
+
+.masthead__search {
+  border-color: var(--input-bg);
+  border-radius: var(--r-sm);
+}
+
+.masthead__search:focus-within {
+  border-color: var(--input-focus);
+  background: var(--panel);
+}
+
+.masthead__query,
+.masthead__search-button {
+  border-radius: var(--r-sm);
+}
+
+.masthead__action,
+.masthead__action--register {
+  border-color: transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.masthead__action:hover,
+.masthead__action--register:hover {
+  border-color: transparent;
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
+/* ------------------------------------------------------------------ */
+/* Colored masthead: the "colored" palette puts the header on the main */
+/* color; only colors change, and each item's focus ring turns to the  */
+/* header's text color so it shows on that ground                      */
+/* ------------------------------------------------------------------ */
+
+:root[data-palette="colored"] .masthead {
+  border-block-end-color: var(--primary-bg);
+  background: var(--primary-bg);
+}
+
+:root[data-palette="colored"] :is(.masthead__brand, .drawer-toggle, .masthead__search-button, .theme-switch, .masthead__action, .account-nav__toggle) {
+  --focus-ring: var(--primary-text);
+  color: var(--primary-text);
+}
+
+:root[data-palette="colored"] :is(.drawer-toggle, .masthead__search-button, .theme-switch, .masthead__action, .masthead__action--register, .account-nav__toggle):hover {
+  background: var(--primary-hover);
+  color: var(--primary-text);
+}
+
+:root[data-palette="colored"] .masthead__search {
+  --input-focus: var(--primary-text);
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
+}
+
+:root[data-palette="colored"] .masthead__search:focus-within {
+  border-color: var(--primary-text);
+  background: var(--primary-hover);
+}
+
+:root[data-palette="colored"] .masthead__query {
+  color: var(--primary-text);
+}
+
+:root[data-palette="colored"] .masthead__query::placeholder {
+  color: var(--primary-text);
+}
+
+:root[data-palette="colored"] .masthead__action--register {
+  color: var(--primary-text);
+}
+
+/* ------------------------------------------------------------------ */
+/* Controls: 36px buttons with 4px corners                             */
+/* ------------------------------------------------------------------ */
+
+.button,
+.icon-button,
+.floor__action,
+.panel__action,
+.board-chip,
+.tabs--switch,
+.tabs--switch .tabs__item {
+  border-radius: var(--r-sm);
+}
+
+.button {
+  min-block-size: 36px;
+  padding-inline: 18px;
+  font-weight: 600;
+}
+
+.button--secondary {
+  padding-inline: 13px;
+  font-weight: 400;
+}
+
+.button--small {
+  min-block-size: 30px;
+  padding-inline: 12px;
+}
+
+.pager__item {
+  border-color: transparent;
+  border-radius: var(--r-sm);
+  background: var(--secondary-bg);
+  color: var(--secondary-text);
+  font-family: inherit;
+}
+
+.pager__item:hover {
+  background: var(--secondary-hover);
+  color: var(--text);
+}
+
+/* ------------------------------------------------------------------ */
+/* Side navigation: the new-thread button over the board list          */
+/* ------------------------------------------------------------------ */
+
+.side-nav > .panel {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.side-nav .block-nav__post {
+  display: flex;
+  inline-size: 100%;
+  margin-block-end: 14px;
+}
+
+.side-nav .block-boards__tree {
+  gap: 0;
+}
+
+.side-nav .block-boards__name {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-block-size: 34px;
+  padding-inline: 4px;
+  color: var(--text-muted);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.side-nav .block-boards__glyph {
+  flex: none;
+  inline-size: 18px;
+  block-size: 18px;
+  color: var(--board-color, var(--text-muted));
+}
+
+/* A board without a glyph gets a dot in its color, so the names stay aligned. */
+.side-nav .block-boards__name:not(:has(.block-boards__glyph))::before {
+  content: "";
+  flex: none;
+  inline-size: 18px;
+  block-size: 18px;
+  background: var(--board-color, var(--text-subtle));
+  mask-image: radial-gradient(circle, currentColor 28%, transparent 32%);
+}
+
+.side-nav .block-boards__name:hover,
+.side-nav .block-boards__children a:hover {
+  color: var(--link-hover);
+  text-decoration: none;
+}
+
+.side-nav .block-boards__tree a[aria-current] {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.side-nav .block-boards__children {
+  padding-inline-start: 34px;
+}
+
+.side-nav .block-boards__children a {
+  display: block;
+  padding-block: 4px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Layout and aside: sections without boxes; an empty aside gives its  */
+/* column to the main column                                           */
+/* ------------------------------------------------------------------ */
+
+.layout:has(> .layout__aside):not(:has(> .layout__aside > *)) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.layout__aside:not(:has(> *)) {
+  display: none;
+}
+
+.panel--aside {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.panel--aside .panel__title {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------ */
+/* Listing: no card; sort and category tabs read as toolbar buttons    */
+/* ------------------------------------------------------------------ */
+
+.pane {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.pane > .tabs,
+.list-toolbar {
+  padding-inline: 0;
+  border-block-end: 0;
+  box-shadow: none;
+}
+
+.list-toolbar {
+  margin-block-end: 6px;
+}
+
+.list-toolbar .tabs {
+  gap: 4px;
+}
+
+.list-toolbar .tabs__item {
+  min-block-size: 34px;
+  padding-inline: 12px;
+  border-block-end: 0;
+  border-radius: var(--r-sm);
+  font-size: 14px;
+}
+
+.list-toolbar .tabs__item:hover {
+  background: var(--panel-alt);
+}
+
+.list-toolbar .tabs__item[aria-current] {
+  background: var(--secondary-bg);
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* ------------------------------------------------------------------ */
+/* Topic rows: a 36px avatar, the title, the board label on the end    */
+/* side and a reply count column; no rules between rows                */
+/* ------------------------------------------------------------------ */
+
+.rows--topics > * + *,
+.pane > .rows + .rows {
+  border-block-start: 0;
+}
+
+.rows--topics > .rows__item {
+  position: relative;
+  gap: 16px;
+  padding-block: 12px;
+  padding-inline: 12px 84px;
+  border-radius: var(--r-sm);
+}
+
+.rows--topics > .rows__item--pinned {
+  background: none;
+}
+
+.rows--topics > .rows__item:hover,
+.rows--topics > .rows__item--pinned:hover {
+  background: var(--panel-alt);
+}
+
+.rows--topics .row-avatar {
+  inline-size: 36px;
+  block-size: 36px;
+}
+
+.rows--topics .row-body {
+  gap: 2px;
+}
+
+.rows--topics .row-headline {
+  gap: 4px 8px;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.rows--topics .row-title {
+  color: var(--text-strong);
+  font-weight: 400;
+}
+
+.rows--topics .rows__item.is-unread .row-title {
+  font-weight: 600;
+}
+
+.rows--topics .rows__item.is-unread .row-title::before {
+  content: none;
+}
+
+.rows--topics .row-meta {
+  gap: 2px 10px;
+  font-size: 13px;
+  color: var(--text-subtle);
+}
+
+.rows--topics .row-meta__author .meta-glyph,
+.rows--topics .row-meta__views {
+  display: none;
+}
+
+.rows--topics .row-author {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* Pin and lock icons before the title; the pin stands in for the "Pinned" label of the same row. */
+.rows--topics .row-icon {
+  display: inline-flex;
+  align-self: center;
+  color: var(--text-muted);
+}
+
+.rows--topics .row-labels > .tag--pinned {
+  display: none;
+}
+
+.rows--topics .row-title,
+.rows--topics .row-pages {
+  order: 1;
+}
+
+.rows--topics .row-labels > .tag {
+  order: 2;
+}
+
+/* The board of every row as a label filled with the board's color. It stands in for .row-meta__board. */
+.rows--topics .row-end {
+  display: flex;
+  align-self: flex-start;
+  margin-block-start: 2px;
+}
+
+.rows--topics .row-meta__board {
+  display: none;
+}
+
+/* On a board page the label would repeat the page's board: only the rows that name a board of their own (child
+   boards, and pins from other boards) keep theirs. Search results have a board head too, without data-board, and keep
+   every label. */
+.site-main:has(.board-head[data-board]) .rows--topics > .rows__item:not(:has(.row-meta__board)) > .row-end {
+  display: none;
+}
+
+/* Shown at every width: the core hides board chips from 420px down, where this label sits on a line of its own. */
+.rows--topics .board-chip {
+  display: inline-flex;
+  block-size: 20px;
+  padding-inline: 6px;
+  background: var(--board-color, var(--tag-news-text));
+  color: var(--board-on-color, var(--bg));
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.rows--topics .board-chip:hover {
+  background: var(--board-color, var(--tag-news-text));
+  color: var(--board-on-color, var(--bg));
+  text-decoration: underline;
+}
+
+/* The reply count as a column at the top of the end side. */
+.rows--topics .row-meta__replies {
+  position: absolute;
+  inset-block-start: 14px;
+  inset-inline-end: 12px;
+  inline-size: 56px;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.rows--topics .rows__item.is-unread .row-meta__replies {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------ */
+/* Labels: filled with the kind's color                                */
+/* ------------------------------------------------------------------ */
+
+.tag--pinned {
+  --label: var(--tag-pinned-text);
+}
+
+.tag--featured {
+  --label: var(--tag-featured-text);
+}
+
+.tag--bounty {
+  --label: var(--tag-bounty-text);
+}
+
+.tag--redpacket {
+  --label: var(--tag-redpacket-text);
+}
+
+.tag--lottery {
+  --label: var(--tag-lottery-text);
+}
+
+.tag--poll {
+  --label: var(--tag-poll-text);
+}
+
+:is(.row-headline, .thread-head__tags) .tag {
+  block-size: 20px;
+  padding-inline: 6px;
+  border: 0;
+  background: var(--label, var(--tag-news-text));
+  color: var(--bg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------ */
+/* Banner and board head: a centered band                              */
+/* ------------------------------------------------------------------ */
+
+.site-frame__main > .page-hero {
+  border: 0;
+}
+
+.page-head--banner .board-head {
+  text-align: center;
+}
+
+.page-head--banner .board-head__top,
+.page-head--banner .board-head__actions {
+  justify-content: center;
+}
+
+.page-head--banner .board-head__title {
+  flex: none;
+  font-size: 22px;
+  font-weight: 400;
+}
+
+/* A board with a color fills the band with it; its text takes the color's own text color. The negative margins
+   undo the band's padding (blocks.css, "page-hero__inner"), so the color reaches the band's edges. */
+.page-head--banner > .board-head[data-board] {
+  --text-strong: var(--board-on-color, var(--hero-text));
+  --text: var(--board-on-color, var(--hero-text));
+  --text-muted: var(--board-on-color, var(--hero-text));
+  --link: var(--board-on-color, var(--hero-text));
+  --link-hover: var(--board-on-color, var(--hero-text));
+  margin-block: -28px;
+  margin-inline: -24px;
+  padding-block: 28px;
+  padding-inline: 24px;
+  border-radius: var(--r);
+  background: var(--board-color, var(--hero-bg));
+  color: var(--board-on-color, var(--hero-text));
+}
+
+.page-head--banner .board-head__guide > summary {
+  margin-inline: auto;
+}
+
+.page-head--banner .board-head__guide-body {
+  background: var(--panel);
+  color: var(--text);
+  text-align: start;
+}
+
+/* ------------------------------------------------------------------ */
+/* Topic page: no cards; the title sits in a centered band             */
+/* ------------------------------------------------------------------ */
+
+.thread,
+.spotlight,
+.replies-pane {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+/* The band takes the color of the thread's board (article.thread carries its data-board), or the hero colors. */
+.thread-head {
+  --text-strong: var(--board-on-color, var(--hero-text));
+  --text: var(--board-on-color, var(--hero-text));
+  --text-muted: var(--board-on-color, var(--hero-text));
+  --link: var(--board-on-color, var(--hero-text));
+  --link-hover: var(--board-on-color, var(--hero-text));
+  justify-items: center;
+  gap: 10px;
+  padding-block: 32px 24px;
+  padding-inline: 24px;
+  border-radius: var(--r);
+  background: var(--board-color, var(--hero-bg));
+  color: var(--board-on-color, var(--hero-text));
+  text-align: center;
+}
+
+.thread-head__tags {
+  justify-content: center;
+}
+
+.thread-head__title {
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.thread-stats {
+  justify-content: center;
+}
+
+/* The labels in the band are drawn in reverse: the band's text color as their ground. */
+.thread-head__tags .tag {
+  background: var(--board-on-color, var(--label, var(--tag-news-text)));
+  color: var(--board-color, var(--bg));
+}
+
+.thread-stats__tools {
+  margin-inline-start: 0;
+}
+
+.thread-head__reply {
+  display: inline-flex;
+}
+
+.thread > .floor--opening {
+  padding-block: 24px 20px;
+  padding-inline: 0;
+  border-block-start: 0;
+}
+
+.spotlight,
+.replies-head,
+.replies-pane__pager {
+  padding-inline: 0;
+}
+
+.replies-head {
+  border-block-end-color: var(--line);
+}
+
+/* The reply box reads as a placeholder at the end of the stream. */
+.reply-box {
+  padding-block: 18px;
+  padding-inline: 20px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-input);
+  background: none;
+  box-shadow: none;
+}
+
+.reply-gate {
+  padding: 0;
+  background: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Floors: a 64px avatar column, no rules between posts                */
+/* ------------------------------------------------------------------ */
+
+.rows--posts > * + * {
+  border-block-start: 0;
+}
+
+.floor:not(.floor--sub) {
+  grid-template-columns: 64px minmax(0, 1fr);
+  column-gap: 20px;
+}
+
+.floor:not(.floor--sub) > .row-avatar {
+  inline-size: 64px;
+  block-size: 64px;
+}
+
+.floor:not(.floor--sub) > .row-avatar > .avatar--initials {
+  font-size: 24px;
+}
+
+.floor-card {
+  padding-block: 20px;
+  padding-inline: 0;
+}
+
+.floor__byline > .row-author {
+  color: var(--text-strong);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* Member titles as small grey labels beside the name. */
+.floor__byline > .tag {
+  border: 0;
+  background: var(--panel-hover);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-weight: 600;
+}
+
+.sub-replies {
+  border-inline-start: 2px solid var(--line);
+  border-radius: 0;
+  background: none;
+}
+
+.sub-replies > * + * {
+  border-block-start: 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Actions: flat text buttons on the end side, always visible          */
+/* ------------------------------------------------------------------ */
+
+.actions-bar {
+  justify-content: flex-end;
+  gap: 0;
+}
+
+.actions-bar .icon-button,
+.actions-bar .floor__action {
+  min-block-size: 34px;
+  padding-inline: 12px;
+  border-color: transparent;
+  background: none;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.actions-bar .icon-button:hover,
+.actions-bar .floor__action:hover {
+  background: var(--panel-alt);
+  color: var(--link-hover);
+}
+
+.actions-bar .icon-button[aria-pressed="true"] {
+  border-color: transparent;
+  background: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Post body                                                           */
+/* ------------------------------------------------------------------ */
+
+.prose a:not([class]) {
+  font-weight: 600;
+  text-decoration-color: var(--line-strong);
+}
+
+.prose a:not([class]):hover {
+  text-decoration-color: currentColor;
+}
+
+.prose blockquote {
+  padding-block: 8px;
+  padding-inline: 15px;
+  border-inline-start: 0;
+  border-radius: var(--r-sm);
+  background: var(--quote-border);
+}
+
+.prose pre {
+  border: 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Board directories: the home directory's glyphs on the board color,  */
+/* and the board's glyph or a dot before each name on /forums          */
+/* ------------------------------------------------------------------ */
+
+.board-dir {
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.board-dir__icon {
+  border-radius: var(--r-sm);
+  background: var(--board-color, var(--panel-hover));
+  color: var(--board-on-color, var(--text-muted));
+}
+
+.rows[data-forum-directory] > .rows__item > .row-body > .row-headline {
+  align-items: center;
+  gap: 10px;
+}
+
+.rows[data-forum-directory] > .rows__item > .row-body > .row-headline::before {
+  content: "";
+  flex: none;
+  inline-size: 20px;
+  block-size: 20px;
+  background: var(--board-color, var(--text-subtle));
+  mask-image: var(--board-glyph, radial-gradient(circle, currentColor 28%, transparent 32%));
+  mask-size: 100% 100%;
+}
+
+.rows[data-forum-directory] > .rows__item > .row-body > :is(.row-excerpt, .row-meta, .rows--children) {
+  margin-inline-start: 30px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Breakpoints (docs/styles.md, "Breakpoints")                         */
+/* ------------------------------------------------------------------ */
+
+/* Phones: the avatar beside two lines (the row and its board label), the count in a small box at the top of the end
+   side. */
+@media (max-width: 760px) {
+  .rows--topics > .rows__item {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 6px 12px;
+    padding-inline: 0 48px;
+  }
+
+  .rows--topics > .rows__item:hover,
+  .rows--topics > .rows__item--pinned:hover {
+    background: none;
+  }
+
+  .rows--topics .row-avatar {
+    grid-row: 1 / span 2;
+    inline-size: 32px;
+    block-size: 32px;
+  }
+
+  .rows--topics .row-headline {
+    font-size: 15px;
+  }
+
+  /* The title shares its line with the pin and lock icons instead of wrapping below them, and keeps most of it:
+     labels that do not fit beside it move to the next line. */
+  .rows--topics .row-title {
+    flex: 1 1 0;
+    min-inline-size: 70%;
+  }
+
+  .rows--topics .row-end {
+    grid-column: 2;
+    justify-self: start;
+    margin: 0;
+  }
+
+  .rows--topics .row-meta__replies {
+    inset-inline-end: 0;
+    inline-size: auto;
+    padding-block: 2px;
+    padding-inline: 6px;
+    border-radius: var(--r-sm);
+    background: var(--panel-hover);
+    font-size: 12px;
+    line-height: 18px;
+  }
+
+  .rows--topics .row-meta__replies > .meta-glyph {
+    display: none;
+  }
+
+  .thread-head {
+    padding-block: 20px;
+    padding-inline: 14px;
+  }
+
+  .page-head--banner > .board-head[data-board] {
+    margin-block: -18px;
+    margin-inline: -14px;
+    padding-block: 18px;
+    padding-inline: 14px;
+  }
+
+  .page-head--banner .board-head__title,
+  .thread-head__title {
+    font-size: 17px;
+  }
+}
+
+@media (max-width: 640px) {
+  .floor:not(.floor--sub) {
+    grid-template-columns: 32px minmax(0, 1fr);
+    column-gap: 10px;
+  }
+
+  .floor:not(.floor--sub) > .row-avatar {
+    inline-size: 32px;
+    block-size: 32px;
+  }
+
+  .floor:not(.floor--sub) > .row-avatar > .avatar--initials {
+    font-size: 13px;
+  }
+
+  .floor-card,
+  .thread > .floor--opening {
+    padding-block: 16px;
+  }
+
+  .actions-bar .icon-button,
+  .actions-bar .floor__action {
+    padding-inline: 10px;
+  }
+}

@@ -1,0 +1,42 @@
+# The built-in Harbor skin: board navigation in a column at the start of the page, a white ground with flat
+# surfaces, round avatars, title bands over boards and threads, and posts with a large avatar column. It follows
+# every rule of docs/styles.md, as built-in skins must (docs/skins.md, "Two kinds of rules").
+contract = 1
+id = "harbor"
+version = "1.0.0"
+# Built-in skins write only English here: their names and descriptions are translated in the translation files
+# (skin-builtin-harbor-name and -description in locales/<language>/skin.ftl, docs/skins.md, "The manifest").
+name = { en = "Harbor" }
+description = { en = "Boards in a side column, flat lists and posts beside large avatars." }
+author = "Gono Forum"
+license = "MIT OR Apache-2.0"
+
+[palettes]
+default = "main"
+# contrast: stronger secondary text, lines and field borders; colored: the header in the main color.
+variants = ["contrast", "colored"]
+
+[frame]
+nav = "side"
+# The side column carries the boards, so the header leaves them out.
+header_boards = false
+avatar_shape = "circle"
+page_head = "banner"
+home = "threads"
+
+[layout]
+# The new-thread button and the boards, with their colors and glyphs.
+"side.nav" = [
+  { id = "side-boards", source = "nav-boards" },
+]
+# The home and board lists take the whole main column.
+"home.aside" = []
+"board.aside" = []
+# The member card over the scrubber of the thread's floors (the timeline module).
+"thread.aside" = [
+  { id = "member-card-thread", source = "member-card" },
+  { id = "outline", source = "thread.outline", view = "timeline", params = { tid = "current" }, title = { key = "block-title-outline" } },
+]
+
+[behaviors]
+enabled = ["timeline", "progress", "autohide-header", "docked-composer"]
