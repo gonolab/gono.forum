@@ -238,13 +238,18 @@ pub async fn invites(db: &Database, actor: Actor, q: &ListQuery) -> Result<(Vec<
     if let Some(uid) = q.uid {
         filter.push_str(&format!(" AND i.uid={uid}"));
     }
-    if q.status == "expired" {
-        filter.push_str(&format!(
-            " AND i.endtime<={} AND i.fuid IS NULL",
-            identity::now()
-        ));
-    } else if !q.status.is_empty() {
-        filter.push_str(&format!(" AND i.status='{}'", q.status));
+    // The filters match the status the list shows (`Invite::status_label`): an available or frozen code past its end
+    // time is shown as expired, and only those are; used and revoked codes keep their own status whatever the time.
+    let now = identity::now();
+    match q.status.as_str() {
+        "" => {}
+        "expired" => filter.push_str(&format!(
+            " AND i.endtime<={now} AND i.status IN ('available','frozen')"
+        )),
+        "available" | "frozen" => {
+            filter.push_str(&format!(" AND i.status='{}' AND i.endtime>{now}", q.status))
+        }
+        status => filter.push_str(&format!(" AND i.status='{status}'")),
     }
     let total: i64 = db::query_scalar(&format!("SELECT COUNT(*) {filter}"))
         .fetch_one(db.executor())

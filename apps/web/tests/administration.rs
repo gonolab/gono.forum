@@ -96,6 +96,93 @@ async fn post(
         .unwrap(),
     )
 }
+/// Each status filter of the invite list returns exactly the codes the list labels with that status: an available
+/// or frozen code past its end time is "expired" (and not "available" or "frozen"), and a revoked code is "revoked"
+/// whatever its end time. Totals follow the same set.
+#[tokio::test]
+async fn invite_filters_match_the_status_shown() {
+    let (f, actor, _) = fixture().await;
+    let now = identity::now();
+    for (code, status, endtime, fuid) in [
+        ("filter-available", "available", now + 3600, None),
+        ("filter-available-late", "available", now - 3600, None),
+        ("filter-frozen", "frozen", now + 3600, None),
+        ("filter-frozen-late", "frozen", now - 3600, None),
+        ("filter-revoked", "revoked", now + 3600, None),
+        ("filter-revoked-late", "revoked", now - 3600, None),
+        ("filter-used-late", "used", now - 3600, Some(9902_i64)),
+    ] {
+        db::query("INSERT INTO gonof_common_invite(uid,code,request_key,fuid,dateline,endtime,status) VALUES(9903,?,?,?,?,?,?)")
+            .bind(code)
+            .bind(code)
+            .bind(fuid)
+            .bind(now - 7200)
+            .bind(endtime)
+            .bind(status)
+            .execute(f.db.executor())
+            .await
+            .unwrap();
+    }
+    let t = gono_forum_web::i18n::current();
+    for (filter, label, expected) in [
+        (
+            "available",
+            t.account_manage_invite_available(),
+            &["filter-available"][..],
+        ),
+        (
+            "frozen",
+            t.account_manage_invite_frozen(),
+            &["filter-frozen"][..],
+        ),
+        (
+            "expired",
+            t.account_manage_invite_expired(),
+            &["filter-available-late", "filter-frozen-late"][..],
+        ),
+        (
+            "revoked",
+            t.account_manage_invite_revoked(),
+            &["filter-revoked", "filter-revoked-late"][..],
+        ),
+        (
+            "used",
+            t.account_manage_invite_used(),
+            &["filter-used-late"][..],
+        ),
+    ] {
+        let (rows, total) = admin::invites(
+            &f.db,
+            actor,
+            &admin::ListQuery {
+                uid: Some(9903),
+                status: filter.into(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let ids: Vec<i64> = rows.iter().map(|row| row.id).collect();
+        let mut codes = Vec::new();
+        for id in &ids {
+            let code: String = db::query_scalar("SELECT code FROM gonof_common_invite WHERE id=?")
+                .bind(id)
+                .fetch_one(f.db.executor())
+                .await
+                .unwrap();
+            codes.push(code);
+        }
+        codes.sort();
+        assert_eq!(codes, expected, "{filter}");
+        assert_eq!(total, expected.len() as i64, "{filter}");
+        assert!(
+            rows.iter().all(|row| row.status_label() == label),
+            "{filter}: every row is labeled as filtered"
+        );
+    }
+    f.cleanup().await.unwrap();
+}
+
 #[tokio::test]
 async fn administrator_invites_are_bounded_idempotent_and_audited() {
     let (f, actor, member) = fixture().await;
