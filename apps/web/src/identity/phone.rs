@@ -12,10 +12,16 @@
 //!   attempts are counted in the database, and the code is voided at the limit. The provider only delivers
 //!   ([`crate::sms`]).
 //! - Limits: the interval per number, per number per day and site-wide per day are counted in the database (days split
-//!   by the site time zone); per IP per hour is handled by the rate limiter in the router layer. Under concurrency one
-//!   or two extra messages may be sent: no site-wide lock for that little quota. Once the site-wide daily amount is
-//!   reached an operation log row is written, and the admin "Login methods" page shows a prominent notice.
-//! - Lock order: code row first, then member row.
+//!   by the site time zone); per IP per hour is handled by the rate limiter in the router layer. Sends are counted one
+//!   at a time under an exclusive lock on one settings row, so concurrent requests cannot share the last message of a
+//!   day or the same interval (the first code for a number has no row of its own to lock). Once the site-wide daily
+//!   amount is reached an operation log row is written, and the admin "Login methods" page shows a prominent notice.
+//! - A new code only becomes current once the provider took it: its row is written as not delivered
+//!   (`expires_at = dateline`) and given its lifetime after delivery, so a send that fails or is interrupted leaves
+//!   the code the member already has working.
+//! - Read-only mode leaves signing in and account security open, so their codes are still sent; only a sign-in code
+//!   for a number without an account is held back, as it could only lead to signing up.
+//! - Lock order: settings gate, send lock, then code row, then member row.
 use crate::db::Tx;
 use hmac::{Hmac, Mac};
 use rand::Rng as _;
@@ -31,6 +37,11 @@ const REGISTRATION_AAD: &[u8] = b"gonof.sms-registration.v1";
 const CODE_DIGITS: usize = 6;
 /// Label of the code digest key derived from the cookie keys ([`cookie::CookieConfig::derived_keys`]).
 const CODE_KEY_LABEL: &[u8] = b"gonof.sms-code.v1";
+/// The send lock: an existing settings row outside the settings gate (which every send holds shared), taken
+/// exclusively the way one-at-a-time admin saves take it. Nothing else holds it per request, so sends wait only for
+/// each other and for those saves.
+const SEND_LOCK_SQL: &str =
+    "SELECT skey FROM gonof_common_settings WHERE skey='identity.bootstrap_admin' FOR UPDATE";
 
 pub(crate) const MOBILE_BIND_LOG: &str = "identity.mobile.bind";
 pub(crate) const MOBILE_CHANGE_LOG: &str = "identity.mobile.change";
@@ -236,11 +247,26 @@ impl Identity {
         client_ip: &str,
     ) -> std::result::Result<(), SmsSendError> {
         let mobile = normalize_mobile(mobile)?;
-        let settings = self.settings().await?;
-        let sms = &settings.sms;
         let timestamp = now();
-        let mut tx = self.db.begin_write().await?;
-        crate::runtime::guard_write(&self.db, &mut tx, false).await?;
+        // READ COMMITTED on MySQL: every count below sees the sends committed while this one waited for the lock.
+        let mut tx = self.db.begin_content_write().await?;
+        let settings = crate::runtime::locked(&self.db, &mut tx).await?;
+        let sms = &settings.sms;
+        crate::db::query(SEND_LOCK_SQL)
+            .fetch_one(self.db.observe(&mut *tx))
+            .await?;
+        if settings.site.read_only && purpose == SmsPurpose::Login {
+            let bound: Option<i64> =
+                crate::db::query_scalar("SELECT uid FROM gonof_common_member WHERE mobile=?")
+                    .bind(&mobile)
+                    .fetch_optional(self.db.observe(&mut *tx))
+                    .await?;
+            if bound.is_none() {
+                return Err(SmsSendError::Identity(IdentityError::Suspended(
+                    settings.site.read_only_notice(crate::i18n::current()),
+                )));
+            }
+        }
         let last: Option<i64> = crate::db::query_scalar(
             "SELECT dateline FROM gonof_common_sms_code WHERE mobile=? ORDER BY dateline DESC LIMIT 1",
         )
@@ -299,12 +325,14 @@ impl Identity {
         let code = generate_code();
         let digest = code_hash(&self.code_keys()?[0], &mobile, purpose, timestamp, &code);
         let expires_at = timestamp + sms.code_ttl_minutes.saturating_mul(60);
+        // Written as not delivered: it counts for the interval and the daily limits at once, and becomes the current
+        // code only after the provider took it.
         let id = crate::db::query("INSERT INTO gonof_common_sms_code(mobile,purpose,code_hash,dateline,expires_at,client_ip) VALUES(?,?,?,?,?,?)")
             .bind(&mobile)
             .bind(purpose.value())
             .bind(digest)
             .bind(timestamp)
-            .bind(expires_at)
+            .bind(timestamp)
             .bind(client_ip.chars().take(45).collect::<String>())
             .execute(self.db.observe(&mut *tx))
             .await?
@@ -319,17 +347,19 @@ impl Identity {
         };
         let delivered =
             crate::sms::deliver(&self.db, &self.common, &self.private_directory(), &message).await;
-        if delivered.is_err() {
-            // A code that did not go out never becomes the current one: its row keeps counting for the interval and
-            // the daily limits, but with no lifetime `check_code` passes over it, and the code the member received
-            // before still works.
-            crate::db::query("UPDATE gonof_common_sms_code SET expires_at=dateline WHERE id=?")
+        match delivered {
+            Ok(()) => {
+                // A code that did not go out (or whose send stopped half way) never gets here: with no lifetime
+                // `check_code` passes over its row, and the code the member received before still works.
+                crate::db::query(
+                    "UPDATE gonof_common_sms_code SET expires_at=? WHERE id=? AND expires_at=dateline",
+                )
+                .bind(expires_at)
                 .bind(message.id)
                 .execute(self.db.executor())
                 .await?;
-        }
-        match delivered {
-            Ok(()) => Ok(()),
+                Ok(())
+            }
             Err(crate::sms::DeliveryError::Frequent) => Err(SmsSendError::Rejected(
                 crate::i18n::current().account_error_sms_frequent(),
             )),
@@ -356,8 +386,8 @@ impl Identity {
         max_attempts: i64,
         timestamp: i64,
     ) -> Result<CodeCheck> {
-        // The latest code that was sent: a row whose delivery failed has `expires_at = dateline` (`send_sms_code`;
-        // a sent code lives at least a minute).
+        // The latest code that was delivered: a row not (yet) delivered has `expires_at = dateline`
+        // (`send_sms_code`; a delivered code lives at least a minute).
         let row = crate::db::query(
             "SELECT id,code_hash,dateline,expires_at,attempts,consumed_at FROM gonof_common_sms_code
              WHERE mobile=? AND purpose=? AND expires_at>dateline ORDER BY dateline DESC, id DESC LIMIT 1 FOR UPDATE",

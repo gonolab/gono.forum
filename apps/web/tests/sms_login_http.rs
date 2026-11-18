@@ -601,6 +601,169 @@ async fn a_referral_link_to_sms_login_is_the_registration_source() {
     f.services.cleanup().await.unwrap();
 }
 
+/// Read-only mode leaves signing in and account security open: a member who only has a phone number still gets a
+/// sign-in code and signs in, a signed-in member still gets a code to link a number, and only a number without an
+/// account gets no code (it could only lead to signing up).
+#[tokio::test]
+async fn read_only_mode_still_sends_codes_for_signing_in_and_account_security() {
+    let f = Fixture::new().await;
+    let mut member = Cookies::default();
+    sms_login(&f, &mut member, MOBILE)
+        .await
+        .redirect("/register/mobile");
+    let page = get(&f, "/register/mobile", &mut member).await;
+    let [terms, privacy] = gono_forum_web::test_support::policy_fields(&page.html);
+    post(
+        &f,
+        "/register/mobile",
+        &mut member,
+        &[
+            ("username", "phone-only"),
+            ("accept_terms", "1"),
+            (terms.0, &terms.1),
+            (privacy.0, &privacy.1),
+        ],
+    )
+    .await
+    .redirect("/");
+    set_setting(&f.db, "settings.site.read_only", "true")
+        .await
+        .unwrap();
+    f.services.global.clear_local();
+    f.age_codes().await;
+
+    let mut returning = Cookies::default();
+    sms_login(&f, &mut returning, MOBILE).await.redirect("/");
+    assert!(returning.0.contains_key("gonof_session__port58833"));
+
+    let mut stranger = Cookies::default();
+    get(&f, "/login/sms", &mut stranger).await;
+    let refused = post(&f, "/login/sms/send", &mut stranger, &[("mobile", OTHER)]).await;
+    assert_eq!(refused.status, StatusCode::FORBIDDEN, "{}", refused.html);
+    assert_eq!(
+        f.scalar("SELECT COUNT(*) FROM gonof_common_sms_code WHERE mobile='+8613900139000'")
+            .await,
+        0,
+        "no code goes to a number without an account while read-only"
+    );
+
+    let mut admin = Cookies::session(&f.admin.session_token);
+    post(
+        &f,
+        "/my/account/mobile/send",
+        &mut admin,
+        &[("mobile", OTHER)],
+    )
+    .await
+    .redirect("/my/account#mobile");
+    let (purpose, _) = f.latest_sms("+8613900139000");
+    assert_eq!(purpose, "bind");
+    f.services.cleanup().await.unwrap();
+}
+
+/// A send that stops while the new code is on its way (here the provider never finishes and the request is dropped,
+/// as when the process stops) leaves the code the member already has as the current one.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_interrupted_delivery_keeps_the_code_already_sent() {
+    let f = Fixture::new().await;
+    f.identity
+        .send_sms_code(MOBILE, identity::phone::SmsPurpose::Login, "192.0.2.1")
+        .await
+        .unwrap();
+    let (_, first) = f.latest_sms(E164);
+    let row = db::query("SELECT id,dateline,expires_at FROM gonof_common_sms_code")
+        .fetch_one(f.db.executor())
+        .await
+        .unwrap();
+    let (first_id, issued, lifetime): (i64, i64, i64) = (
+        row.try_get("id").unwrap(),
+        row.try_get("dateline").unwrap(),
+        row.try_get("expires_at").unwrap(),
+    );
+    // Past the per-number interval; the first code's issue time is put back afterwards (it is part of its digest).
+    f.age_codes().await;
+    // The next code row's local file is a FIFO: writing it waits until someone reads it.
+    let next = f
+        .scalar("SELECT COALESCE(MAX(id),0)+1 FROM gonof_common_sms_code")
+        .await;
+    let fifo = f.services.root.join(format!(".local/sms/{next}.txt"));
+    let path = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    let interrupted = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        f.identity
+            .send_sms_code(MOBILE, identity::phone::SmsPurpose::Login, "192.0.2.1"),
+    )
+    .await;
+    assert!(interrupted.is_err(), "the delivery was still waiting");
+    // Let the stuck write finish so the runtime can shut down; the send itself is gone.
+    let reader = std::thread::spawn(move || std::fs::read(&fifo).unwrap());
+    reader.join().unwrap();
+    db::query("UPDATE gonof_common_sms_code SET dateline=?,expires_at=? WHERE id=?")
+        .bind(issued)
+        .bind(lifetime)
+        .bind(first_id)
+        .execute(f.db.executor())
+        .await
+        .unwrap();
+    let mut visitor = Cookies::default();
+    get(&f, "/login/sms", &mut visitor).await;
+    let step = f
+        .identity
+        .seal_sms_step(0, E164, identity::phone::SmsPurpose::Login)
+        .unwrap();
+    visitor.0.insert("gonof_sms__port58833".into(), step);
+    post(&f, "/login/sms", &mut visitor, &[("code", &first)])
+        .await
+        .redirect("/register/mobile");
+    assert_eq!(
+        f.scalar(&format!(
+            "SELECT COUNT(*) FROM gonof_common_sms_code WHERE id={next} AND expires_at=dateline"
+        ))
+        .await,
+        1,
+        "the interrupted code is recorded as not delivered"
+    );
+    f.services.cleanup().await.unwrap();
+}
+
+/// On MySQL, concurrent sends are counted one at a time: the per-number interval lets exactly one of several
+/// simultaneous requests for a number through, and the site-wide daily amount is never exceeded.
+#[tokio::test]
+async fn concurrent_sends_cannot_exceed_the_interval_or_the_daily_amount() {
+    gono_forum_web::mysql_only!();
+    let f = Fixture::new().await;
+    let sends = (0..8).map(|_| {
+        f.identity
+            .send_sms_code(MOBILE, identity::phone::SmsPurpose::Login, "192.0.2.1")
+    });
+    let results = futures_util::future::join_all(sends).await;
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    assert_eq!(
+        f.scalar("SELECT COUNT(*) FROM gonof_common_sms_code").await,
+        1,
+        "one code per number per interval"
+    );
+
+    set_setting(&f.db, "settings.sms.site_daily_limit", "3")
+        .await
+        .unwrap();
+    let numbers: Vec<String> = (0..8).map(|n| format!("1370013700{n}")).collect();
+    let sends = numbers.iter().map(|number| {
+        f.identity
+            .send_sms_code(number, identity::phone::SmsPurpose::Login, "192.0.2.1")
+    });
+    let results = futures_util::future::join_all(sends).await;
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 2);
+    assert_eq!(
+        f.scalar("SELECT COUNT(*) FROM gonof_common_sms_code").await,
+        3,
+        "the site-wide amount for the day"
+    );
+    f.services.cleanup().await.unwrap();
+}
+
 #[tokio::test]
 async fn sms_login_follows_registration_mode_and_two_factor_choice() {
     let f = Fixture::new().await;

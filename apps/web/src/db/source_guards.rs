@@ -551,13 +551,17 @@ fn identity_and_governance_rows_change_only_through_their_rules() {
                 "gonof_common_member_external" => {
                     !only(&["last_login_at"]) || !set.contains("last_login_at=greatest(dateline,")
                 }
-                // A code only loses validity: an undelivered one ends at its issue time, never later than it was.
+                // A code is written as not delivered (it ends at its issue time) and gets its lifetime once, when the
+                // provider took it: only a row still undelivered may get one. Otherwise a code only loses validity.
                 "gonof_common_sms_code" => {
                     !only(&["attempts", "consumed_at", "expires_at"])
                         || (assigns("consumed_at")
                             && (!set.contains("consumed_at=greatest(dateline,")
                                 || !condition.contains("consumed_atisnull")))
-                        || (assigns("expires_at") && set != "expires_at=dateline")
+                        || (assigns("expires_at")
+                            && set != "expires_at=dateline"
+                            && !(set == "expires_at=?"
+                                && condition.contains("expires_at=dateline")))
                 }
                 "gonof_common_member_token" => {
                     !only(&["consumed_at", "revoked_at"])
