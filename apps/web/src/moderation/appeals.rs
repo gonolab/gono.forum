@@ -162,7 +162,7 @@ pub async fn request_appeal_access(db: &Database, email: &str, now: i64) -> Resu
     };
     let mut tx = db.begin_write().await?;
     let member = crate::db::query(
-        "SELECT uid,username,account_state FROM gonof_common_member WHERE email=? FOR UPDATE",
+        "SELECT uid,username,account_state,password,emailstatus FROM gonof_common_member WHERE email=? FOR UPDATE",
     )
     .bind(&email)
     .fetch_optional(db.observe(&mut *tx))
@@ -171,7 +171,12 @@ pub async fn request_appeal_access(db: &Database, email: &str, now: i64) -> Resu
         tx.commit().await?;
         return Ok(());
     };
-    if db::text(&member, "account_state")? != "active" {
+    // The link opens the member's sanction records and their one appeal, so it follows the rule of the data request
+    // link: an account without a password gets it only at a verified email, which a mistyped or foreign address never
+    // is (docs/roles.md, "Appeals"). The mail worker checks this again before sending.
+    if db::text(&member, "account_state")? != "active"
+        || !crate::privacy::email_link_allowed(&member)?
+    {
         tx.commit().await?;
         return Ok(());
     }
@@ -200,9 +205,11 @@ pub async fn request_appeal_access(db: &Database, email: &str, now: i64) -> Resu
         now + APPEAL_ACCESS_TTL,
     )
     .await?;
+    // The same payload as the other account mail, so the mail is written in the language of the domain the request
+    // came from and links back to it.
     crate::db::query("INSERT INTO gonof_common_outbox(event_key,event_type,aggregate_type,aggregate_id,payload,dateline,available_at) VALUES(?,'appeal_access','member',?,?,?,?)")
         .bind(format!("appeal.access.{}",identity::token_hash(&raw))).bind(uid)
-        .bind(serde_json::json!({"to":email,"username":db::text(&member,"username")?,"token":raw}).to_string())
+        .bind(crate::mail::identity_payload(&email, &db::text(&member, "username")?, &raw))
         .bind(now).bind(now).execute(db.observe(&mut *tx)).await?;
     tx.commit().await?;
     Ok(())
@@ -547,12 +554,16 @@ pub(super) async fn queue_governance_mail(
     now: i64,
 ) -> Result<()> {
     let member = crate::db::query(
-        "SELECT email,username,account_state FROM gonof_common_member WHERE uid=?",
+        "SELECT email,emailstatus,username,account_state FROM gonof_common_member WHERE uid=?",
     )
     .bind(uid)
     .fetch_one(db.observe(&mut **tx))
     .await?;
-    if db::text(&member, "account_state")? != "active" {
+    // The mail carries the operator's reason, so only a verified address gets it; the notification on the site is
+    // written either way (docs/roles.md, "Account sanctions").
+    if db::text(&member, "account_state")? != "active"
+        || member.try_get::<i64, _>("emailstatus")? != 1
+    {
         return Ok(());
     }
     let email: Option<String> = member.try_get("email")?;

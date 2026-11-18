@@ -118,7 +118,8 @@ Content, which lists only reported posts.
 Sanctions are rows in `gonof_common_member_sanction` with `kind` `warning`, `mute` or `freeze`, written only in
 `moderation/sanctions.rs` and managed on Users › Account sanctions (`/manage/sanctions`). Each needs a reason of 1 to
 500 characters. Nobody can sanction themselves, and administrators cannot be sanctioned. Imposing, lifting and expiry
-each notify and email the member, who sees their records at `/my/sanctions`.
+each notify the member, who sees their records at `/my/sanctions`, and email them when their address is verified: the
+mail carries the reason, and an address never confirmed may be mistyped or someone else's.
 
 | Kind | Imposed and lifted by | Duration | Effect |
 | --- | --- | --- | --- |
@@ -161,6 +162,8 @@ else's. A timed freeze is ended by the background task within seconds of its end
 Each sanction can be appealed once, within `settings.governance.appeal_window_days` (default 30) of taking effect,
 computed from the current setting. Signed-in members appeal from `/my/sanctions`. Frozen members enter their email at
 `/appeals` and get a link valid for one hour, exchanged for a short-lived cookie; asking again cancels the old link.
+Like the data request link (see "Freezes"), an account without a password gets it only at a verified email; this is
+checked when the link is issued and again before the mail is sent.
 The appeal text is up to 1000 characters. Only administrators decide appeals, on Review › Appeals (`/manage/appeals`),
 by accepting or rejecting with a written conclusion; accepting ends the sanction if it is still in effect.
 `settings.governance.appeal_handling_days` (default 7) only sets the due date shown and marks overdue appeals. Both

@@ -36,14 +36,17 @@ pub(super) async fn deliver(
     let db = &mailer.database;
     let mut tx = db.begin_write().await?;
     let current = crate::db::query(
-        "SELECT email,account_state FROM gonof_common_member WHERE uid=? FOR UPDATE",
+        "SELECT email,emailstatus,account_state FROM gonof_common_member WHERE uid=? FOR UPDATE",
     )
     .bind(mail.aggregate_id)
     .fetch_optional(db.observe(&mut *tx))
     .await?;
+    // Only a verified address gets the operator's reason (docs/roles.md, "Account sanctions"); mail queued before an
+    // address lost its verification is dropped here.
     let eligible = match current {
         Some(member) => {
             db::text(&member, "account_state")? == "active"
+                && member.try_get::<i64, _>("emailstatus")? == 1
                 && member.try_get::<Option<String>, _>("email")?.as_deref()
                     == Some(payload.to.as_str())
                 && !payload.to.is_empty()
@@ -53,7 +56,7 @@ pub(super) async fn deliver(
     if !eligible {
         tx.commit().await?;
         return Ok(Delivery::Skipped(
-            "the recipient account is deleted or its email address changed",
+            "the recipient account is deleted, or its email address changed or is unverified",
         ));
     }
     let sanction=crate::db::query("SELECT kind,reason,starts_at,expires_at,revoked_at,revoked_by FROM gonof_common_member_sanction WHERE id=? AND uid=? FOR UPDATE")
@@ -99,16 +102,20 @@ pub(super) async fn deliver(
     // sending, and a disk write failure after commit is retried as usual.
     tx.commit().await?;
     let entry = crate::mail::site_link(&mailer.site_url().await?, "/appeals")?;
-    let lang = mailer.site_language().await?;
+    let site_settings = mailer.site_settings().await?;
+    let lang = site_settings.site.lang();
     let site = mailer.site_name(None).await?;
+    // The worker has no request, so the site's time zone and date style come from the settings, as in the sign-in
+    // alert; the page-time helper would fall back to its default zone here.
+    let format = crate::clock::TimeFormat::from(&*site_settings);
     let expires: i64 = sanction.try_get("expires_at")?;
     let end = if expires == 0 {
         lang.mail_governance_no_end().into()
     } else {
-        crate::moderation::display_time(expires)
+        templates::mail_time(expires, &format)
     };
     let reason = db::text(&sanction, "reason")?;
-    let starts_at = crate::moderation::display_time(sanction.try_get("starts_at")?);
+    let starts_at = templates::mail_time(sanction.try_get("starts_at")?, &format);
     let kind = db::text(&sanction, "kind")?;
     let revoked = sanction.try_get::<Option<i64>, _>("revoked_by")?.is_some();
     // The operator's reason from the payload; older queued mail only had the finished sentence.
@@ -183,7 +190,7 @@ pub(super) async fn deliver(
     };
     // The appeal window and handling time follow the current settings; the built-in body and the
     // `{{appeal_window_days}}` and `{{appeal_handling_days}}` of a custom template use the same values.
-    let governance = mailer.site_settings().await?.governance.clone();
+    let governance = site_settings.governance.clone();
     let (window_days, handling_days) = (
         governance.appeal_window_days.to_string(),
         governance.appeal_handling_days.to_string(),

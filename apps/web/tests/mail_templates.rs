@@ -172,7 +172,8 @@ async fn identity_and_governance_render_at_delivery_and_keep_retry_drafts_privat
         .unwrap();
     f.privacy_access(now).await;
     // The remaining events are still generated for unfrozen members; later everything is frozen and re-checked.
-    db::query("UPDATE gonof_common_member SET `freeze`=0 WHERE uid=8102")
+    // Sanction mail goes only to a verified address, so the address is confirmed now, after the verification mail.
+    db::query("UPDATE gonof_common_member SET `freeze`=0,emailstatus=1 WHERE uid=8102")
         .execute(db.executor())
         .await
         .unwrap();

@@ -18,8 +18,9 @@ fn digest(raw: &str, ticket: bool) -> String {
 /// not the email is verified. A member without one (signed up with a text message code, Google or GitHub) cannot sign
 /// in to set one while frozen, so the link is their way in, but only at a verified email: an address never confirmed
 /// may be mistyped or someone else's, and its owner would then control this account's data requests. Checked when the
-/// link is issued and on every use, like the freeze (see `docs/roles.md`, "Freezes").
-fn email_link_allowed(member: &DbRow) -> Result<bool> {
+/// link is issued and on every use, like the freeze (see `docs/roles.md`, "Freezes"). The appeal link and the mail
+/// worker's recheck of both links use the same rule.
+pub(crate) fn email_link_allowed(member: &DbRow) -> std::result::Result<bool, sqlx::Error> {
     Ok(member.try_get::<Option<String>, _>("password")?.is_some()
         || member.try_get::<i64, _>("emailstatus")? == 1)
 }

@@ -577,7 +577,7 @@ async fn deliver_current(
     // Match verification/password-reset lock order. Eligibility is rechecked under the lock and the mail is sent
     // after commit: a freeze or token revocation committed after the recheck cannot stop this mail already in
     // flight, but the token is validated again when used, so the link is still invalid after revocation.
-    let member = crate::db::query("SELECT email, password, `freeze`,account_state FROM gonof_common_member WHERE uid = ? FOR UPDATE")
+    let member = crate::db::query("SELECT email, emailstatus, password, `freeze`,account_state FROM gonof_common_member WHERE uid = ? FOR UPDATE")
     .bind(mail.aggregate_id)
     .fetch_optional(database.observe(&mut *transaction))
     .await?;
@@ -603,15 +603,18 @@ async fn deliver_current(
         } else {
             "the account email address has changed"
         })
-    } else if matches!(
-        mail.event_type.as_str(),
-        "password_reset" | "email_change" | "privacy_access"
-    ) && member
-        .try_get::<Option<String>, _>("password")?
-        .as_deref()
-        .is_none_or(str::is_empty)
+    } else if matches!(mail.event_type.as_str(), "password_reset" | "email_change")
+        && member
+            .try_get::<Option<String>, _>("password")?
+            .as_deref()
+            .is_none_or(str::is_empty)
     {
         Some("the account has no usable password")
+    } else if matches!(mail.event_type.as_str(), "appeal_access" | "privacy_access")
+        && !crate::privacy::email_link_allowed(&member)?
+    {
+        // The links frozen members use instead of signing in: the same rule as when they are issued.
+        Some("the account has no password and its email address is unverified")
     } else {
         None
     };

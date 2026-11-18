@@ -798,3 +798,101 @@ async fn account_mail_links_use_the_domain_they_were_requested_on() {
     let _ = std::fs::remove_dir_all(&mailbox);
     f.f.cleanup().await.unwrap();
 }
+
+/// The appeal link asked for on another domain is queued with that domain, like the other account mail, so it is
+/// written for that domain and links back to it instead of to the main site.
+#[tokio::test]
+async fn appeal_links_use_the_domain_they_were_requested_on() {
+    let f = Fixture::new().await;
+    f.enable().await;
+    assert!(
+        f.add(DEMO2_URL, "self", &["meta"])
+            .await
+            .status
+            .is_redirection()
+    );
+    let map = Arc::new(f.map().await);
+    let demo2 = map
+        .rows()
+        .iter()
+        .find(|row| row.site_url == DEMO2_URL)
+        .unwrap()
+        .domain_id;
+    let now = identity::now();
+    let version: i64 =
+        db::query_scalar("SELECT credentials_version FROM gonof_common_member WHERE uid=?")
+            .bind(MEMBER)
+            .fetch_one(f.f.db.executor())
+            .await
+            .unwrap();
+    gono_forum_web::moderation::issue_sanction(
+        &f.f.db,
+        f.actor(),
+        &gono_forum_web::moderation::SanctionRequest {
+            uid: MEMBER,
+            kind: "warning".into(),
+            hours: 0,
+            reason: "Broke the test community rules".into(),
+            expected_version: version,
+            request_key: identity::random_token(),
+        },
+        now,
+    )
+    .await
+    .unwrap();
+    let site = gono_forum_web::site::Site {
+        prefix: "".into(),
+        url: Some(DEMO2_URL.into()),
+        derived: false,
+        domains: Some(Arc::new(gono_forum_web::site::Domains {
+            map: map.clone(),
+            forum_url: TEST_SITE_URL.into(),
+            current: Some(demo2),
+        })),
+        participation: Default::default(),
+        language: Default::default(),
+    };
+    gono_forum_web::site::scope(
+        site,
+        gono_forum_web::moderation::request_appeal_access(
+            &f.f.db,
+            &format!("domains-{MEMBER}@example.test"),
+            now + 1,
+        ),
+    )
+    .await
+    .unwrap();
+    let (eventid, payload): (i64, String) = {
+        let row = db::query(
+            "SELECT eventid,payload FROM gonof_common_outbox WHERE event_type='appeal_access'",
+        )
+        .fetch_one(f.f.db.executor())
+        .await
+        .unwrap();
+        (
+            row.try_get("eventid").unwrap(),
+            db::text(&row, "payload").unwrap(),
+        )
+    };
+    assert!(
+        payload.contains(&format!("\"domain_id\":{demo2}")),
+        "{payload}"
+    );
+    let mailbox = f.f.root.join("domains-appeal-mail");
+    gono_forum_web::mail::Mailer::new(
+        f.f.db.clone(),
+        gono_forum_web::secrets::CommonConfig::default(),
+        mailbox.clone(),
+        f.f.global.clone(),
+    )
+    .deliver_pending(now + 2)
+    .await
+    .unwrap();
+    let message = std::fs::read_to_string(mailbox.join(format!("{eventid}.eml"))).unwrap();
+    assert!(
+        message.contains(&format!("{DEMO2_URL}/appeals/access?token=")),
+        "{message}"
+    );
+    let _ = std::fs::remove_dir_all(&mailbox);
+    f.f.cleanup().await.unwrap();
+}
