@@ -239,6 +239,8 @@ account-error-verify-first = This account is not allowed to do this. Please veri
 account-error-no-record = The record does not exist
 account-error-taken = The username, email or request ID is already in use
 account-error-username = The username must be 1 to 50 characters, without whitespace, control characters, @ or path separators
+# The username is the word pages show for a deleted account.
+account-error-username-reserved = This name stands for deleted accounts and cannot be used as a username
 account-error-email = Please enter a valid email address of up to 255 characters
 account-error-password-length = The password length does not meet the requirement. Please follow the length shown on the page
 account-error-registration-closed = Sign-ups are closed for now

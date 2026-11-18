@@ -72,7 +72,7 @@ moved to the top level, so a dataset may list at most 400 boards without a `pare
 
 | Field | | Rules |
 | --- | --- | --- |
-| `username` | required | 1–50 characters, no whitespace, `@`, `/` or `\`. Stored in lowercase after NFKC, so `Nora` and `nora` are the same name and may not both appear. Staff-like names (`admin`, `moderator`, …) are allowed but pointed out. |
+| `username` | required | 1–50 characters, no whitespace, `@`, `/` or `\`, and not the stored marker of a deleted account (the Simplified Chinese for "deleted user", `\u{5df2}\u{6ce8}\u{9500}\u{7528}\u{6237}`). Stored in lowercase after NFKC, so `Nora` and `nora` are the same name and may not both appear. Staff-like names (`admin`, `moderator`, …) are allowed but pointed out. |
 | `bio` | optional | At most 500 characters. |
 
 Imported members are synthetic authors: no password, email or role, so nobody can sign in as them until

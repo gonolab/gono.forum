@@ -180,6 +180,7 @@ account-error-verify-first = 当前账号无权执行此操作，请先验证邮
 account-error-no-record = 记录不存在
 account-error-taken = 用户名、邮箱或请求标识已被使用
 account-error-username = 用户名须为 1–50 个字符，不能含空白、控制字符、@ 或路径分隔符
+account-error-username-reserved = 该名称用于表示已注销的账号，不能用作用户名
 account-error-email = 请输入有效邮箱地址，最多 255 个字符
 account-error-password-length = 密码长度不符合要求，请按页面提示的字数设置
 account-error-registration-closed = 社区暂时关闭注册

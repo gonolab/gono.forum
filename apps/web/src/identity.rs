@@ -594,6 +594,9 @@ pub fn identifier_limit_key(value: &str) -> String {
     token_hash(&normalized(value))
 }
 
+/// The entry-point check of a new or changed username (registration, renaming, phone and external sign-up, the
+/// content import). The stored "Deleted user" marker ([`crate::content::copies::DELETED_AUTHOR`]) is refused: lists
+/// and data sources that find it in an author copy show the author as deleted, without uid or profile link.
 pub(crate) fn normalize_username(value: &str) -> Result<String> {
     let value = normalized(value);
     if value.is_empty()
@@ -604,6 +607,11 @@ pub(crate) fn normalize_username(value: &str) -> Result<String> {
     {
         return Err(IdentityError::Validation(
             crate::i18n::current().account_error_username(),
+        ));
+    }
+    if value == crate::content::copies::DELETED_AUTHOR {
+        return Err(IdentityError::Validation(
+            crate::i18n::current().account_error_username_reserved(),
         ));
     }
     Ok(value)
@@ -2165,6 +2173,17 @@ mod tests {
             "user@example.test"
         );
         assert!(normalize_email("user@@example.test").is_err());
+    }
+
+    /// The stored "Deleted user" marker is not a username: pages and data sources that see it in an author copy show
+    /// the author as deleted, without uid or profile link. Registration, renaming, phone and external sign-up and the
+    /// content import all pass through `normalize_username`.
+    #[test]
+    fn usernames_cannot_take_the_deleted_account_marker() {
+        let marker = crate::content::copies::DELETED_AUTHOR;
+        assert!(normalize_username(marker).is_err());
+        assert!(normalize_username(&format!(" {marker} ")).is_err());
+        assert!(normalize_username(&format!("{marker}2")).is_ok());
     }
 
     /// Takes every permit and returns them automatically after the test. Other unit tests in the same process that

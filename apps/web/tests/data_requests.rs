@@ -2892,3 +2892,42 @@ async fn a_late_api_key_use_does_not_restore_the_cleared_address() {
     assert_eq!(address, "");
     f.services.cleanup_ref().await.unwrap();
 }
+
+/// Threads kept anonymously after account deletion show "Deleted user" in thread lists without the former account's
+/// uid: no avatar address and no profile link that would tie them to each other.
+#[tokio::test]
+async fn lists_show_threads_kept_after_account_deletion_without_the_uid() {
+    let f = Fixture::new().await;
+    let now = identity::now();
+    let uid = f.user.member.uid;
+    let pid = f.post("KEPT_AFTER_CLOSURE").await;
+    privacy::submit(&f.db, &f.access(), f.request("close", "retain"), now)
+        .await
+        .unwrap();
+    f.work(now + privacy::COOLING_SECONDS).await;
+    assert_eq!(
+        f.scalar(&format!(
+            "SELECT COUNT(*) FROM gonof_common_member WHERE uid={uid} AND account_state='deleted'"
+        ))
+        .await,
+        1
+    );
+    let slug: String = db::query_scalar("SELECT f.slug FROM gonof_forum_forum f JOIN gonof_forum_post p ON p.fid=f.fid WHERE p.pid=?")
+        .bind(pid)
+        .fetch_one(f.db.executor())
+        .await
+        .unwrap();
+    let mut browser = DataBrowser::new(&f);
+    for path in ["/".to_owned(), format!("/{slug}")] {
+        let page = browser.get(&path).await;
+        assert_eq!(page.status, StatusCode::OK, "{path}");
+        let html = page.text();
+        assert!(html.contains("KEPT_AFTER_CLOSURE"), "{path}");
+        assert!(html.contains("Deleted user"), "{path}");
+        assert!(
+            !html.contains(&format!("/avatar/{uid}")) && !html.contains(&format!("/space/{uid}")),
+            "{path}: the former account's uid is not in the list"
+        );
+    }
+    f.services.cleanup_ref().await.unwrap();
+}

@@ -91,8 +91,8 @@ pub struct Thread {
     #[serde(default)]
     pub author_deleted: bool,
     /// The author's account is deleted, also known from a list row's author copy (the "Deleted user" marker that
-    /// account deletion writes): records show no uid for such an author. Unlike `author_deleted`, list avatars do not
-    /// read it.
+    /// account deletion writes): list avatars, profile links and records show no uid for such an author. Unlike
+    /// `author_deleted`, it is known on list rows too.
     #[serde(default)]
     pub author_gone: bool,
     #[serde(default)]

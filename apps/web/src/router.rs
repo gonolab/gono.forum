@@ -707,9 +707,10 @@ fn list_row<'t>(
         forum_name: content::forum_name(&state.frame.all_forums, thread.fid),
         forum_slug: content::forum_slug(&state.frame.all_forums, thread.fid),
         thread,
-        // List avatars get their address by uid: the thread row has no avatar copy.
+        // List avatars get their address by uid: the thread row has no avatar copy. A deleted author, known from the
+        // author copy, gets no uid in the avatar or profile address.
         avatar: list_avatar(
-            thread.authorid.filter(|_| !thread.author_deleted),
+            thread.authorid.filter(|_| !thread.author_gone),
             &thread.author,
         ),
     }
@@ -785,9 +786,9 @@ fn avatar_view(uid: Option<i64>, aid: i64, fallback: i64, username: &str) -> Ava
 /// Without knowing whether the author has an avatar, a `/avatar/{uid}` image is laid over the text tile; the same
 /// author has the same address everywhere, so the browser cache is shared. The data of these places goes into
 /// caches, and changing an avatar does not bump the site-wide version, so no address with an aid is produced. When
-/// the caller passes `None` (deleted author) there is only the text tile; note that thread list rows cannot
-/// recognize deleted authors (`author_deleted` is only read by queries that fetch the first post body), so they
-/// still produce `/avatar/{uid}`, which returns the transparent image.
+/// the caller passes `None` (deleted author) there is only the text tile and no profile link; thread list rows know a
+/// deleted author from the "Deleted user" marker in the author copy (`author_gone`), so a thread kept anonymously
+/// after account deletion carries no uid that ties it to the other threads of the former account.
 fn list_avatar(uid: Option<i64>, username: &str) -> AvatarView {
     let uid = uid.filter(|uid| *uid > 0);
     AvatarView {
