@@ -302,11 +302,12 @@
 /* Topic rows                                                          */
 /* ------------------------------------------------------------------ */
 
-/* The title on a line of its own, then a line of labels: the board as a badge, the tags and the author. Replies and
+/* The title on a line of its own, then a line of labels: the tags, the author and the board as a badge. Replies and
    views become stat boxes and the last activity a column on the end side. The row's wrappers give up their boxes
-   (display: contents), so the title, the labels and the meta items are items of one wrapping row and order places
-   them; the reading order stays that of the markup. Padding at the start holds the avatar, at the end the boxes and
-   the column, which sit in it. */
+   (display: contents), so the title, the labels and the meta items are items of one wrapping row. order only moves
+   the title (and the page links and unread badge after it) ahead of the tags, which hold nothing focusable, so the
+   focus order stays the visual order. Padding at the start holds the avatar, at the end the boxes and the column,
+   which sit in it. */
 .rows--topics > * + * {
   border-block-start: 0;
 }
@@ -347,7 +348,7 @@
   letter-spacing: -0.02em;
 }
 
-.rows--topics :is(.row-pages, .board-chip) {
+.rows--topics .row-pages {
   order: -1;
 }
 
