@@ -244,5 +244,6 @@ site-manage-error-category = 请选择认证分类
 site-manage-error-title = 认证说明需要 1 到 60 个字，不能换行
 site-manage-error-deleting = 这个账号正在注销，不能认证
 site-manage-error-past = 到期日要在今天以后
+site-manage-error-changed = 这条认证刚被修改或撤销过，请刷新后重新填写
 site-links-verify-first = 请先验证邮箱再申请
 site-links-already-handled = 这条申请已经处理过了

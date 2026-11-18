@@ -282,6 +282,7 @@ site-manage-error-category = Choose a category
 site-manage-error-title = The verification text must be 1 to 60 characters on one line
 site-manage-error-deleting = This account is being deleted and cannot be verified
 site-manage-error-past = The expiry date must be after today
+site-manage-error-changed = This verification was just changed or revoked. Please refresh and fill in the form again
 # Errors of a member's own link application.
 site-links-verify-first = Verify your email before applying
 site-links-already-handled = This application has already been handled

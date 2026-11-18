@@ -1163,6 +1163,7 @@ async fn honor_groups_show_badges_and_follow_status() {
             9541,
             developer,
             None,
+            None,
             identity::now()
         )
         .await,
@@ -1229,5 +1230,121 @@ async fn honor_groups_show_badges_and_follow_status() {
         .await;
     assert_eq!(status, StatusCode::OK);
     assert!(holders.contains("group-9542"));
+    http.f.cleanup().await.unwrap();
+}
+
+/// A renewal form carries the `granted_at` of the grant it was opened on: after another administrator revokes the
+/// group, or revokes and grants it again, submitting the old renewal form is a conflict and changes nothing, instead
+/// of granting the group anew or changing the new grant.
+#[tokio::test]
+async fn stale_honor_renewal_forms_do_not_restore_revoked_grants() {
+    let f = TestFixture::migrated().await.unwrap();
+    let db = f.db.clone();
+    for (uid, role) in [(9551, 1), (9552, 0)] {
+        member(&db, uid, role).await;
+    }
+    let sponsor = scalar(
+        &db,
+        "SELECT id FROM gonof_common_honor WHERE name='Sponsor'",
+    )
+    .await;
+    let http = Http::new(f);
+    let admin = http.login(9551).await;
+    let (status, _, _) = http
+        .form(
+            "/manage/honors/members/9552",
+            &admin,
+            &[("honor_id", &sponsor.to_string()), ("expires", "")],
+        )
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let granted_at = scalar(
+        &http.f.db,
+        &format!(
+            "SELECT granted_at FROM gonof_common_member_honor WHERE uid=9552 AND honor_id={sponsor}"
+        ),
+    )
+    .await;
+    let (_, page) = http.page("/manage/honors/members/9552", Some(&admin)).await;
+    let renewal = [
+        ("honor_id", sponsor.to_string()),
+        ("expires", "2099-12-31".to_owned()),
+        ("granted_at", granted_at.to_string()),
+    ];
+    let renewal: Vec<(&str, &str)> = renewal.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    // Another administrator revokes the group; the old renewal form must not grant it again.
+    let (status, _, _) = http
+        .form(
+            "/manage/honors/members/9552/revoke",
+            &admin,
+            &[
+                ("honor_id", &sponsor.to_string()),
+                ("reason", "Revoked elsewhere"),
+            ],
+        )
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (status, body, _) = http
+        .form("/manage/honors/members/9552", &admin, &renewal)
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body.contains("Please refresh and fill in the form again"));
+    let count = format!(
+        "SELECT COUNT(*) FROM gonof_common_member_honor WHERE uid=9552 AND honor_id={sponsor}"
+    );
+    assert_eq!(scalar(&http.f.db, &count).await, 0);
+    // Granted again later: the old form belongs to the earlier grant and still does not change the new one.
+    honors::grant(
+        &http.f.db,
+        actor(&http.f.db, 9551).await,
+        9552,
+        sponsor,
+        None,
+        None,
+        granted_at + 10,
+    )
+    .await
+    .unwrap();
+    let (status, _, _) = http
+        .form("/manage/honors/members/9552", &admin, &renewal)
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(
+        scalar(
+            &http.f.db,
+            &format!("SELECT COUNT(*) FROM gonof_common_member_honor WHERE uid=9552 AND honor_id={sponsor} AND expires_at IS NULL AND granted_at={}", granted_at + 10),
+        )
+        .await,
+        1
+    );
+    // A renewal form for the current grant still renews it.
+    let current = [
+        ("honor_id", sponsor.to_string()),
+        ("expires", "2099-12-31".to_owned()),
+        ("granted_at", (granted_at + 10).to_string()),
+    ];
+    let current: Vec<(&str, &str)> = current.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let (status, _, location) = http
+        .form("/manage/honors/members/9552", &admin, &current)
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        location.as_deref(),
+        Some("/manage/honors/members/9552?done=saved")
+    );
+    assert_eq!(
+        scalar(
+            &http.f.db,
+            "SELECT COUNT(*) FROM gonof_common_log WHERE uid=9552 AND type='identity.honor.grant'"
+        )
+        .await,
+        2,
+        "the stale forms wrote no grant"
+    );
+    // The page's renewal form is the one these submissions stand for.
+    assert!(
+        page.contains(&format!(r#"name="granted_at" value="{granted_at}""#)),
+        "the renewal form carries the grant time"
+    );
     http.f.cleanup().await.unwrap();
 }

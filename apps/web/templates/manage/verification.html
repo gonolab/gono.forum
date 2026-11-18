@@ -4,7 +4,7 @@
 {% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
 <p>UID {{ uid }} · {{ p.t.site_manage_account_state(member_state) }} · {{ shown }}{% if exists %} · {{ p.t.site_manage_granted(granted) }} · {{ p.t.site_manage_reviewed(reviewed) }}{% endif %} · <a href="{{ crate::site::base() }}/space/{{ uid }}">{{ p.t.site_manage_profile_link() }}</a></p>
 <form class="fields" method="post" action="{{ crate::site::base() }}/manage/verifications/{{ uid }}" data-verification-form>
-<input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<input type="hidden" name="_csrf" value="{{ p.csrf }}">{% if let Some(reviewed_at) = form.reviewed_at %}<input type="hidden" name="reviewed_at" value="{{ reviewed_at }}">{% endif %}
 <div class="field">
   <label class="field__label" for="verification-category">{{ p.t.site_manage_category() }}</label>
   <select id="verification-category" name="category" required><option value="">{{ p.t.common_choose() }}</option>{% for item in categories %}<option value="{{ item.slug }}"{% if item.selected %} selected{% endif %}>{{ item.label }}</option>{% endfor %}</select>

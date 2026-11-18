@@ -523,12 +523,17 @@ async fn lock_subject(db: &Database, tx: &mut Tx<'_>, actor: Actor, uid: i64) ->
 /// Creates the grant if there is none; an existing one only has its expiry changed, and nothing is written if nothing
 /// changed. A disabled group cannot be newly granted; a frozen member can be granted
 /// (not shown while frozen), but not one whose account deletion is running.
+///
+/// `renewing` is the `granted_at` of the grant a renewal form was opened on. When given, that grant must still be
+/// there with the same `granted_at`; otherwise it was revoked (and possibly granted again) since the form was read,
+/// and the renewal is refused with a conflict instead of granting the group anew.
 pub async fn grant(
     db: &Database,
     actor: Actor,
     uid: i64,
     honor_id: i64,
     expires_at: Option<i64>,
+    renewing: Option<i64>,
     now: i64,
 ) -> Result<Saved> {
     let mut tx = db.begin_write().await?;
@@ -545,13 +550,21 @@ pub async fn grant(
             .ok_or(IdentityError::Validation(
                 crate::i18n::current().profile_manage_error_choose(),
             ))?;
-    let existing: Option<Option<i64>> = db::query_scalar(
-        "SELECT expires_at FROM gonof_common_member_honor WHERE uid=? AND honor_id=? FOR UPDATE",
+    let current: Option<(i64, Option<i64>)> = db::query(
+        "SELECT granted_at,expires_at FROM gonof_common_member_honor WHERE uid=? AND honor_id=? FOR UPDATE",
     )
     .bind(uid)
     .bind(honor_id)
     .fetch_optional(db.observe(&mut *tx))
-    .await?;
+    .await?
+    .map(|row| -> Result<_> { Ok((row.try_get("granted_at")?, row.try_get("expires_at")?)) })
+    .transpose()?;
+    if renewing.is_some() && renewing != current.map(|(granted_at, _)| granted_at) {
+        return Err(IdentityError::Conflict(
+            crate::i18n::current().profile_manage_error_changed(),
+        ));
+    }
+    let existing = current.map(|(_, expires_at)| expires_at);
     // A newly entered expiry date must be in the future; an already expired date submitted back unchanged is not
     // blocked.
     if existing != Some(expires_at) && expires_at.is_some_and(|at| at <= now) {

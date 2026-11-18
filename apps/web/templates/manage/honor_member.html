@@ -4,7 +4,7 @@
 {% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}
 <p>UID {{ uid }} · {{ p.t.profile_manage_account_state(member_state) }} · <a href="{{ crate::site::base() }}/space/{{ uid }}">{{ p.t.profile_manage_profile_link() }}</a></p>
 {% for grant in grants %}<article class="admin-row" data-member-honor="{{ grant.honor_id }}"><h2>{{ grant.name }}</h2><p>{{ p.t.profile_manage_granted(grant.granted) }} · {{ p.t.profile_manage_expires(grant.expires) }} · {{ grant.state }}</p>
-<form class="fields fields--inline" method="post" action="{{ crate::site::base() }}/manage/honors/members/{{ uid }}"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="honor_id" value="{{ grant.honor_id }}">
+<form class="fields fields--inline" method="post" action="{{ crate::site::base() }}/manage/honors/members/{{ uid }}"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="honor_id" value="{{ grant.honor_id }}"><input type="hidden" name="granted_at" value="{{ grant.granted_at }}">
 <div class="field">
   <label class="field__label" for="renew-{{ grant.honor_id }}-expires">{{ p.t.profile_manage_valid_until() }}</label>
   <input type="date" id="renew-{{ grant.honor_id }}-expires" name="expires" value="{{ grant.expires_value }}">

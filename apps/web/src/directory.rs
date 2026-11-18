@@ -524,6 +524,10 @@ pub struct Grant {
     pub site_url: String,
     /// `None` means permanent.
     pub expires_at: Option<i64>,
+    /// `reviewed_at` of the verification an edit form was opened on; `None` for a form opened with no verification.
+    /// When given, the verification must still be there with the same `reviewed_at`, otherwise someone revoked or
+    /// changed it since the form was read and the save is refused with a conflict.
+    pub reviewed_at: Option<i64>,
 }
 
 /// Result of granting, modifying or renewing.
@@ -569,9 +573,11 @@ async fn log(
 }
 
 /// Grant, modify or renew (administrators only). The form is compared field by field with the existing record, and
-/// nothing is written when nothing changed, so replays and duplicate submissions add no extra log entries. Frozen
-/// members can be granted one (it is not shown while frozen); members whose deletion is in progress cannot. Log type
-/// `identity.verification.*`, deleted together with the member's own `identity.%` logs when the deletion executes.
+/// nothing is written when nothing changed, so replays and duplicate submissions add no extra log entries. An edit
+/// form opened on a verification that has since been revoked or changed is a conflict (see [`Grant::reviewed_at`]).
+/// Frozen members can be granted one (it is not shown while frozen); members whose deletion is in progress cannot. Log
+/// type `identity.verification.*`, deleted together with the member's own `identity.%` logs when the deletion
+/// executes.
 pub async fn save(db: &Database, actor: Actor, uid: i64, input: Grant, now: i64) -> Result<Saved> {
     let category = Category::parse(input.category.trim()).ok_or(IdentityError::Validation(
         crate::i18n::current().site_manage_error_category(),
@@ -596,6 +602,12 @@ pub async fn save(db: &Database, actor: Actor, uid: i64, input: Grant, now: i64)
     .await?
     .map(|row| verification_of(&row))
     .transpose()?;
+    if input.reviewed_at.is_some() && input.reviewed_at != existing.as_ref().map(|v| v.reviewed_at)
+    {
+        return Err(IdentityError::Conflict(
+            crate::i18n::current().site_manage_error_changed(),
+        ));
+    }
     // A newly entered expiry date must be in the future; bringing back an already expired date unchanged (only editing
     // the description) is not blocked.
     if input.expires_at != existing.as_ref().and_then(|v| v.expires_at)

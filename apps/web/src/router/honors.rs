@@ -383,6 +383,9 @@ struct GrantForm {
     /// `<input type="date">`: the last valid day; empty means no expiry.
     #[serde(default)]
     expires: String,
+    /// `granted_at` of the grant a renewal form was opened on; absent on the form for a new grant.
+    #[serde(default)]
+    granted_at: Option<i64>,
     #[serde(default)]
     reason: String,
 }
@@ -390,6 +393,7 @@ csrf_forms!(GrantForm);
 
 struct GrantRow {
     honor_id: i64,
+    granted_at: i64,
     name: String,
     granted: String,
     expires: String,
@@ -471,6 +475,7 @@ async fn member_view(
             .into_iter()
             .map(|grant| GrantRow {
                 honor_id: grant.honor_id,
+                granted_at: grant.granted_at,
                 state: if !grant.enabled {
                     crate::i18n::current().profile_manage_hidden_disabled()
                 } else if grant.expires_at.is_some_and(|at| at <= now) {
@@ -559,6 +564,7 @@ async fn grant(
         uid,
         form.honor_id,
         expires_at,
+        form.granted_at,
         identity::now(),
     )
     .await

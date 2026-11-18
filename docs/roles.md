@@ -230,6 +230,8 @@ administrators grant, edit, renew and revoke it, on Users › Verified members (
   explainer is edited on Users › Verification guidelines.
 - Not shown while the member is frozen, the verification has expired, or the account is being deleted. It carries no
   permissions.
+- Saving the edit page refuses if the verification was changed or revoked since the page was read (the form carries
+  its `reviewed_at`), so an old tab cannot grant again a verification that was just revoked.
 - Revoking needs a reason. Changes are logged as `identity.verification.*`. Data exports include the verification, and
   account deletion removes it.
 
@@ -247,7 +249,9 @@ with `granted_by`, `granted_at` and a nullable `expires_at`). The rules are in `
   site has no groups.
 - A member can hold several groups, one grant per group. Expiry works as for verifications. A disabled group is not
   shown and cannot be newly granted; its grants are kept and show again when it is re-enabled. Frozen members can be
-  granted a group; accounts being deleted cannot. Revoking needs a reason.
+  granted a group; accounts being deleted cannot. Revoking needs a reason. A renewal form carries the grant's
+  `granted_at` and is refused if that grant was revoked, or revoked and granted again, since the page was read, so an
+  old form cannot restore a revoked group.
 - Badges follow the verified badge on floors (first posts, replies and nested replies) and profile pages, in group
   order, with the description on hover. They show only while the group is enabled, the grant has not expired, the
   member is not frozen and the account is active.

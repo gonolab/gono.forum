@@ -174,6 +174,7 @@ impl Fixture {
                 title: title.into(),
                 site_url: format!("https://site-{uid}.example.test/"),
                 expires_at,
+                reviewed_at: None,
             },
             self.now,
         )
@@ -322,6 +323,7 @@ async fn only_admins_grant_renew_and_revoke_verifications() {
                 title: "Not allowed".into(),
                 site_url: String::new(),
                 expires_at: None,
+                reviewed_at: None,
             },
             f.now,
         )
@@ -471,6 +473,91 @@ async fn only_admins_grant_renew_and_revoke_verifications() {
     )
     .await;
     assert_eq!(f.logs("identity.verification.revoke").await, 1);
+    f.services.cleanup().await.unwrap();
+}
+
+/// The edit page carries the `reviewed_at` of the verification it shows. After the verification is revoked in
+/// another tab, saving the old edit form is a conflict and does not grant it again; an edit from a form read before
+/// another administrator's change is refused the same way.
+#[tokio::test]
+async fn stale_verification_edit_forms_are_conflicts() {
+    let f = Fixture::new().await;
+    let admin = f.login(ADMIN).await;
+    f.grant(A, "merchant", "Official Account of Example Cloud", None)
+        .await;
+    let reviewed_at = f
+        .scalar(&format!(
+            "SELECT reviewed_at FROM gonof_common_member_verification WHERE uid={A}"
+        ))
+        .await;
+    let page = f
+        .get(&format!("/manage/verifications/{A}"), Some(&admin))
+        .await;
+    let reviewed = reviewed_at.to_string();
+    let edit = [
+        ("category", "merchant"),
+        ("title", "Example Cloud, renamed"),
+        ("site_url", "https://site-7403.example.test/"),
+        ("expires", ""),
+        ("reviewed_at", reviewed.as_str()),
+    ];
+    // Another administrator changes the verification: the old form is refused.
+    db::query("UPDATE gonof_common_member_verification SET title='Changed elsewhere',reviewed_at=reviewed_at+5 WHERE uid=?")
+        .bind(A)
+        .execute(f.db().executor())
+        .await
+        .unwrap();
+    let stale = f
+        .post(&format!("/manage/verifications/{A}"), &admin, &edit)
+        .await;
+    assert_eq!(stale.status, StatusCode::CONFLICT, "{}", stale.body);
+    assert!(
+        stale
+            .body
+            .contains("Please refresh and fill in the form again")
+    );
+    assert_eq!(
+        f.scalar(&format!(
+            "SELECT COUNT(*) FROM gonof_common_member_verification WHERE uid={A} AND title='Changed elsewhere'"
+        ))
+        .await,
+        1
+    );
+    // Revoked in another tab: the old form does not grant the verification again.
+    let revoked = f
+        .post(
+            &format!("/manage/verifications/{A}/revoke"),
+            &admin,
+            &[("reason", "Credentials expired")],
+        )
+        .await;
+    assert_eq!(revoked.status, StatusCode::SEE_OTHER);
+    let stale = f
+        .post(&format!("/manage/verifications/{A}"), &admin, &edit)
+        .await;
+    assert_eq!(stale.status, StatusCode::CONFLICT, "{}", stale.body);
+    assert_eq!(
+        f.scalar("SELECT COUNT(*) FROM gonof_common_member_verification")
+            .await,
+        0
+    );
+    assert_eq!(f.logs("identity.verification.grant").await, 1);
+    // The edit page these submissions stand for carried the review time.
+    assert!(
+        page.body
+            .contains(&format!(r#"name="reviewed_at" value="{reviewed_at}""#)),
+        "the edit form carries the review time"
+    );
+    // The page now has no verification, so its form carries no review time and grants a new one.
+    let page = f
+        .get(&format!("/manage/verifications/{A}"), Some(&admin))
+        .await;
+    assert!(!page.body.contains(r#"name="reviewed_at""#));
+    let granted = f
+        .post(&format!("/manage/verifications/{A}"), &admin, &edit[..4])
+        .await;
+    assert_eq!(granted.status, StatusCode::SEE_OTHER, "{}", granted.body);
+    assert_eq!(f.logs("identity.verification.grant").await, 2);
     f.services.cleanup().await.unwrap();
 }
 

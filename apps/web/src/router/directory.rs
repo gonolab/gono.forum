@@ -711,6 +711,9 @@ struct VerificationForm {
     /// `<input type="date">`: the last valid day; empty means no expiry.
     #[serde(default)]
     expires: String,
+    /// `reviewed_at` of the verification the edit form was opened on; absent when there was none.
+    #[serde(default)]
+    reviewed_at: Option<i64>,
     #[serde(default)]
     reason: String,
 }
@@ -784,6 +787,7 @@ async fn verification_view(
                     .collect()
             })
             .unwrap_or_default(),
+        reviewed_at: existing.map(|v| v.reviewed_at),
         ..Default::default()
     });
     let shown = match existing {
@@ -897,6 +901,7 @@ async fn save_verification(
         title: form.title.clone(),
         site_url: form.site_url.clone(),
         expires_at,
+        reviewed_at: form.reviewed_at,
     };
     match directory::save(&state.db, actor, uid, grant, identity::now()).await {
         Ok(directory::Saved::Unchanged) => {
