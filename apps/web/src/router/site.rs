@@ -43,29 +43,42 @@ struct Policy<'a> {
     contact: bool,
     contact_email: String,
 }
-/// Built-in text of the privacy notice, used when the administrator has never saved `policy.privacy`. The
-/// retention days for former usernames are filled in from `settings.username.history_days` at render time,
-/// the same approach as the friend-link notice `links_body`; the cooling-off period and export retention
-/// period are code constants and written out as is.
-fn privacy_body(settings: &crate::runtime::SiteSettings) -> String {
-    crate::i18n::current().policy_privacy_body(settings.username.history_days)
-}
-
-/// Title and body of the built-in text of `/terms`, `/privacy`, `/rules` or `/contact` (`kind` without the `policy.`
-/// prefix) in this request's language, shown while the administrator has not saved that page in the language.
-pub(super) fn builtin(
+/// The built-in title and body of a policy (`kind` without the `policy.` prefix: terms, contact, privacy, rules,
+/// verified, links) in `t`: what the public page shows while that language is not customized, and the placeholder of
+/// the admin edit form. Numbers come from the settings at render time: the privacy notice's retention days for former
+/// usernames (`settings.username.history_days`) and the friend-link rules; the cooling-off and export retention
+/// periods are code constants and written out as is.
+pub(super) fn builtin_policy(
     kind: &str,
+    t: crate::i18n::Lang,
     settings: &crate::runtime::SiteSettings,
-) -> (&'static str, String) {
-    let t = crate::i18n::current();
+) -> (String, String) {
     match kind {
         "terms" => (
-            t.frame_footer_terms(),
+            t.frame_footer_terms().into(),
             t.policy_terms_body(crate::site::site_name(settings)),
         ),
-        "contact" => (t.frame_footer_contact(), t.policy_contact_body().to_owned()),
-        "privacy" => (t.frame_footer_privacy(), privacy_body(settings)),
-        _ => (t.frame_footer_rules(), t.policy_rules_body().to_owned()),
+        "contact" => (
+            t.frame_footer_contact().into(),
+            t.policy_contact_body().into(),
+        ),
+        "privacy" => (
+            t.frame_footer_privacy().into(),
+            t.policy_privacy_body(settings.username.history_days),
+        ),
+        "verified" => (
+            t.policy_verified_title().into(),
+            t.policy_verified_body().into(),
+        ),
+        "links" => (
+            t.policy_links_title().into(),
+            t.policy_links_body(
+                settings.links.live_per_member,
+                settings.links.reject_cooldown_days,
+                settings.links.min_account_days,
+            ),
+        ),
+        _ => (t.frame_footer_rules().into(), t.policy_rules_body().into()),
     }
 }
 
@@ -80,9 +93,7 @@ async fn policy(Page(state): Page, OriginalUri(uri): OriginalUri) -> Response {
         Err(e) => return auth::identity_error(&state, e),
     };
     if doc.updated_at == 0 {
-        let (title, body) = builtin(kind, &state.frame.settings);
-        doc.title = title.into();
-        doc.body = body;
+        (doc.title, doc.body) = builtin_policy(kind, crate::i18n::current(), &state.frame.settings);
     }
     let body = crate::markdown::render(&doc.body, &std::collections::BTreeMap::new(), None);
     // The description is the first 160 characters of the rendered body as plain text (same as thread

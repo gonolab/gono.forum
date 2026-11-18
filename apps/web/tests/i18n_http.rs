@@ -450,6 +450,234 @@ async fn policies_and_mail_templates_are_kept_per_language() {
 /// A zh-CN site end to end on public pages: numbers inside sentences are written without grouping
 /// (`meta-number-grouping = never`), and reply counts and relative times use the single form zh-CN has where English
 /// picks a plural. The expected text comes from the zh-CN messages.
+/// The `action` of the edit form on an admin document page.
+fn form_action(page: &str) -> String {
+    let start = page
+        .find(r#"<form class="fields" method="post" action=""#)
+        .expect("an edit form")
+        + r#"<form class="fields" method="post" action=""#.len();
+    page[start..][..page[start..].find('"').unwrap()].to_owned()
+}
+
+fn localized_rows(kind: &str) -> String {
+    format!("SELECT COUNT(*) FROM gonof_common_localized_text WHERE kind='{kind}'")
+}
+
+/// Saving a policy with a blank title and body, as the first edit form of a new site shows it, keeps the built-in
+/// text instead of publishing an empty page; the form shows the built-in text as placeholders, and "Restore built-in
+/// text" deletes a customized copy. All six policies behave the same; a blank row left from before reads as
+/// built-in.
+#[tokio::test]
+async fn blank_policies_keep_the_built_in_text() {
+    let http = Http::new().await;
+    let main = host_of(TEST_SITE_URL);
+    let en = Lang::EN;
+    for (kind, public, title, heading) in [
+        ("terms", "/terms", en.frame_footer_terms(), "h1"),
+        ("privacy", "/privacy", en.frame_footer_privacy(), "h1"),
+        ("rules", "/rules", en.frame_footer_rules(), "h1"),
+        ("contact", "/contact", en.frame_footer_contact(), "h1"),
+        ("verified", "/verified", en.policy_verified_title(), "h2"),
+        ("links", "/links", en.policy_links_title(), "h2"),
+    ] {
+        let path = format!("/manage/policies/{kind}");
+        let edit = http.get(main, &path, true).await;
+        assert_eq!(edit.status, StatusCode::OK, "{kind}");
+        let saved = http
+            .post(&form_action(&edit.body), &[("title", ""), ("body", "")])
+            .await;
+        assert_eq!(
+            saved.status,
+            StatusCode::SEE_OTHER,
+            "{kind}: {}",
+            saved.body
+        );
+        let rows: i64 = db::query_scalar(&localized_rows(&format!("policy.{kind}")))
+            .fetch_one(http.f.db.executor())
+            .await
+            .unwrap();
+        assert_eq!(rows, 0, "{kind}: a blank save is not a customization");
+        let page = http.get(main, public, false).await;
+        assert!(
+            page.body.contains(&format!(">{title}</{heading}>")),
+            "{kind}: {}",
+            page.body
+        );
+        assert!(
+            edit.body.contains(&format!(r#"placeholder="{title}""#)),
+            "{kind}: the form shows the built-in title"
+        );
+        assert!(edit.body.contains("data-document-reset"), "{kind}");
+    }
+    // A customized copy, then "Restore built-in text".
+    let saved = http
+        .post(
+            "/manage/policies/rules?lang=en",
+            &[
+                ("title", "House rules"),
+                ("body", "Be kind."),
+                ("operation", "save"),
+            ],
+        )
+        .await;
+    assert_eq!(saved.status, StatusCode::SEE_OTHER);
+    assert!(
+        http.get(main, "/rules", false)
+            .await
+            .body
+            .contains(">House rules</h1>")
+    );
+    let reset = http
+        .post(
+            "/manage/policies/rules?lang=en",
+            &[
+                ("title", "House rules"),
+                ("body", "Be kind."),
+                ("operation", "reset"),
+            ],
+        )
+        .await;
+    assert_eq!(reset.status, StatusCode::SEE_OTHER);
+    let rows: i64 = db::query_scalar(&localized_rows("policy.rules"))
+        .fetch_one(http.f.db.executor())
+        .await
+        .unwrap();
+    assert_eq!(rows, 0);
+    // A blank row saved before this rule reads as the built-in text and is not marked as customized.
+    db::query("INSERT INTO gonof_common_localized_text(kind,language,title,body,updated_at) VALUES('policy.terms','en','','',1)")
+        .execute(http.f.db.executor())
+        .await
+        .unwrap();
+    http.f.global.clear_local();
+    let page = http.get(main, "/terms", false).await;
+    assert!(
+        page.body
+            .contains(&format!(">{}</h1>", en.frame_footer_terms()))
+    );
+    let edit = http.get(main, "/manage/policies/terms", true).await;
+    assert!(
+        !edit
+            .body
+            .contains(&en.common_parenthesized(en.policy_manage_customized()))
+    );
+    http.f.cleanup().await.unwrap();
+}
+
+/// An edit form opened for the site language keeps saving into that language after another tab changes the site
+/// language: the form always names its language.
+#[tokio::test]
+async fn edit_forms_keep_their_language_after_the_site_language_changes() {
+    let http = Http::new().await;
+    let main = host_of(TEST_SITE_URL);
+    let zh = Lang::parse("zh-CN").unwrap();
+    let policy = http.get(main, "/manage/policies/terms?lang=en", true).await;
+    let mail = http
+        .get(main, "/manage/mail/templates/content?lang=en", true)
+        .await;
+    let switched = http
+        .post("/manage/languages", &[("language", "zh-CN")])
+        .await;
+    assert_eq!(switched.status, StatusCode::SEE_OTHER, "{}", switched.body);
+    let saved = http
+        .post(
+            &form_action(&policy.body),
+            &[("title", "English terms"), ("body", "English terms body")],
+        )
+        .await;
+    assert_eq!(saved.status, StatusCode::SEE_OTHER, "{}", saved.body);
+    assert_eq!(
+        runtime::document_in(&http.f.db, "policy.terms", Lang::EN)
+            .await
+            .unwrap()
+            .body,
+        "English terms body"
+    );
+    assert_eq!(
+        runtime::document_in(&http.f.db, "policy.terms", zh)
+            .await
+            .unwrap()
+            .updated_at,
+        0,
+        "the zh-CN copy is untouched"
+    );
+    let saved = http
+        .post(
+            &form_action(&mail.body),
+            &[
+                ("subject", "English update"),
+                ("body", "{{username}}, see {{link}}"),
+                ("operation", "save"),
+            ],
+        )
+        .await;
+    assert_eq!(saved.status, StatusCode::SEE_OTHER, "{}", saved.body);
+    assert_eq!(
+        templates::current_in(&http.f.db, "content", Lang::EN)
+            .await
+            .unwrap()
+            .subject,
+        "English update"
+    );
+    assert!(
+        templates::current_in(&http.f.db, "content", zh)
+            .await
+            .unwrap()
+            .subject
+            .is_empty()
+    );
+    http.f.cleanup().await.unwrap();
+}
+
+/// A policy body within its 60000-byte limit saves whatever its script: URL encoding triples non-ASCII bytes, which
+/// used to push a full Chinese body past the request limit (413). Over the limit is a form error, the browser checks
+/// bytes rather than characters, and the form's CRLF line breaks count as one byte each.
+#[tokio::test]
+async fn policy_bodies_up_to_the_byte_limit_save_in_any_script() {
+    let http = Http::new().await;
+    let main = host_of(TEST_SITE_URL);
+    // U+6587, a Chinese character of three UTF-8 bytes: 20000 of them are exactly the 60000-byte limit.
+    let full = "\u{6587}".repeat(20_000);
+    let saved = http
+        .post(
+            "/manage/policies/privacy?lang=en",
+            &[("title", "Privacy"), ("body", &full)],
+        )
+        .await;
+    assert_eq!(saved.status, StatusCode::SEE_OTHER, "{}", saved.body);
+    assert_eq!(
+        runtime::document_in(&http.f.db, "policy.privacy", Lang::EN)
+            .await
+            .unwrap()
+            .body
+            .len(),
+        60_000
+    );
+    let over = format!("{full}\u{6587}");
+    let refused = http
+        .post(
+            "/manage/policies/privacy?lang=en",
+            &[("title", "Privacy"), ("body", &over)],
+        )
+        .await;
+    assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(refused.body.contains(Lang::EN.policy_error_too_long()));
+    // 59000 letters and 1000 line breaks: 60000 bytes as shown in the browser, 61000 as submitted with CRLF.
+    let lines = format!("{}\r\n", "a".repeat(59)).repeat(1000);
+    let saved = http
+        .post(
+            "/manage/policies/rules?lang=en",
+            &[("title", "Rules"), ("body", &lines)],
+        )
+        .await;
+    assert_eq!(saved.status, StatusCode::SEE_OTHER, "{}", saved.body);
+    let edit = http.get(main, "/manage/policies/rules", true).await;
+    assert!(edit.body.contains(r#"data-max-bytes="60000""#));
+    assert!(!edit.body.contains(r#"maxlength="60000""#));
+    let mail = http.get(main, "/manage/mail/templates/content", true).await;
+    assert!(mail.body.contains(r#"data-max-bytes="16000""#));
+    http.f.cleanup().await.unwrap();
+}
+
 #[tokio::test]
 async fn a_zh_cn_site_writes_numbers_without_grouping_and_counts_without_plurals() {
     use gono_forum_web::content::writes::{ContentWriter, NewReply, NewThread, WriteConfig};

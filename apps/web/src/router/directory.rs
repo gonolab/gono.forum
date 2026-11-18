@@ -64,19 +64,10 @@ async fn explainer(
     })
 }
 
-/// The built-in explainer of the verified member directory (`policy.verified`), in this request's language.
-fn verified_explainer() -> (&'static str, &'static str) {
-    let t = crate::i18n::current();
-    (t.policy_verified_title(), t.policy_verified_body())
-}
-/// Built-in text of the friend-link explanation: used when administrators have never saved `policy.links`, with
-/// numbers filled in from the application rule settings.
-fn links_body(rules: &crate::runtime::LinkSettings) -> String {
-    crate::i18n::current().policy_links_body(
-        rules.live_per_member,
-        rules.reject_cooldown_days,
-        rules.min_account_days,
-    )
+/// The built-in explainer of the verified member directory (`policy.verified`) or the friend-link pages
+/// (`policy.links`, numbers from the application rule settings), in this request's language.
+fn builtin_explainer(state: &AppState, kind: &str) -> (String, String) {
+    super::site::builtin_policy(kind, crate::i18n::current(), &state.frame.settings)
 }
 
 // ---------------------------------------------------------------------------
@@ -196,12 +187,12 @@ async fn verified_page(
             more,
         });
     }
-    let (verified_title, verified_body) = verified_explainer();
-    let explainer = match explainer(&state, "policy.verified", verified_title, verified_body).await
-    {
-        Ok(value) => value,
-        Err(response) => return response,
-    };
+    let (verified_title, verified_body) = builtin_explainer(&state, "verified");
+    let explainer =
+        match explainer(&state, "policy.verified", &verified_title, &verified_body).await {
+            Ok(value) => value,
+            Err(response) => return response,
+        };
     let tabs = std::iter::once(Tab {
         label: crate::i18n::current().home_all(),
         href: verified_href(None, 1),
@@ -281,15 +272,8 @@ async fn links_page(Page(state): Page) -> Response {
         Ok(groups) => (*groups).clone(),
         Err(error) => return database_error(&state, error),
     };
-    let body = links_body(&state.frame.settings.links);
-    let explainer = match explainer(
-        &state,
-        "policy.links",
-        crate::i18n::current().policy_links_title(),
-        &body,
-    )
-    .await
-    {
+    let (title, body) = builtin_explainer(&state, "links");
+    let explainer = match explainer(&state, "policy.links", &title, &body).await {
         Ok(value) => value,
         Err(response) => return response,
     };
@@ -381,15 +365,8 @@ async fn apply_view(
     message: String,
     status: StatusCode,
 ) -> Response {
-    let body = links_body(&state.frame.settings.links);
-    let explainer = match explainer(
-        state,
-        "policy.links",
-        crate::i18n::current().policy_links_title(),
-        &body,
-    )
-    .await
-    {
+    let (title, body) = builtin_explainer(state, "links");
+    let explainer = match explainer(state, "policy.links", &title, &body).await {
         Ok(value) => value,
         Err(response) => return response,
     };

@@ -30,6 +30,7 @@ js-editor-choose-image = Choose images
 js-editor-body-required = Please write something.
 # $max is the byte limit of a post.
 js-editor-body-too-long = The post cannot be longer than { $max } bytes. Please shorten it and post again.
+js-text-too-long = This text is { $size } bytes; it can be at most { $max } bytes. Please shorten it.
 js-editor-uploads-unsettled = An image is still uploading or being checked. Post once it is in the text, or remove it.
 # Who will see a new thread, under the editor.
 js-editor-audience-choose = Choose who can see it first

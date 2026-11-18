@@ -195,6 +195,7 @@ pub async fn save_in(
     reset: bool,
 ) -> Result<MailTemplate> {
     let row_kind = row_kind(kind)?;
+    value.body = crate::runtime::form_lines(&value.body);
     if !reset {
         validate(kind, &value)?;
     }

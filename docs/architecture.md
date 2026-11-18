@@ -224,8 +224,10 @@ language is in [translating.md](translating.md).
   file offers no sample. The sample's language is chosen on its own and does not set the site language.
 - **Mail and policies.** Built-in mail templates and policy pages are messages (`mail.ftl`, `policy.ftl`). An
   administrator's own version is a row per kind and language in `gonof_common_localized_text` (primary key `kind`,
-  `language`); a row means customized, and restoring the built-in text deletes it. The admin edit pages take
-  `?lang=`. Mail a member starts with a link (email verification, password reset, email change, appeal and data
+  `language`); a row means customized. Restoring the built-in text deletes it, and so does saving a policy with a
+  blank title and body; a row with both blank reads as the built-in text, which the policy edit forms show as
+  placeholders. The admin edit pages take `?lang=`, and their forms always submit it, so a form opened in one
+  language saves into that language even if the site language changed meanwhile. Mail a member starts with a link (email verification, password reset, email change, appeal and data
   access) is written in the language of the domain the request came from; all other mail is in the site language.
   Policy pages follow the request's language; the process cache holds one entry per policy kind with all its
   languages.

@@ -6,7 +6,20 @@ use axum::{
     routing::post,
 };
 
+/// Request body limit of the document pages (navigation, policies, mail templates). A form is URL-encoded, so each
+/// byte of a non-ASCII text takes three: a 60,000-byte body of Chinese text arrives as about 180 KB, past the 128 KiB
+/// of the other admin forms.
+const DOCUMENT_BODY_LIMIT: usize = 256 * 1024;
+
 pub(super) fn routes() -> Router<Arc<AppState>> {
+    let documents = Router::new()
+        .route("/manage/navigation", get(navigation).post(save_navigation))
+        .route("/manage/policies/{kind}", get(policy).post(save_policy))
+        .route(
+            "/manage/mail/templates/{kind}",
+            get(mail_template).post(save_mail_template),
+        )
+        .layer(DefaultBodyLimit::max(DOCUMENT_BODY_LIMIT));
     Router::new()
         .route("/manage", get(overview))
         .route("/manage/users", get(users))
@@ -18,13 +31,8 @@ pub(super) fn routes() -> Router<Arc<AppState>> {
         .route("/manage/tasks", get(tasks))
         .route("/manage/tasks/{id}", get(task))
         .route("/manage/tasks/{id}/retry", post(retry_task))
-        .route("/manage/navigation", get(navigation).post(save_navigation))
-        .route("/manage/policies/{kind}", get(policy).post(save_policy))
-        .route(
-            "/manage/mail/templates/{kind}",
-            get(mail_template).post(save_mail_template),
-        )
         .layer(DefaultBodyLimit::max(128 * 1024))
+        .merge(documents)
 }
 fn actor(state: &AppState) -> crate::identity::Actor {
     state
@@ -686,6 +694,12 @@ fn lang_query(state: &AppState, lang: crate::i18n::Lang) -> String {
     }
 }
 
+/// `?lang=…` of the form on an edit page, always naming the edited language: a form read while that language was the
+/// site language must not save into another one after the site language changes.
+fn form_query(lang: crate::i18n::Lang) -> String {
+    format!("?lang={}", lang.tag())
+}
+
 /// Where saving returns to: the same page in the same language.
 fn edit_address(state: &AppState, path: String, lang: Option<crate::i18n::Lang>) -> String {
     match lang {
@@ -734,10 +748,15 @@ struct Document<'a> {
     p: PageMeta<'a>,
     document: runtime::Document,
     path: String,
-    /// Policies: `?lang=…` of the edited language (empty for the site language and the navigation document) and the
-    /// language switch (empty for the navigation document).
-    lang_query: String,
+    /// Policies: `?lang=…` of the edited language for the form (empty for the navigation document) and the language
+    /// switch (empty for the navigation document).
+    form_query: String,
     languages: Vec<LanguageTab>,
+    /// Policies: the built-in title and body in the edited language, shown as placeholders and used while both
+    /// fields are blank; empty for the navigation document, which has no built-in text.
+    builtin: (String, String),
+    /// Body limit in UTF-8 bytes, checked by the browser too (`maxlength` counts characters).
+    max_bytes: usize,
     heading: String,
     help: String,
     message: String,
@@ -807,7 +826,7 @@ fn document_view(
     document: runtime::Document,
     path: String,
     kind: &str,
-    (lang, languages): (String, Vec<LanguageTab>),
+    (lang, languages): (Option<crate::i18n::Lang>, Vec<LanguageTab>),
     (message, hidden): (String, Vec<String>),
     status: StatusCode,
 ) -> Response {
@@ -827,12 +846,20 @@ fn document_view(
     } else {
         (t.policy_manage_heading(), t.policy_manage_help())
     };
+    let builtin = match (lang, kind.strip_prefix("policy.")) {
+        (Some(lang), Some(policy)) => {
+            super::site::builtin_policy(policy, lang, &state.frame.settings)
+        }
+        _ => Default::default(),
+    };
     let mut response = render(&Document {
         p: meta(state, heading.into(), heading.into(), &path, "", ""),
         document,
         path,
-        lang_query: lang,
+        form_query: lang.map(form_query).unwrap_or_default(),
         languages,
+        builtin,
+        max_bytes: 60_000,
         heading: heading.into(),
         help: help.into(),
         message,
@@ -851,7 +878,7 @@ async fn document_get(
         Some(lang) => (
             runtime::document_in(&state.db, kind, lang).await,
             match language_tabs(state, kind, lang).await {
-                Ok(tabs) => (lang_query(state, lang), tabs),
+                Ok(tabs) => (Some(lang), tabs),
                 Err(error) => return database_error(state, error),
             },
         ),
@@ -913,6 +940,9 @@ struct DocumentForm {
     _csrf: String,
     title: String,
     body: String,
+    /// `reset` on a policy page: "Restore built-in text", the same as saving a blank title and body.
+    #[serde(default)]
+    operation: String,
 }
 csrf_forms!(DocumentForm);
 async fn document_post(
@@ -922,10 +952,14 @@ async fn document_post(
     path: String,
     lang: Option<crate::i18n::Lang>,
 ) -> Response {
-    let candidate = runtime::Document {
-        title: form.title,
-        body: form.body,
-        updated_at: 0,
+    let candidate = if form.operation == "reset" && lang.is_some() {
+        runtime::Document::default()
+    } else {
+        runtime::Document {
+            title: form.title,
+            body: runtime::form_lines(&form.body),
+            updated_at: 0,
+        }
     };
     let saved = match lang {
         Some(lang) => {
@@ -958,7 +992,7 @@ async fn document_post(
             Ok((status, message)) => {
                 let languages = match lang {
                     Some(lang) => match language_tabs(state, kind, lang).await {
-                        Ok(tabs) => (lang_query(state, lang), tabs),
+                        Ok(tabs) => (Some(lang), tabs),
                         Err(error) => return database_error(state, error),
                     },
                     None => Default::default(),
@@ -1019,9 +1053,10 @@ struct MailTemplatePage<'a> {
     p: PageMeta<'a>,
     value: crate::mail::templates::MailTemplate,
     kind: String,
-    /// `?lang=…` of the edited language, empty for the site language, and the language switch (docs/architecture.md,
-    /// "Languages").
+    /// `?lang=…` of the edited language, empty for the site language, for the links to the other kinds; the form
+    /// always carries the language ([`form_query`]); and the language switch (docs/architecture.md, "Languages").
     lang_query: String,
+    form_query: String,
     languages: Vec<LanguageTab>,
     /// Every template kind and its name in this request's language.
     kinds: Vec<(&'static str, &'static str)>,
@@ -1056,6 +1091,7 @@ async fn mail_template_view(
         value,
         kind,
         lang_query: lang_query(state, lang),
+        form_query: form_query(lang),
         languages,
         kinds: crate::mail::templates::KINDS
             .iter()
@@ -1123,7 +1159,7 @@ async fn save_mail_template(
     };
     let value = crate::mail::templates::MailTemplate {
         subject: form.subject,
-        body: form.body,
+        body: runtime::form_lines(&form.body),
     };
     if form.operation == "preview" {
         // The sample values and the sample time are written in the language being edited.

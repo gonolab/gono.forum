@@ -605,6 +605,11 @@ pub async fn policy_copies(
             body: db::text(&row, "body")?,
             updated_at: row.try_get("updated_at")?,
         };
+        // A blank title and body is not a customization (saving one deletes the row, see [`save_document_in`]); a
+        // row left from before that rule reads as the built-in text too.
+        if document.title.is_empty() && document.body.is_empty() {
+            continue;
+        }
         if document.title.chars().count() > 120
             || document.body.len() > 60_000
             || document.updated_at < 0
@@ -627,10 +632,11 @@ pub struct LocalizedRow {
 }
 
 /// Every customized mail template and policy, by kind and language: for the admin language overview and the language
-/// tabs of the edit pages. Rows of languages this binary does not carry are left out.
+/// tabs of the edit pages. Rows of languages this binary does not carry are left out, and so are rows with a blank
+/// title and body, which read as the built-in text.
 pub async fn localized_rows(db: &Database) -> Result<Vec<LocalizedRow>> {
     let rows = db::query(
-        "SELECT kind,language,updated_at FROM gonof_common_localized_text ORDER BY kind,language",
+        "SELECT kind,language,updated_at FROM gonof_common_localized_text WHERE title<>'' OR body<>'' ORDER BY kind,language",
     )
     .fetch_all(db.executor())
     .await?;
@@ -647,7 +653,10 @@ pub async fn localized_rows(db: &Database) -> Result<Vec<LocalizedRow>> {
     Ok(found)
 }
 
-/// Saves one policy in one language (an upsert of its row) and clears that policy's in-process block.
+/// Saves one policy in one language (an upsert of its row) and clears that policy's in-process block. A title and body
+/// that are both blank are not a customization: the row is deleted and the language uses its built-in text again, the
+/// same as "Restore built-in text" (docs/architecture.md, "Languages"). Bodies count UTF-8 bytes after the form's
+/// CRLF line breaks are turned into LF.
 pub async fn save_document_in(
     db: &Database,
     global: &GlobalCache,
@@ -659,28 +668,39 @@ pub async fn save_document_in(
     if !POLICY_KINDS.contains(&kind) {
         return Err(IdentityError::NotFound);
     }
+    input.body = form_lines(&input.body);
     if input.title.chars().count() > 120 || input.body.len() > 60_000 {
         return Err(IdentityError::Validation(
             crate::i18n::current().policy_error_too_long(),
         ));
     }
+    let builtin = input.title.trim().is_empty() && input.body.trim().is_empty();
     let mut tx = db.begin_write().await?;
     admin_locked(db, &mut tx, actor).await?;
-    input.updated_at = crate::identity::now();
-    db::query("INSERT INTO gonof_common_localized_text(kind,language,title,body,updated_at) VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE title=VALUES(title),body=VALUES(body),updated_at=VALUES(updated_at)")
-        .bind(kind)
-        .bind(lang.tag())
-        .bind(&input.title)
-        .bind(&input.body)
-        .bind(input.updated_at)
-        .execute(db.observe(&mut *tx))
-        .await?;
+    if builtin {
+        input = Document::default();
+        db::query("DELETE FROM gonof_common_localized_text WHERE kind=? AND language=?")
+            .bind(kind)
+            .bind(lang.tag())
+            .execute(db.observe(&mut *tx))
+            .await?;
+    } else {
+        input.updated_at = crate::identity::now();
+        db::query("INSERT INTO gonof_common_localized_text(kind,language,title,body,updated_at) VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE title=VALUES(title),body=VALUES(body),updated_at=VALUES(updated_at)")
+            .bind(kind)
+            .bind(lang.tag())
+            .bind(&input.title)
+            .bind(&input.body)
+            .bind(input.updated_at)
+            .execute(db.observe(&mut *tx))
+            .await?;
+    }
     audit(
         db,
         &mut tx,
         actor,
         "site.document.save",
-        serde_json::json!({"document":kind,"language":lang.tag(),"updated_at":input.updated_at}),
+        serde_json::json!({"document":kind,"language":lang.tag(),"updated_at":input.updated_at,"reset":builtin}),
     )
     .await?;
     tx.commit().await?;
@@ -708,6 +728,7 @@ pub async fn save_document(
     if !DOCUMENT_KINDS.contains(&kind) {
         return Err(IdentityError::NotFound);
     }
+    input.body = form_lines(&input.body);
     if input.title.chars().count() > 120 || input.body.len() > 60_000 {
         return Err(IdentityError::Validation(
             crate::i18n::current().policy_error_too_long(),
@@ -770,6 +791,12 @@ pub async fn save_document(
         .await
         .map_err(IdentityError::Internal)?;
     Ok(input)
+}
+
+/// Browsers submit a text area's line breaks as CRLF but count them as one character, and the edit pages check the
+/// byte limit on the text as shown (LF), so the limit is applied after the same conversion.
+pub fn form_lines(text: &str) -> String {
+    text.replace("\r\n", "\n")
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

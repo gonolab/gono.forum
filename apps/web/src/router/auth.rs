@@ -1294,7 +1294,7 @@ async fn policy_versions(
                 .clone()
         };
         let body = if document.updated_at == 0 {
-            super::site::builtin(kind, &state.frame.settings).1
+            super::site::builtin_policy(kind, crate::i18n::current(), &state.frame.settings).1
         } else {
             document.body
         };

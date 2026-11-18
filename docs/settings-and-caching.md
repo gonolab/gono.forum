@@ -30,7 +30,8 @@ the two lock rows; the JSON rows are inserted on their first save, a domain's la
 first chosen, its colors first set or its places first published (it is deleted with the domain, or when the domain
 follows the site again in all three), and a layout draft by the first change in the layout editor (deleted when it is
 published or discarded, and with its domain). A policy or mail template with no row for a language uses that language's built-in text
-(a mail template with a blank subject and body counts as not customized; "Restore built-in text" deletes the row).
+(a blank title and body, or subject and body, counts as not customized: saving a blank policy and "Restore built-in
+text" delete the row, and the policy edit forms show the built-in text as placeholders).
 Per-member choices are in their own tables, where `NULL` means "follow the site default" in `settings.reading.*`.
 
 ## Keys and groups
@@ -163,7 +164,10 @@ updates the primary domain row in the same transaction.
 
 Documents save on their own rows. The navigation document locks its three rows (`DOCUMENT_LOCK_SQL`, primary key
 equality) and must point at existing boards; a policy or mail template upserts its `(kind, language)` row after the
-administrator check. Titles are at most 120 characters and bodies at most 60,000 bytes. Mail templates are not cached:
+administrator check. Titles are at most 120 characters and bodies at most 60,000 bytes (mail template bodies 16,000),
+counted after the form's CRLF line breaks become LF. The edit pages check the byte limit in the browser as well
+(`maxlength` counts characters), and their routes accept request bodies up to 256 KiB rather than the 128 KiB of
+other admin forms, since URL encoding turns each byte of non-ASCII text into three. Mail templates are not cached:
 a mail is rendered with the current template at its first delivery attempt and retries reuse the prepared file
 (`mail/prepared/{eventid}.eml` in `[identity] local_directory`), so an invalid template holds back pending mail of its
 kind until it is fixed or restored. The prepared file records the event it was written for (event key, recipient

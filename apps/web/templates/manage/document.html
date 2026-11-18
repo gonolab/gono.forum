@@ -1,13 +1,14 @@
 {% extends "layout/manage.html" %}{% block panel %}
 <section class="panel"><h1 class="panel__title">{{ heading }}</h1><p>{{ help }}</p>{% if !languages.is_empty() %}<nav class="tabs" aria-label="{{ p.t.manage_tab_languages() }}" data-language-tabs>{% for tab in languages %}<a class="tabs__item" href="{{ crate::site::href(path) }}?lang={{ tab.tag }}"{% if tab.current %} aria-current="page"{% endif %} lang="{{ tab.tag }}">{{ tab.name }}{% if tab.customized %}{{ p.t.common_parenthesized(p.t.policy_manage_customized()) }}{% endif %}</a>{% endfor %}</nav>{% endif %}{% if !message.is_empty() %}<p class="form-feedback" role="alert">{{ message }}</p>{% endif %}{% if !hidden.is_empty() %}<p class="form-feedback form-feedback--warning" role="status" data-navigation-hidden>{{ p.t.policy_manage_hidden(hidden.join(p.t.policy_manage_hidden_separator())) }}</p>{% endif %}
-<form class="fields" method="post" action="{{ crate::site::href(path) }}{{ lang_query }}"><input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<form class="fields" method="post" action="{{ crate::site::href(path) }}{{ form_query }}"><input type="hidden" name="_csrf" value="{{ p.csrf }}">
 <div class="field">
   <label class="field__label" for="document-title">{{ p.t.policy_manage_title() }}</label>
-  <input id="document-title" name="title" value="{{ document.title }}" maxlength="120">
+  <input id="document-title" name="title" value="{{ document.title }}" maxlength="120"{% if !builtin.0.is_empty() %} placeholder="{{ builtin.0 }}"{% endif %}>
 </div>
 <div class="field">
   <label class="field__label" for="document-body">{{ p.t.policy_manage_body() }}</label>
-  <textarea id="document-body" name="body" rows="16" maxlength="60000">{{ document.body }}</textarea>
+  <textarea id="document-body" name="body" rows="16" aria-describedby="document-body-hint" data-max-bytes="{{ max_bytes }}"{% if !builtin.1.is_empty() %} placeholder="{{ builtin.1 }}"{% endif %}>{{ document.body }}</textarea>
+  <p class="field__hint" id="document-body-hint">{{ p.t.policy_manage_body_limit(max_bytes) }}</p>
 </div>
-<div class="form-actions"><button class="button" type="submit">{{ p.t.manage_save() }}</button></div>
+<div class="form-actions"><button class="button" type="submit" name="operation" value="save">{{ p.t.manage_save() }}</button>{% if !builtin.1.is_empty() %}<button class="button button--secondary" type="submit" name="operation" value="reset" formnovalidate data-document-reset>{{ p.t.policy_manage_reset() }}</button>{% endif %}</div>
 </form></section>{% endblock %}

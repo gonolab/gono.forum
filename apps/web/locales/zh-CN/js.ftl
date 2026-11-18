@@ -24,6 +24,7 @@ js-editor-toolbar = 正文格式
 js-editor-choose-image = 选择图片
 js-editor-body-required = 请填写正文。
 js-editor-body-too-long = 正文不能超过 { $max } 字节，请缩短后发布。
+js-text-too-long = 这段文字有 { $size } 字节，最多 { $max } 字节，请缩短。
 js-editor-uploads-unsettled = 还有图片正在上传或检查。等它插入正文后再发布，或者先移除它。
 js-editor-audience-choose = 请先选择谁能看到
 js-editor-audience-members = 仅登录会员可见

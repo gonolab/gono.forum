@@ -725,6 +725,18 @@ function waitForUpgrade() {
 }
 document.addEventListener('DOMContentLoaded', waitForUpgrade);
 
+// Text areas whose limit is in UTF-8 bytes (`data-max-bytes`: the policy, navigation and mail template pages).
+// `maxlength` counts characters, so a body of Chinese text could pass it at three times the bytes the server takes;
+// the byte count is checked here and the form will not submit while it is over. Without JavaScript the server
+// refuses it with the same limit.
+document.addEventListener('input', event => {
+  const field = event.target;
+  if (!(field instanceof HTMLTextAreaElement) || !field.dataset.maxBytes) return;
+  const max = Number(field.dataset.maxBytes);
+  const size = new TextEncoder().encode(field.value).length;
+  field.setCustomValidity(size > max ? window.gonofText('js-text-too-long', { size: String(size), max: String(max) }) : '');
+});
+
 // Fixed events for page scripts and skins (docs/skins.md, "Script events"), both dispatched on document and
 // registered last, so they come after this file's own handlers: gonof:ready once the page has loaded, gonof:swap
 // after every HTMX swap has settled, with the swapped element as detail.target (document.body after a boosted
