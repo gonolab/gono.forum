@@ -402,7 +402,18 @@
   inset-inline-end: 192px;
 }
 
+/* Cross-board pins write the word with the number: it goes under it, whatever order the language writes them in. */
+.rows--topics :is(.row-meta__replies, .row-meta__views) .stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
 .rows--topics :is(.row-meta__replies, .row-meta__views) .stat__value {
+  order: -1;
   color: var(--text-strong);
   font-size: 18px;
   line-height: 1;
@@ -763,6 +774,15 @@ html:not([data-composer-dock="open"]) .reply-box {
     border: 1px solid var(--line);
     border-radius: var(--r-input);
     background: none;
+  }
+
+  .rows--topics .rows__item:not(:has(.row-meta__last)) .row-meta__time {
+    block-size: 24px;
+  }
+
+  .rows--topics :is(.row-meta__replies, .row-meta__views) .stat {
+    flex-direction: row;
+    gap: 4px;
   }
 
   .rows--topics :is(.row-meta__replies, .row-meta__views) .stat__value {
