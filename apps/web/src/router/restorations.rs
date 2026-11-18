@@ -355,7 +355,11 @@ async fn review_view(
         .session
         .as_ref()
         .is_some_and(|s| s.member.is_admin);
-    let recuse = governance::recused(&r, actor.uid, is_admin);
+    let hider = match governance::hider_now(&state.db, r.pid).await {
+        Ok(hider) => hider,
+        Err(e) => return failure(state, e),
+    };
+    let recuse = governance::recused(&r, actor.uid, is_admin, hider);
     let mut response = render(&ReviewTemplate {
         p: meta(
             state,

@@ -591,6 +591,77 @@ async fn members_request_restoration_only_for_their_own_hidden_or_expired_withdr
     f.services.cleanup().await.unwrap();
 }
 
+/// A request filed against one hide stays pending while the post is unhidden and hidden again by another moderator.
+/// That moderator now recuses as well: the review page shows the notice and accepting is refused, so they cannot use
+/// the old request to undo their own later decision. Someone else can still decide it.
+#[tokio::test]
+async fn the_moderator_of_a_later_hide_recuses_from_an_older_request() {
+    let f = Fixture::new().await;
+    let now = f.now;
+    let post = f
+        .publish(AUTHOR, f.fid, "RESTORE-HIDDEN-AGAIN", now - 1_000)
+        .await;
+    f.change(MOD, post.pid, ContentAction::Hide, now - 900)
+        .await;
+    let id = request_id(
+        &f.submit(
+            AUTHOR,
+            post.pid,
+            "please review the hiding",
+            &identity::random_token(),
+        )
+        .await,
+    );
+    // Unhidden while the request is pending, then hidden again by another moderator of the forum.
+    f.change(GLOBAL, post.pid, ContentAction::Unhide, now - 800)
+        .await;
+    f.change(MOD_AUTHOR, post.pid, ContentAction::Hide, now - 700)
+        .await;
+    let refused = f
+        .resolve(MOD_AUTHOR, id, "accepted", "undo the old hide")
+        .await;
+    assert_eq!(refused.status, StatusCode::FORBIDDEN, "{}", refused.body);
+    assert_eq!(
+        f.scalar(&format!(
+            "SELECT invisible FROM gonof_forum_post WHERE pid={}",
+            post.pid
+        ))
+        .await,
+        -1
+    );
+    assert_eq!(
+        f.text(&format!(
+            "SELECT status FROM gonof_forum_restore_request WHERE id={id}"
+        ))
+        .await,
+        "pending"
+    );
+    let review = f
+        .get(&format!("/manage/restorations/{id}"), MOD_AUTHOR)
+        .await;
+    assert!(
+        review
+            .body
+            .contains("You made this request or hid the content"),
+        "{}",
+        review.body
+    );
+    // A global moderator who made neither hide decides it.
+    let done = f
+        .resolve(GLOBAL, id, "accepted", "no violation after review")
+        .await;
+    assert_eq!(done.status, StatusCode::SEE_OTHER, "{}", done.body);
+    assert_eq!(
+        f.scalar(&format!(
+            "SELECT invisible FROM gonof_forum_post WHERE pid={}",
+            post.pid
+        ))
+        .await,
+        0
+    );
+    f.services.cleanup().await.unwrap();
+}
+
 #[tokio::test]
 async fn staff_handle_restorations_in_scope_with_recusal_and_restore_atomically() {
     let f = Fixture::new().await;

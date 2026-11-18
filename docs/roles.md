@@ -94,7 +94,8 @@ Administrators and global moderators manage every board. Reviewers manage none.
   lifetime after an appointment is removed ([settings-and-caching.md](settings-and-caching.md), "The process cache").
   Every management action re-checks the appointment rows under lock in its own transaction.
 - Staff other than administrators recuse themselves: they cannot handle reports about their own posts or profile, or
-  restoration requests they submitted or whose hide they made, and cannot edit or unhide their own posts while those
+  restoration requests they submitted or whose hide they made (the hide the request was filed against, or the one in
+  effect now if the post was unhidden and hidden again since), and cannot edit or unhide their own posts while those
   are hidden by moderation.
 - Withdrawing a post is the author's own action within the edit window; staff cannot withdraw for the author.
 

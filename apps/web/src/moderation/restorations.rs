@@ -471,6 +471,34 @@ async fn hidden_by(db: &Database, tx: &mut Tx<'_>, author: i64, pid: i64) -> Res
     }
 }
 
+/// The operator of the hide in effect on `pid` right now: `None` when the post is not hidden by governance. A
+/// request records who hid the post when it was filed (`hidden_by`), but the post may have been unhidden and hidden
+/// again by someone else since; this is the hide that accepting the request would undo.
+async fn current_hider(db: &Database, tx: &mut Tx<'_>, pid: i64) -> Result<Option<i64>> {
+    let row = crate::db::query("SELECT authorid,invisible FROM gonof_forum_post WHERE pid=?")
+        .bind(pid)
+        .fetch_optional(db.observe(&mut **tx))
+        .await?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    match row.try_get::<Option<i64>, _>("authorid")? {
+        Some(author) if row.try_get::<i64, _>("invisible")? == -1 => {
+            hidden_by(db, tx, author, pid).await
+        }
+        _ => Ok(None),
+    }
+}
+
+/// [`current_hider`] for the review page, in a read-only transaction: the recusal notice there and the check when
+/// resolving use the same answer.
+pub async fn hider_now(db: &Database, pid: i64) -> Result<Option<i64>> {
+    let mut tx = db.begin_read_only().await?;
+    let hider = current_hider(db, &mut tx, pid).await?;
+    tx.commit().await?;
+    Ok(hider)
+}
+
 pub struct RestorationPage {
     pub rows: Vec<Restoration>,
     pub total: usize,
@@ -597,10 +625,11 @@ pub async fn pending_for_post(db: &Database, pid: i64) -> Result<Vec<i64>> {
     .await?)
 }
 
-/// Whether the handler must recuse: the requester themselves, or whoever made that hide; administrators are the final
-/// reviewers and are exempt.
-pub fn recused(r: &Restoration, uid: i64, is_admin: bool) -> bool {
-    !is_admin && (r.uid == uid || r.hidden_by == Some(uid))
+/// Whether the handler must recuse: the requester themselves, whoever made the hide the request was filed against, or
+/// whoever made the hide in effect now (`hider`, from [`current_hider`]); administrators are the final reviewers and
+/// are exempt.
+pub fn recused(r: &Restoration, uid: i64, is_admin: bool, hider: Option<i64>) -> bool {
+    !is_admin && (r.uid == uid || r.hidden_by == Some(uid) || hider == Some(uid))
 }
 
 /// Accept or reject. Accepting runs the existing unhide and withdrawal-restore actions with the management identity in
@@ -666,7 +695,10 @@ async fn resolve_inner(
             crate::i18n::current().governance_manage_error_not_staff(),
         ));
     }
-    if recused(found, actor.uid, role == 1) {
+    // Scope and post locks first, so the hide judged for recusal cannot change before the decision commits.
+    lock_scope(db, &mut tx, actor, role, found.pid).await?;
+    let hider = current_hider(db, &mut tx, found.pid).await?;
+    if recused(found, actor.uid, role == 1, hider) {
         return Err(ContentWriteError::Forbidden(
             crate::i18n::current().governance_manage_error_restoration_recuse(),
         ));
@@ -685,7 +717,6 @@ async fn resolve_inner(
             )
             .await?
     } else {
-        lock_scope(db, &mut tx, actor, role, found.pid).await?;
         false
     };
     let current = decode(
@@ -758,9 +789,10 @@ async fn resolve_inner(
     Ok(())
 }
 
-/// Rejecting also has to confirm that the handler still has permission for the forum the post is in; locks forum,
-/// thread and post in that order, consistent with content management. Permanently erased posts can still be rejected,
-/// which closes the request.
+/// Confirms that the handler still has permission for the forum the post is in, before either decision (accepting
+/// then runs the unhide or restore, which checks again); locks forum, thread and post in that order, consistent with
+/// content management, so the post's hide state stays put until the decision commits. Permanently erased posts can
+/// still be rejected, which closes the request.
 async fn lock_scope(
     db: &Database,
     tx: &mut Tx<'_>,
@@ -883,10 +915,14 @@ mod tests {
             handled_at: 0,
             dateline: 1,
         };
-        assert!(recused(&r, 5, false));
-        assert!(recused(&r, 7, false));
-        assert!(!recused(&r, 8, false));
-        assert!(!recused(&r, 5, true));
-        assert!(!recused(&r, 7, true));
+        assert!(recused(&r, 5, false, None));
+        assert!(recused(&r, 7, false, None));
+        assert!(!recused(&r, 8, false, None));
+        assert!(!recused(&r, 5, true, None));
+        assert!(!recused(&r, 7, true, None));
+        // Hidden again by someone else after the request was filed.
+        assert!(recused(&r, 8, false, Some(8)));
+        assert!(recused(&r, 7, false, Some(8)));
+        assert!(!recused(&r, 8, true, Some(8)));
     }
 }
