@@ -1056,3 +1056,44 @@ async fn member_follows_respect_blocks_privacy_and_limits() {
     );
     f.services.cleanup().await.unwrap();
 }
+
+/// During the cooling period of the author's account deletion or content erasure the thread page offers no tip: the
+/// author's account is still active, but the tip transaction refuses every amount. Cancelling the request brings the
+/// button back.
+#[tokio::test]
+async fn tips_are_not_offered_while_the_author_is_leaving() {
+    use gono_forum_web::privacy::{self, Access, NewRequest};
+    let f = Fixture::new().await;
+    let (tid, _) = f.thread(AUTHOR, "Author about to leave").await;
+    f.credit(FAN, 30).await;
+    f.enable_tips("1,5,10,20", 25).await;
+    let path = format!("/thread-{tid}");
+    assert!(f.page(&path, Some(&f.fan)).await.contains("data-tip-open"));
+    let author = Access::Session(f.author.member.actor());
+    let request = privacy::submit(
+        f.db(),
+        &author,
+        NewRequest {
+            kind: "erase".into(),
+            content_mode: "erase".into(),
+            request_key: identity::random_token(),
+            // The password `http_auth::login` sets.
+            password: "Http-fixture-password-2026!".into(),
+        },
+        identity::now(),
+    )
+    .await
+    .unwrap();
+    assert!(!f.page(&path, Some(&f.fan)).await.contains("data-tip-open"));
+    let reply = f.tip(&f.fan, tid, 5, &identity::random_token()).await;
+    assert!(
+        reply.body.contains("author cannot receive tips right now"),
+        "{}",
+        reply.body
+    );
+    privacy::cancel(f.db(), &author, request, identity::now())
+        .await
+        .unwrap();
+    assert!(f.page(&path, Some(&f.fan)).await.contains("data-tip-open"));
+    f.services.cleanup().await.unwrap();
+}

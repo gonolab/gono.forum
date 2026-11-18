@@ -283,5 +283,22 @@ async fn counters_follow_marks_and_the_thread_page_reads_them_in_simple_queries(
             "{who}: number of thread page queries\n{listed}"
         );
     }
+    // A member who has not tipped yet is offered a tip once the thread page has also checked that the author has no
+    // account deletion or content erasure pending: one more statement, within the same budget.
+    let session = http_auth::login(&identity, &db, 9103).await.session_token;
+    statements(&app, &path, Some(&session)).await;
+    let sql = statements(&app, &path, Some(&session)).await;
+    let listed = sql.join("\n");
+    assert_eq!(
+        sql.iter()
+            .filter(|statement| statement.contains("FROM gonof_common_data_request"))
+            .count(),
+        1,
+        "{listed}"
+    );
+    assert!(
+        sql.len() <= 12,
+        "member who may tip: number of thread page queries\n{listed}"
+    );
     services.cleanup().await.unwrap();
 }

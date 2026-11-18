@@ -207,7 +207,9 @@ Redis read for every visitor. `members.recent`, `moderators`, `site.stats` and `
   and the author's member row by uid, under `content::thread_visible_sql` with the page frame's readable forums. The
   counters are columns: `favorites`, `tips` and `tip_total` on the thread, `downvotes` on the first post, and
   `replies` (flat view) or `root_replies` (nested view) for the page count. The author's `freeze` and
-  `account_state` decide whether tipping is offered.
+  `account_state` decide whether tipping is offered; when everything else allows a tip, one more read of the author's
+  data requests by `uid` (`privacy::close_or_erase_pending`) checks that no account deletion or content erasure is
+  pending, which the tip transaction would refuse.
 - **Floors**: `content::load_replies` reads one range on the post primary key `(tid, position)` in flat view, or on
   `gonof_post_root_position (tid, root_position)` in nested view; each row joins its parent, its reply target and
   their authors by primary key. Posts are not filtered in SQL: hidden, withdrawn and erased ones keep their floor and
@@ -400,4 +402,4 @@ On MySQL the session table uses the MEMORY engine: a database restart empties it
 - `tests/thread_page_queries.rs` checks the counters against the detail rows and that, in the usual state, the thread
   page sends no `UNION`, subquery or `EXISTS`, no counting over likes, favorites, downvotes or tips, no activity or
   moderator table query for an ordinary thread, one reader-state statement for a member, and at most 12 statements
-  for a member and 8 for an anonymous visitor.
+  for a member (one who may still tip included) and 8 for an anonymous visitor.

@@ -330,9 +330,11 @@ impl Identity {
             .filter(|c| !c.is_control())
             .take(45)
             .collect();
+        // A revoked key is no longer recorded: a request that authenticated just before the account deletion revoked
+        // the key and cleared its IP must not write the IP back afterwards.
         crate::db::query(
             "UPDATE gonof_common_member_api_key SET last_used_at = ?, last_used_ip = ?
-             WHERE id = ? AND last_used_at < ? AND dateline <= ?",
+             WHERE id = ? AND revoked_at IS NULL AND last_used_at < ? AND dateline <= ?",
         )
         .bind(timestamp)
         .bind(client_ip)

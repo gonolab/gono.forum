@@ -113,22 +113,39 @@ pub async fn active_member(db: &Database, tx: &mut Tx<'_>, uid: i64) -> anyhow::
             .await?;
     Ok(state.as_deref() == Some("active"))
 }
+/// The member's account deletion or content erasure that has not finished, cooling period included, read by `uid`.
+const CLOSE_OR_ERASE_PENDING: &str = "SELECT id FROM gonof_common_data_request WHERE uid=? AND kind IN ('close','erase') AND status IN ('cooling','pending','processing','failed') ORDER BY id LIMIT 1";
 /// Monetary entrypoints hold this same account lock, serializing admission with privacy requests.
 pub async fn funding_allowed(db: &Database, tx: &mut Tx<'_>, uid: i64) -> anyhow::Result<bool> {
     if !active_member(db, tx, uid).await? {
         return Ok(false);
     }
-    let current: Option<i64> = db::query_scalar("SELECT id FROM gonof_common_data_request WHERE uid=? AND kind IN ('close','erase') AND status IN ('cooling','pending','processing','failed') ORDER BY id LIMIT 1 FOR UPDATE")
-        .bind(uid).fetch_optional(db.observe(&mut **tx)).await?;
+    let current: Option<i64> = db::query_scalar(&format!("{CLOSE_OR_ERASE_PENDING} FOR UPDATE"))
+        .bind(uid)
+        .fetch_optional(db.observe(&mut **tx))
+        .await?;
     Ok(current.is_none())
 }
+/// Whether the member has an account deletion or content erasure pending, read without locks: for pages deciding
+/// whether to offer a payment that [`funding_allowed`] would refuse.
+pub async fn close_or_erase_pending(db: &Database, uid: i64) -> anyhow::Result<bool> {
+    let current: Option<i64> = db::query_scalar(CLOSE_OR_ERASE_PENDING)
+        .bind(uid)
+        .fetch_optional(db.executor())
+        .await?;
+    Ok(current.is_some())
+}
+/// No frozen points and no open funded activity the member runs or takes part in. An open bounty counts only while
+/// the member has a reply the owner could still accept: the same conditions as `activities::campaign::eligible_reply`
+/// (not hidden, withdrawn or erased, and a nested reply's parent neither). A hidden reply unhidden later cannot be
+/// accepted while the request is pending either, since accepting checks [`funding_allowed`] for the recipient.
 async fn settled(db: &Database, tx: &mut Tx<'_>, uid: i64) -> Result<()> {
     let frozen: Option<i64> =
         db::query_scalar("SELECT frozen FROM gonof_common_credit_account WHERE uid=? FOR UPDATE")
             .bind(uid)
             .fetch_optional(db.observe(&mut **tx))
             .await?;
-    let activity:i64=db::query_scalar("SELECT COUNT(*) FROM gonof_forum_activity a WHERE a.kind IN (1,2,3) AND a.state IN ('open','drawing') AND (a.owner_uid=? OR EXISTS (SELECT 1 FROM gonof_forum_lottery_entry e WHERE e.tid=a.tid AND e.uid=?) OR EXISTS (SELECT 1 FROM gonof_forum_lottery_signup s WHERE s.tid=a.tid AND s.uid=?) OR (a.kind=1 AND EXISTS(SELECT 1 FROM gonof_forum_post p WHERE p.tid=a.tid AND p.authorid=? AND p.first=0 AND p.erased_at=0)))").bind(uid).bind(uid).bind(uid).bind(uid).fetch_one(db.observe(&mut **tx)).await?;
+    let activity:i64=db::query_scalar("SELECT COUNT(*) FROM gonof_forum_activity a WHERE a.kind IN (1,2,3) AND a.state IN ('open','drawing') AND (a.owner_uid=? OR EXISTS (SELECT 1 FROM gonof_forum_lottery_entry e WHERE e.tid=a.tid AND e.uid=?) OR EXISTS (SELECT 1 FROM gonof_forum_lottery_signup s WHERE s.tid=a.tid AND s.uid=?) OR (a.kind=1 AND EXISTS(SELECT 1 FROM gonof_forum_post p LEFT JOIN gonof_forum_post parent ON parent.pid=p.root_pid WHERE p.tid=a.tid AND p.authorid=? AND p.first=0 AND p.invisible=0 AND p.deleted_at=0 AND p.erased_at=0 AND (p.root_pid IS NULL OR (parent.invisible=0 AND parent.deleted_at=0 AND parent.erased_at=0)))))").bind(uid).bind(uid).bind(uid).bind(uid).fetch_one(db.observe(&mut **tx)).await?;
     if frozen.unwrap_or(0) != 0 || activity != 0 {
         return Err(IdentityError::Conflict(UNSETTLED));
     }

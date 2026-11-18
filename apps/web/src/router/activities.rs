@@ -567,6 +567,10 @@ pub(super) async fn tip_view(
             && !thread.author_deleted
             && !thread.author_unavailable
             && !viewer.blocked_by_author
+            // Asked last, as it is the one query: during the cooling period of an account deletion or content
+            // erasure the author's account is still active, but the tip transaction refuses every amount
+            // (`privacy::funding_allowed`).
+            && !crate::privacy::close_or_erase_pending(&state.db, author).await?
         {
             can_tip = true;
             amounts = settings.amounts;

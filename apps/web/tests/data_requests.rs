@@ -2764,3 +2764,131 @@ async fn the_unregistered_archive_sweep_is_rate_limited_and_batched() {
     }
     f.services.cleanup_ref().await.unwrap();
 }
+
+/// An answer the member withdrew can no longer be accepted, so it does not hold up a content erasure while the bounty
+/// is open; a live answer still does (the owner could accept it and pay the member).
+#[tokio::test]
+async fn a_withdrawn_bounty_answer_does_not_hold_up_erasure() {
+    use gono_forum_web::activities::{self, ActivitySpec};
+    let f = Fixture::new().await;
+    let now = identity::now();
+    activities::adjust(
+        &f.db,
+        f.admin.member.actor(),
+        f.admin.member.uid,
+        20,
+        &identity::random_token(),
+        "fixture funds",
+        now,
+    )
+    .await
+    .unwrap();
+    let fid: i64 = db::query_scalar("SELECT fid FROM gonof_forum_forum ORDER BY fid LIMIT 1")
+        .fetch_one(f.db.executor())
+        .await
+        .unwrap();
+    let writer = ContentWriter::new(f.db.clone(), WriteConfig::default());
+    let bounty = writer
+        .publish(
+            f.admin.member.uid,
+            NewThread {
+                activity: ActivitySpec {
+                    kind: 1,
+                    budget: 5,
+                    deadline: now + 600,
+                    ..Default::default()
+                },
+                fid,
+                title: "OPEN BOUNTY".into(),
+                body: "BOUNTY BODY".into(),
+                attachment_ids: vec![],
+                request_key: identity::random_token(),
+                visibility: Default::default(),
+            },
+        )
+        .await
+        .unwrap();
+    let answer = writer
+        .reply(
+            f.user.member.uid,
+            NewReply {
+                tid: bounty.tid,
+                root_pid: None,
+                reply_to_pid: None,
+                body: "AN ANSWER".into(),
+                attachment_ids: vec![],
+                request_key: identity::random_token(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        privacy::submit(&f.db, &f.access(), f.request("erase", "erase"), now).await,
+        Err(IdentityError::Conflict(_))
+    ));
+    let versions = db::query("SELECT p.version,t.version AS thread_version FROM gonof_forum_post p JOIN gonof_forum_thread t ON t.tid=p.tid WHERE p.pid=?")
+        .bind(answer.pid)
+        .fetch_one(f.db.executor())
+        .await
+        .unwrap();
+    content::edits::ContentEditor::new(
+        f.db.clone(),
+        f.services.config.content.clone(),
+        f.services.config.media.orphan_seconds,
+    )
+    .change(
+        f.user.member.actor(),
+        content::edits::ChangeRequest {
+            pid: answer.pid,
+            action: content::edits::ContentAction::Withdraw,
+            expected_post_version: versions.try_get("version").unwrap(),
+            expected_thread_version: versions.try_get("thread_version").unwrap(),
+            request_key: identity::random_token(),
+            reason: "Changed my mind".into(),
+        },
+    )
+    .await
+    .unwrap();
+    privacy::submit(&f.db, &f.access(), f.request("erase", "erase"), now)
+        .await
+        .unwrap();
+    f.services.cleanup_ref().await.unwrap();
+}
+
+/// A request that authenticated with an API key just before account deletion revoked the key and cleared its address
+/// must not write the address back when it records the key's use afterwards.
+#[tokio::test]
+async fn a_late_api_key_use_does_not_restore_the_cleared_address() {
+    let f = Fixture::new().await;
+    let now = identity::now();
+    let uid = f.user.member.uid;
+    let key = f
+        .identity
+        .create_api_key(&f.user.session_token, PASSWORD, 86_400)
+        .await
+        .unwrap();
+    privacy::submit(&f.db, &f.access(), f.request("close", "retain"), now)
+        .await
+        .unwrap();
+    let due = now + privacy::COOLING_SECONDS;
+    f.work(due).await;
+    assert_eq!(
+        f.scalar(&format!(
+            "SELECT COUNT(*) FROM gonof_common_member WHERE uid={uid} AND account_state='deleted'"
+        ))
+        .await,
+        1
+    );
+    f.identity
+        .touch_api_key(key.key.id, "203.0.113.9", due + 3600)
+        .await
+        .unwrap();
+    let address: String =
+        db::query_scalar("SELECT last_used_ip FROM gonof_common_member_api_key WHERE id=?")
+            .bind(key.key.id)
+            .fetch_one(f.db.executor())
+            .await
+            .unwrap();
+    assert_eq!(address, "");
+    f.services.cleanup_ref().await.unwrap();
+}
