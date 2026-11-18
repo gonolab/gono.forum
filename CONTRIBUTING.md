@@ -123,10 +123,12 @@ please open an issue.
 After changing `forum.install.sh`, run `bash -n forum.install.sh`, `shellcheck forum.install.sh` and
 `tests/install/simulate.sh`. The simulation runs install, upgrade, rollback and uninstall, including the upgrade's
 failure paths (a rename that fails halfway, a version that never answers, a version put back that does not start,
-an interrupted or killed run, a `--version` that hangs). It also runs the start guard after a one-click upgrade whose
-new version keeps failing. It runs all of this against a fake systemd in a temporary directory, as an ordinary user,
-and never touches `/opt`, `/etc` or the real service manager. It needs bash, curl, python3, tar and GNU coreutils (on
-macOS `brew install coreutils`), and takes about two minutes.
+an interrupted or killed run, a `--version` that hangs), the health check without curl or wget, an install that
+stopped halfway and an uninstall whose service does not stop. It also runs the start guard after a one-click upgrade
+whose new version keeps failing. It runs all of this against a fake systemd in a temporary directory, as an ordinary
+user, and never touches `/opt`, `/etc` or the real service manager. It needs bash, curl, python3, tar and GNU
+coreutils (on macOS `brew install coreutils`), checks the wget fallback only when wget is installed, and takes about
+four minutes.
 
 ## Commits and pull requests
 

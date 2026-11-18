@@ -4,10 +4,11 @@
 # (/opt, /etc/systemd/system, /usr/local/lib/gono-forum, /run/systemd/system) point into the temporary directory, and
 # the commands that would reach the real system (systemctl, journalctl, id, uname, setpriv, setsid, useradd, userdel,
 # chown, the owner options of install) are small fakes put first on PATH. The packages hold a fake gono-forum-web: a
-# shell script around a tiny Python server on a free loopback port that, per version, answers /healthz, exits before
-# it is ready, or accepts connections and never answers.
+# shell script around a tiny Python server on a free loopback port that, per version, answers /healthz, answers it
+# with an error or as the setup wizard does, exits before it is ready, or accepts connections and never answers. Runs
+# without curl (and without wget) check the health check's fallbacks; the wget ones are skipped when it is missing.
 #
-#   tests/install/simulate.sh          about two minutes; KEEP=1 keeps the temporary directory (with transcript, the
+#   tests/install/simulate.sh          about four minutes; KEEP=1 keeps the temporary directory (with transcript, the
 #                                      output of every run)
 #
 # Needs bash, curl, python3, tar and GNU coreutils (on macOS: brew install coreutils; found by itself). Runs as an
@@ -101,6 +102,12 @@ echo "$name" >> @SIM@/users
 EOF
 shim userdel <<'EOF'
 #!/usr/bin/env bash
+# @SIM@/inject/userdel makes the next call fail.
+if [ -f @SIM@/inject/userdel ]; then
+  rm -f @SIM@/inject/userdel
+  echo "userdel: user $1 is currently used by process 1 (simulated)" >&2
+  exit 8
+fi
 grep -vxF -- "$1" @SIM@/users > @SIM@/users.tmp || true
 mv -f @SIM@/users.tmp @SIM@/users
 EOF
@@ -110,11 +117,20 @@ exit 0
 EOF
 shim install <<'EOF'
 #!/usr/bin/env bash
-# install without -o and -g, which only root may use.
+# install without -o and -g, which only root may use. "fail NAME" in @SIM@/inject/install makes the next install of a
+# file named NAME fail.
 args=()
 while [ $# -gt 0 ]; do
   case "$1" in -o|-g) shift 2 ;; *) args+=("$1"); shift ;; esac
 done
+if [ -f @SIM@/inject/install ]; then
+  read -r action target < @SIM@/inject/install
+  if [ "$action" = fail ] && [ "${args[${#args[@]}-1]##*/}" = "$target" ]; then
+    rm -f @SIM@/inject/install
+    echo "install: cannot create regular file '$target': No space left on device (simulated)" >&2
+    exit 1
+  fi
+fi
 exec @REAL@ "${args[@]}"
 EOF
 shim mv <<'EOF'
@@ -154,6 +170,8 @@ shim systemctl <<'EOF'
 # Fake systemd: units come from @ROOT@/etc/systemd/system; a started service runs in the background with its pid in
 # @SIM@/systemd/<name>.pid and its output in <name>.log. Like Type=notify, start waits until the service says it is
 # ready (the fake forum creates $NOTIFY_READY) and fails when it exits first or takes longer than 10 seconds.
+# @SIM@/inject/systemctl spoils the next disable: "fail disable" makes it fail, "ignore disable" makes it report
+# success while the service keeps running.
 state=@SIM@/systemd
 units=@ROOT@/etc/systemd/system
 
@@ -210,6 +228,15 @@ now=0 unit=""
 for arg; do
   case "$arg" in --now) now=1 ;; -*) ;; *) unit=${arg%.service} ;; esac
 done
+if [ -f @SIM@/inject/systemctl ]; then
+  read -r action target < @SIM@/inject/systemctl
+  if [ "$target" = "$command" ]; then
+    rm -f @SIM@/inject/systemctl
+    [ "$action" = ignore ] && exit 0
+    echo "Failed to disable unit: Access denied (simulated)" >&2
+    exit 1
+  fi
+fi
 case "$command" in
   daemon-reload) ;;
   start) start "$unit" ;;
@@ -223,8 +250,9 @@ esac
 EOF
 
 cat > "$sim/server.py" <<'EOF'
-# Fake forum: listens on the address in argv[1]; "ok" answers every request with "ok <version>", "hang" accepts
-# connections and never answers. Creates argv[4] once it listens, as the real one sends READY=1.
+# Fake forum: listens on the address in argv[1]; "ok" answers every request with "ok <version>", "error" with a 500,
+# "setup" with the setup wizard's 503 "setup required", and "hang" accepts connections and never answers. Creates
+# argv[4] once it listens, as the real one sends READY=1.
 import socket, sys, threading
 
 host, port = sys.argv[1].rsplit(":", 1)
@@ -241,8 +269,12 @@ def answer(connection):
         if behavior == "hang":
             threading.Event().wait()
         connection.recv(65536)
-        body = f"ok {version}\n".encode()
-        head = f"HTTP/1.1 200 OK\r\nContent-Length: {len(body)}\r\nConnection: close\r\n\r\n".encode()
+        status, body = {
+            "error": ("500 Internal Server Error", "internal error"),
+            "setup": ("503 Service Unavailable", "setup required"),
+        }.get(behavior, ("200 OK", f"ok {version}"))
+        body = f"{body}\n".encode()
+        head = f"HTTP/1.1 {status}\r\nContent-Length: {len(body)}\r\nConnection: close\r\n\r\n".encode()
         connection.sendall(head + body)
 
 
@@ -253,7 +285,8 @@ EOF
 
 python=$(command -v python3)
 # make_package VERSION: builds gono-forum_VERSION_linux_amd64.tar.gz with checksums.txt and prints its path. How the
-# fake forum of VERSION behaves when started is read from $sim/behavior/VERSION (ok, crash or hang; ok if missing);
+# fake forum of VERSION behaves when started is read from $sim/behavior/VERSION (ok, error, setup, crash or hang; ok if
+# missing);
 # "hang" in $sim/behavior/VERSION-web-version or VERSION-cli-version makes that binary's --version hang.
 make_package() {
   local version=$1 package stage
@@ -271,7 +304,7 @@ fi
 behavior=\$(cat "$sim/behavior/$version" 2>/dev/null || echo ok)
 echo "gono-forum-web $version starting: \$behavior"
 if [ "\$behavior" = crash ]; then echo "gono-forum-web $version: exits before it is ready" >&2; exit 1; fi
-listen=\$(sed -n 's/^listen = "\\(.*\\)"\$/\\1/p' "\$GONOF_HOME/config/gono-forum.toml")
+listen=\$(sed -n -e 's/^listen = "\\([^"]*\\)".*/\\1/p' -e "s/^listen = '\\([^']*\\)'.*/\\1/p" "\$GONOF_HOME/config/gono-forum.toml" | head -n 1)
 exec "$python" -I "$sim/server.py" "\$listen" "\$behavior" "$version" "\${NOTIFY_READY:-/dev/null}"
 EOF
   cat > "$stage/gono-forum-cli" <<EOF
@@ -298,7 +331,33 @@ pkg3=$(make_package 0.3.0)
 make_package 0.4.0 > /dev/null
 pkg5=$(make_package 0.5.0)
 pkg6=$(make_package 0.6.0)
+pkg7=$(make_package 0.7.0)
 
+# without NAMES...: prints a directory to use as PATH that has every command of the simulation's PATH except NAMES
+# (as links, in the same order of precedence), for runs of the script under test without curl or wget.
+without() {
+  local into="$sim/path-without" name entry file
+  for name; do into="$into-$name"; done
+  if ! [ -d "$into" ]; then
+    mkdir -p "$into"
+    local IFS=:
+    for entry in $PATH; do
+      for file in "$entry"/*; do
+        name=${file##*/}
+        case " $* " in *" $name "*) continue ;; esac
+        if [ -x "$file" ] && ! [ -d "$file" ] && ! [ -e "$into/$name" ]; then ln -s "$file" "$into/$name"; fi
+      done
+    done
+  fi
+  echo "$into"
+}
+# set_listen LINE: makes LINE the listen line of the instance configuration, at its top (removes it when LINE is
+# empty).
+set_listen() {
+  local config=$dir/config/gono-forum.toml
+  awk -v line="$1" 'NR == 1 && line != "" { print line } /^listen[ \t]*=/ { next } { print }' "$config" > "$config.edit"
+  mv -f "$config.edit" "$config"
+}
 # ---------------------------------------------------------------------------------------------------------------
 status=0
 fail() {
@@ -377,11 +436,32 @@ start_works() { systemctl start gono-forum-main 2> /dev/null || fail "gono-forum
 no_marker() { absent "$dir/data/upgrade/pending" "$dir/data/upgrade/attempts"; }
 
 # ---------------------------------------------------------------------------------------------------------------
+# An install that stops after writing both binaries: the instance has no unit and no configuration, so it is not
+# installed. upgrade refuses it, status says so, and install again finishes it.
+echo "fail forum.install.sh" > "$sim/inject/install"
+run 1 install --package "$pkg1" --port "$port"
+absent "$sim/inject/install" "$root/etc/systemd/system/gono-forum-main.service" "$dir/config/gono-forum.toml"
+binaries "" 0.1.0
+run 1 upgrade --package "$pkg1"
+says "gono-forum-main is not installed"
+never_says "already runs"
+run 0 status
+says "Service    not installed"
+pass "an install that stopped halfway is not taken for an installed instance"
+
 run 0 install --package "$pkg1" --port "$port"
 says "is installed as gono-forum-main"
 binaries "" 0.1.0
 serving 0.1.0
-pass "install 0.1.0"
+pass "install 0.1.0 over the install that stopped halfway"
+
+mv "$dir/config/gono-forum.toml" "$sim/config.aside"
+run 1 upgrade --package "$pkg2"
+says "config/gono-forum.toml is missing"
+binaries "" 0.1.0
+serving 0.1.0
+mv "$sim/config.aside" "$dir/config/gono-forum.toml"
+pass "upgrade refuses an instance without its configuration"
 
 run 0 upgrade --package "$pkg1"
 says "already runs 0.1.0"
@@ -620,9 +700,102 @@ binaries "" 0.3.0
 serving 0.3.0
 pass "a --version that hangs is given up after 15s"
 
-run 0 uninstall --purge --yes
-absent "$dir" "$root/usr/local/lib/gono-forum"
+# The health check without curl: with wget (when it is there), then with bash's /dev/tcp; the listen address in single
+# quotes with a comment after it. A version that answers with an error is rolled back, and the setup wizard's 503
+# counts as an answer.
+set_listen "listen = '127.0.0.1:$port'   # loopback only"
+run 0 status
+says "Listen     127.0.0.1:$port"
+no_curl=$(without curl)
+no_curl_or_wget=$(without curl wget)
+if PATH=$base_path command -v wget >/dev/null; then
+  echo error > "$sim/behavior/0.7.0"
+  PATH=$no_curl run 1 upgrade --package "$pkg7"
+  says "0.7.0 did not start or does not answer"
+  says "gono-forum-main runs 0.3.0 again"
+  binaries "" 0.3.0
+  binaries .failed 0.7.0
+  no_leftovers
+  last_result rolled_back
+  serving 0.3.0
+  echo setup > "$sim/behavior/0.7.0"
+  PATH=$no_curl run 0 upgrade --package "$pkg7"
+  says "upgraded from 0.3.0 to 0.7.0"
+  PATH=$no_curl run 0 rollback
+  says "runs 0.3.0 again"
+  serving 0.3.0
+  pass "without curl, wget checks the new version"
+else
+  echo "skip without curl, wget checks the new version (no wget)"
+fi
+echo error > "$sim/behavior/0.7.0"
+PATH=$no_curl_or_wget run 1 upgrade --package "$pkg7"
+says "0.7.0 did not start or does not answer"
+says "gono-forum-main runs 0.3.0 again"
+binaries "" 0.3.0
+no_leftovers
+last_result rolled_back
+serving 0.3.0
+echo setup > "$sim/behavior/0.7.0"
+PATH=$no_curl_or_wget run 0 upgrade --package "$pkg7"
+says "upgraded from 0.3.0 to 0.7.0"
+PATH=$no_curl_or_wget run 0 rollback
+says "runs 0.3.0 again"
+binaries "" 0.3.0
+binaries .previous 0.7.0
+serving 0.3.0
+pass "without curl or wget, bash's /dev/tcp checks the new version"
+
+# A listen address the script cannot read stops an upgrade before the service is stopped.
+set_listen "listen = \"\"\"127.0.0.1:$port\"\"\""
+run 0 status
+says "Listen     unknown"
+run 1 upgrade --package "$pkg7"
+says "cannot read the listen address"
+says "nothing was changed"
+binaries "" 0.3.0
+no_leftovers
+serving 0.3.0
+set_listen ""
+run 0 status
+says "Listen     127.0.0.1:58833"
+set_listen "listen = \"127.0.0.1:$port\""
+pass "an unreadable listen address stops the upgrade before anything changes; a missing one is the default"
+
+# uninstall removes nothing while the service may still run.
+echo "fail disable" > "$sim/inject/systemctl"
+run 1 uninstall --purge --yes
+absent "$sim/inject/systemctl"
+says "could not stop and disable gono-forum-main"
+says "nothing was removed"
+[ -f "$root/etc/systemd/system/gono-forum-main.service" ] || fail "the unit should be kept"
+binaries "" 0.3.0
+serving 0.3.0
+echo "ignore disable" > "$sim/inject/systemctl"
+run 1 uninstall --purge --yes
+says "is still running after systemctl disable --now"
+says "nothing was removed"
+[ -f "$dir/config/gono-forum.toml" ] || fail "the configuration should be kept"
+serving 0.3.0
+pass "uninstall stops when the service is not stopped"
+
+run 0 uninstall
+says "The configuration and data are kept"
 serving nothing
-pass "uninstall --purge"
+run 1 install --package "$pkg3" --port "$((port + 1))"
+says "is kept from an earlier install and sets the listen address 127.0.0.1:$port"
+run 0 install --package "$pkg3" --port "$port"
+says "is reinstalled as gono-forum-main"
+serving 0.3.0
+pass "uninstall keeps the configuration, and install with its listen address reinstalls"
+
+touch "$sim/inject/userdel"
+run 1 uninstall --purge --yes
+says "could not delete the system account gono-forum-main"
+never_says "with its configuration, data and account"
+absent "$dir" "$root/usr/local/lib/gono-forum"
+grep -qxF gono-forum-main "$sim/users" || fail "the fake account should still exist"
+serving nothing
+pass "uninstall --purge reports an account it could not delete"
 
 echo "all simulated runs passed"

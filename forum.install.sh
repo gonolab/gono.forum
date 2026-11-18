@@ -446,29 +446,100 @@ EOF
   rm -f "$dir/forum.install.sh" "$dir/install.sh"
 }
 
+# The listen address the forum uses when its configuration sets none (config/default.toml).
+DEFAULT_LISTEN="127.0.0.1:58833"
+# LISTEN_AWK (awk -v sq="'"): the value of the top-level `listen` key of a configuration, that is, among the keys
+# before the first table header. The value may be in double or single quotes and be followed by a comment. Prints
+# nothing when the key is not there, and "?" when its value is not one this reads (escapes, multi-line strings,
+# anything else); the forum itself reads the file with a full TOML parser.
+LISTEN_AWK='
+  /^[ \t]*\[/ { exit }
+  {
+    line = $0
+    sub(/^[ \t]+/, "", line)
+    at = index(line, "=")
+    if (at == 0) next
+    key = substr(line, 1, at - 1)
+    sub(/[ \t]+$/, "", key)
+    if (key != "listen" && key != "\"listen\"" && key != sq "listen" sq) next
+    value = substr(line, at + 1)
+    sub(/^[ \t]+/, "", value)
+    quote = substr(value, 1, 1)
+    rest = substr(value, 2)
+    end = index(rest, quote)
+    if ((quote != "\"" && quote != sq) || end <= 1) { print "?"; exit }
+    text = substr(rest, 1, end - 1)
+    after = substr(rest, end + 1)
+    if ((quote == "\"" && index(text, "\\") > 0) || after !~ /^[ \t]*(#.*)?$/) { print "?"; exit }
+    print text
+    exit
+  }'
+
+# listen_address: the listen address of the instance configuration, or the default when it sets none. Fails when the
+# file cannot be read or sets an address this cannot read.
 listen_address() {
-  service_file "$dir/config/gono-forum.toml" \
-    | sed -n 's/^[[:space:]]*listen[[:space:]]*=[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' | head -n 1 | printable
+  local config="$dir/config/gono-forum.toml" text="" value
+  if [ -e "$config" ]; then
+    text=$(as_service cat -- "$config" </dev/null 2>/dev/null) || return 1
+  fi
+  value=$(printf '%s\n' "$text" | awk -v sq="'" "$LISTEN_AWK" | printable)
+  [ -n "$value" ] || value=$DEFAULT_LISTEN
+  case "${value##*:}" in ''|*[!0-9]*) return 1 ;; esac
+  case "$value" in *:*) printf '%s\n' "$value" ;; *) return 1 ;; esac
 }
 
-# Whether the started service answers: the forum (200) or the setup wizard (503 "setup required"). The forum also
-# answers /healthz at the root when it is installed under a sub-path. A service that accepts connections but never
-# answers must not hold up the switch back, so each request gets 2 seconds to connect and 5 in all, and the check
-# gives up HEALTH_WAIT seconds after the first one. The address is local, so no proxy is asked.
+# address: the listen address the health check asks, read before the service is stopped.
+address=""
+# resolve_address: sets $address; stops the script, before anything changes, when it cannot be read: a switch that
+# could not check the new version would have to take it on trust.
+resolve_address() {
+  address=$(listen_address) \
+    || die "cannot read the listen address in $dir/config/gono-forum.toml (a top-level listen = \"host:port\"), so the service could not be checked after the switch; nothing was changed"
+}
+
+# probe_health ADDRESS LIMIT BODY: asks http://ADDRESS/healthz within LIMIT seconds and prints the HTTP status code
+# (nothing when no answer came), with the body in BODY. With curl, otherwise with wget, otherwise with bash's own
+# /dev/tcp. The address is local, so no proxy is asked.
+probe_health() {
+  local target=$1 limit=$2 body=$3 host port
+  if command -v curl >/dev/null; then
+    curl -s --noproxy '*' --connect-timeout 2 --max-time "$limit" -o "$body" -w '%{http_code}' \
+      "http://$target/healthz" || true
+  elif command -v wget >/dev/null; then
+    # -S prints the response headers on standard error, the status line among them; --content-on-error keeps the
+    # body of an answer that is an error (the setup wizard's 503).
+    { LC_ALL=C timeout -k 1 "$limit" wget --no-proxy -q -S --content-on-error --tries=1 --max-redirect=0 \
+        --connect-timeout=2 --read-timeout="$limit" -O "$body" "http://$target/healthz" 2>&1 >/dev/null || true; } \
+      | awk '$1 ~ /^HTTP\// { code = $2 } END { print code }'
+  else
+    host=${target%:*}
+    host=${host#[}
+    host=${host%]}
+    port=${target##*:}
+    # The whole answer, headers included, goes to BODY: the setup wizard's text is looked for in all of it.
+    timeout -k 1 "$limit" "${BASH:-bash}" -c 'exec 3<>"/dev/tcp/$1/$2" || exit 1
+      printf "GET /healthz HTTP/1.0\r\nHost: %s\r\nConnection: close\r\n\r\n" "$3" >&3
+      cat <&3' sh "$host" "$port" "$target" > "$body" 2>/dev/null || true
+    head -n 1 "$body" 2>/dev/null | tr -d '\r' | awk '$1 ~ /^HTTP\// { print $2 }'
+  fi
+}
+
+# Whether the started service answers on $address: the forum (200) or the setup wizard (503 "setup required"). The
+# forum also answers /healthz at the root when it is installed under a sub-path. A service that accepts connections but
+# never answers must not hold up the switch back, so each request gets 2 seconds to connect and 5 in all, and the check
+# gives up HEALTH_WAIT seconds after the first one. Without an address nothing counts as an answer.
 HEALTH_WAIT=30
 healthy() {
-  local address code deadline limit
-  address=$(listen_address)
-  [ -n "$address" ] && command -v curl >/dev/null || return 0
-  case "$address" in 0.0.0.0:*) address="127.0.0.1:${address##*:}" ;; '[::]':*) address="[::1]:${address##*:}" ;; esac
+  local target=$address code deadline limit
+  [ -n "$target" ] || return 1
+  case "$target" in 0.0.0.0:*) target="127.0.0.1:${target##*:}" ;; '[::]':*) target="[::1]:${target##*:}" ;; esac
   deadline=$((SECONDS + HEALTH_WAIT))
   while :; do
     limit=$((deadline - SECONDS))
     [ "$limit" -le 5 ] || limit=5
     [ "$limit" -ge 1 ] || limit=1
     rm -f "$work/health"
-    code=$(curl -s --noproxy '*' --connect-timeout 2 --max-time "$limit" -o "$work/health" -w '%{http_code}' \
-      "http://$address/healthz" || true)
+    code=$(probe_health "$target" "$limit" "$work/health")
     [ "$code" = 200 ] && return 0
     [ "$code" = 503 ] && grep -q 'setup required' "$work/health" 2>/dev/null && return 0
     [ "$SECONDS" -lt "$deadline" ] || return 1
@@ -487,17 +558,22 @@ write_private() {
 
 # ---------------------------------------------------------------------------------------------------------------
 do_install() {
-  [ ! -e "$dir/gono-forum-web" ] || die "$dir is already installed; use: bash $SCRIPT upgrade --instance $instance"
-  [ ! -e "$unit" ] || die "$unit already exists"
-  local config="$dir/config/gono-forum.toml" kept=0 created=0 token=""
-  # A configuration kept by uninstall makes this a reinstall. It holds the database address and the three keys, so
-  # it is kept as it is, and the setup wizard does not run again.
+  # The unit is written last, so it is what makes an instance installed: binaries without it are left from an install
+  # that stopped halfway, and this one goes over them.
+  [ ! -e "$unit" ] || die "$name is already installed ($unit exists); use: bash $SCRIPT upgrade --instance $instance"
+  local config="$dir/config/gono-forum.toml" kept=0 created=0 token="" kept_listen
+  # A configuration kept by uninstall (or written by an install that stopped later) makes this a reinstall. It holds
+  # the database address and the three keys, so it is kept as it is, and the setup wizard does not run again.
   if [ -e "$config" ]; then
     kept=1
-    [ "$listen_given" -eq 0 ] || die "$config is kept from an earlier install and sets the listen address; change it there instead of passing --port or --listen"
-    listen=$(listen_address)
+    kept_listen=$(listen_address) \
+      || die "cannot read the listen address in $config (a top-level listen = \"host:port\"); correct it there and install again"
+    [ "$listen_given" -eq 0 ] || [ "${listen:-127.0.0.1:$port}" = "$kept_listen" ] \
+      || die "$config is kept from an earlier install and sets the listen address $kept_listen; change it there instead of passing --port or --listen"
+    listen=$kept_listen
   fi
   [ -n "$listen" ] || listen="127.0.0.1:$port"
+  address=$listen
   local listen_port="${listen##*:}"
   if command -v ss >/dev/null && [ -n "$(ss -ltnH "sport = :$listen_port" 2>/dev/null)" ]; then
     die "port $listen_port is already in use; choose another with --port"
@@ -714,8 +790,19 @@ record() {
     | as_service sh -c 'umask 077 && mkdir -p "$1" && cat > "$1/last.tmp" && mv -f "$1/last.tmp" "$1/last" && rm -f "$1/pending" "$1/attempts"' sh "$dir/data/upgrade"
 }
 
+# require_installed: stops unless the unit, the configuration and the web binary are all there. An install that stopped
+# halfway has binaries but no unit; running install again finishes it.
+require_installed() {
+  [ -e "$unit" ] || die "$name is not installed ($unit is missing); an install that did not finish is completed by running install again: forum.install.sh install --instance $instance"
+  [ -e "$dir/config/gono-forum.toml" ] \
+    || die "$dir/config/gono-forum.toml is missing, so $name is not installed completely; nothing was changed"
+  [ -x "$dir/gono-forum-web" ] \
+    || die "$dir/gono-forum-web is missing; nothing was changed (uninstall without --purge, which keeps the configuration and data, and install again)"
+}
+
 do_upgrade() {
-  [ -x "$dir/gono-forum-web" ] || die "$dir is not installed; use: forum.install.sh install --instance $instance"
+  require_installed
+  resolve_address
   finish_interrupted_switch
   local current
   current=$(installed_version)
@@ -758,6 +845,8 @@ do_upgrade() {
 }
 
 do_rollback() {
+  require_installed
+  resolve_address
   if [ -d "$dir/$SAVED" ]; then
     finish_interrupted_switch
     say "Nothing else was changed; run rollback again to switch to the previous binaries."
@@ -803,15 +892,29 @@ do_uninstall() {
     read -r answer < /dev/tty
     [ "$answer" = "$instance" ] || die "not confirmed; nothing was removed"
   fi
-  systemctl disable --now "$name" >/dev/null 2>&1 || true
+  # Nothing is removed while the service may still be running: it could go on writing to data/, or be left running
+  # without a unit.
+  if [ -e "$unit" ]; then
+    systemctl disable --now "$name" >/dev/null 2>&1 \
+      || die "could not stop and disable $name (systemctl disable --now $name failed; see: journalctl -u $name); nothing was removed"
+    ! systemctl is-active "$name" >/dev/null 2>&1 \
+      || die "$name is still running after systemctl disable --now; nothing was removed"
+  fi
   rm -f "$unit"
   systemctl daemon-reload
   if [ "$purge" -eq 1 ]; then
     rm -rf "$dir"
-    id "$user" >/dev/null 2>&1 && userdel "$user" || true
+    local account=removed
+    if id "$user" >/dev/null 2>&1 && ! userdel "$user"; then
+      account=kept
+    fi
     # The last instance takes the shared copy of this script with it.
     if ! compgen -G "/opt/gono-forum-*" >/dev/null && ! compgen -G "/etc/systemd/system/gono-forum-*.service" >/dev/null; then
       rm -rf "$SCRIPT_DIR"
+    fi
+    if [ "$account" = kept ]; then
+      say "$name is removed, with its configuration and data."
+      die "could not delete the system account $user (userdel failed, see above); delete it by hand: userdel $user"
     fi
     say "$name is removed, with its configuration, data and account."
   else
@@ -840,8 +943,12 @@ do_status() {
     say "Version    ${version:-unknown}, but gono-forum-cli ${cli:-does not run} (upgrade again to put both in place)"
   fi
   [ -f "$dir/gono-forum-web.previous" ] && say "Previous   $(binary_version "$dir/gono-forum-web.previous")"
-  say "Listen     $(listen_address)"
-  say "Service    $(systemctl is-active "$name" 2>/dev/null || true)"
+  say "Listen     $(listen_address || echo "unknown (cannot read the listen address in $dir/config/gono-forum.toml)")"
+  if [ -e "$unit" ]; then
+    say "Service    $(systemctl is-active "$name" 2>/dev/null || true)"
+  else
+    say "Service    not installed ($unit is missing; install puts it back)"
+  fi
   [ -d "$dir/$SAVED" ] && say "Unfinished an upgrade or rollback stopped while switching binaries; the next upgrade or rollback puts back the ones saved in $dir/$SAVED"
   [ -f "$dir/data/setup-token" ] && say "Setup      waiting for the setup wizard (token in $dir/data/setup-token)"
   if [ -f "$dir/data/upgrade/last" ]; then

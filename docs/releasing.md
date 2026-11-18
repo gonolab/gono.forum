@@ -181,7 +181,11 @@ records `result=switched`. The admin page shows the last of these outcomes.
 
 ## Upgrades and rollbacks from the shell
 
-`forum.install.sh upgrade` replaces the binaries in a single switch, which either finishes or is undone:
+`forum.install.sh upgrade` replaces the binaries in a single switch, which either finishes or is undone. It refuses an
+instance without its unit (written last by `install`, so an install that stopped halfway has none) or without
+`config/gono-forum.toml`, and it reads the listen address for step 7 first: the top-level `listen` key, in double or
+single quotes with an optional comment after it, `127.0.0.1:58833` when the key is missing. A value it cannot read
+stops it before anything changes, because the switch could not check the new version.
 
 1. Download the package and check it against `checksums.txt`, into a temporary directory that belongs to root.
 2. Stop here if both installed binaries already report the package's version (unless `--force` is given). Both are
@@ -197,7 +201,8 @@ records `result=switched`. The admin page shows the last of these outcomes.
 6. Stop the service. For each binary, hard-link it as `*.previous` and rename `*.new` over it. Every step is a single
    rename, so no binary is ever missing.
 7. Start the service and check `/healthz` on the listen address once a second until it answers 200, or 503 from the
-   setup wizard. Each request has 2 seconds to connect and 5 in all, and the check gives up after 30 seconds. Once
+   setup wizard. The request is made with curl, otherwise with wget, otherwise with bash's own `/dev/tcp`. Each
+   request has 2 seconds to connect and 5 in all, and the check gives up after 30 seconds. Once
    the service answers, renaming `switch-backup/` away finishes the upgrade: the replaced binaries stay as
    `*.previous`, the ones from before them are dropped, and `data/upgrade/last` records `result=upgraded`.
 
@@ -210,7 +215,8 @@ to do by hand instead of reporting it as running. The exit handler does the same
 `status` reports it, the one-click upgrade refuses to start while it exists, and the next `upgrade` or `rollback` puts
 it back and restarts the service before doing anything else; `rollback` stops after that.
 
-`forum.install.sh rollback` uses the same `switch-backup/`. It first checks that every binary has a `*.previous` and
+`forum.install.sh rollback` uses the same `switch-backup/` and the same checks of the unit, the configuration and the
+listen address. It first checks that every binary has a `*.previous` and
 that all of them report the same version. Then it swaps each binary with its `*.previous` and finishes the switch
 before it starts the service, so the rollback stands even if the previous version does not start.
 

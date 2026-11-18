@@ -34,8 +34,11 @@ Options for `install`:
 | `--releases-url URL` | Another release source with the same layout (a mirror, or `file:///absolute/path`). Also used by the admin area's update check. |
 
 Every package and `checksums.txt` is checked with SHA-256; a missing or wrong checksum stops the script before it
-changes anything. It also stops if the port is in use or the instance is already installed. An instance removed with
-`uninstall` but without `--purge` is installed again with its kept configuration and data (see "Uninstall").
+changes anything. It also stops if the port is in use or the instance is already installed. An instance counts as
+installed once its systemd unit exists, which the script writes last: an install that stopped before that (a full
+disk after the binaries were written, say) is finished by running the same `install` again, and `upgrade` refuses
+such an instance. An instance removed with `uninstall` but without `--purge` is installed again with its kept
+configuration and data (see "Uninstall").
 
 The script creates:
 
@@ -144,6 +147,10 @@ server {
   trailing slash on `proxy_pass`) and set the forum address with the path. The application strips the prefix
   itself; `/forum/healthz` is the health check (on the listen address itself `/healthz` answers too). If the admin area becomes unreachable after a wrong address, fix it
   with `gono-forum-cli set-site-url` (see "Command-line tool").
+- Under a sub-path, crawlers still read only `/robots.txt` at the domain root, so the forum's own
+  `/forum/robots.txt` has no effect. The SEO section of Search & performance (`/manage/settings/search`) shows the
+  text to merge into the domain root's `robots.txt` (rules with the path prefix and the sitemap line); merge it again
+  after changing the rules or the indexing switch.
 
 Static files are served by the application (versioned addresses are cached for a year); the proxy does not need to
 serve them.
@@ -215,7 +222,10 @@ sudo bash /usr/local/lib/gono-forum/forum.install.sh status               # vers
 `upgrade` replaces the binaries as a whole or not at all. It puts the new binaries next to the old ones and checks
 that they run, then saves the current binaries and their `*.previous` in `switch-backup/` in the instance directory
 (hard links, so this takes no extra space) before it stops the service and moves the new ones in. After the restart
-it checks `/healthz` on the listen address. Each request may take 5 seconds, and the check gives up after 30. If any
+it checks `/healthz` on the listen address, the top-level `listen` of `config/gono-forum.toml` (`127.0.0.1:58833` when
+it is not set), with curl, otherwise wget, otherwise bash's own `/dev/tcp`. The script reads that value in double or
+single quotes, with or without a comment after it; when it cannot read it (escapes, a multi-line string), the upgrade
+stops before the service is stopped. Each request may take 5 seconds, and the check gives up after 30. If any
 step fails, or the new version does not start or answer, the script puts every saved binary back (keeping the new
 ones as `*.failed`), starts the old version and checks it again. If the old version does not answer either, the
 script says so and lists what to do by hand; it does not report the old version as running. An upgrade interrupted
@@ -223,7 +233,8 @@ by Ctrl-C or a dropped connection is undone the same way. A run that is killed o
 behind: `status` reports it, the one-click upgrade waits for it to go, and the next `upgrade` or `rollback` puts it
 back before doing anything else.
 
-`upgrade` does nothing when both binaries already report the version, unless you add `--force`. From GitHub
+`upgrade` refuses an instance whose unit or `config/gono-forum.toml` is missing (see "Install" for an install that
+stopped halfway). It does nothing when both binaries already report the version, unless you add `--force`. From GitHub
 Releases, pre-releases are only installed when named with `--version`. `rollback` uses the same switch. It refuses to
 run when a `*.previous` is missing or the two are of different versions. Once switched it stays switched, even if
 the previous version does not start: run it again to switch forward.
@@ -261,14 +272,17 @@ sudo bash /usr/local/lib/gono-forum/forum.install.sh uninstall           # keeps
 sudo bash /usr/local/lib/gono-forum/forum.install.sh uninstall --purge   # deletes them too (asks for the instance name)
 ```
 
-Neither touches the MySQL database, Redis, the bucket or the reverse proxy. Purging the last instance on the machine
-also removes `/usr/local/lib/gono-forum/`.
+Both first stop and disable the service. If that fails, or the service is still running afterwards, the command stops
+with an error and removes nothing. With `--purge`, an account that `userdel` cannot delete (a process still running
+as it, say) is reported, and the command exits with an error after removing everything else; delete the account by
+hand then. Neither touches the MySQL database, Redis, the bucket or the reverse proxy. Purging the last instance on
+the machine also removes `/usr/local/lib/gono-forum/`.
 
 `install` with the same instance name after an `uninstall` without `--purge` is a reinstall: it puts the binaries,
 the unit and the service back and keeps `config/gono-forum.toml` as it is, with the database address, the three keys,
 the listen address and the release source. The setup wizard does not run again (unless setup was never finished, in
-which case the kept token is printed). `--port` and `--listen` are refused then; change the listen address in the
-kept configuration instead.
+which case the kept token is printed). `--port` and `--listen` are refused then unless they name the kept listen
+address; change the listen address in the kept configuration instead.
 
 ## Command-line tool
 
