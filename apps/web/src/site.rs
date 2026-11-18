@@ -363,8 +363,9 @@ pub fn strip<'a>(prefix: &str, path: &'a str) -> Option<&'a str> {
 /// The result of site resolution.
 enum Resolved {
     Site(Site),
-    /// The host is registered, but the path is not under any of its rows.
-    Outside,
+    /// The host is registered, but the path is not under any of its rows; carries the main site, which answers the
+    /// health check there.
+    Outside(Site),
     /// The known path prefix and the reason reading failed. Business requests must stop at the entry, and must not
     /// treat an unknown domain scope as the whole site.
     Failed(Site, crate::identity::IdentityError),
@@ -452,7 +453,13 @@ async fn resolve(state: &crate::router::AppState, host: Option<&str>, path: &str
                 .filter(|_| row.site_url != url)
                 .unwrap_or(language),
         }),
-        Lookup::Outside => Resolved::Outside,
+        Lookup::Outside => {
+            let current = map.main(url).map(|main| main.domain_id);
+            Resolved::Outside(Site {
+                domains: domains(current),
+                ..main
+            })
+        }
         Lookup::Unregistered => Resolved::Site(Site {
             prefix: main.prefix,
             url: None,
@@ -464,11 +471,24 @@ async fn resolve(state: &crate::router::AppState, host: Option<&str>, path: &str
     }
 }
 
+/// The health check's own limit for each dependency it checks (`router::healthz`); reading the settings that resolve
+/// its site gets the same budget, so a full database pool cannot keep the check waiting longer than the deploy
+/// script's probe (docs/install.md).
+const HEALTH_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The health check at the root or under a prefix (the prefix is only known once the site is resolved).
+fn health_path(path: &str) -> bool {
+    path == "/healthz" || path.ends_with("/healthz")
+}
+
 /// Entry layer: wraps the whole router (`router::build_with_global`) and strips the prefix before routing.
 ///
 /// When stripping the prefix, `OriginalUri` is also replaced with the stripped address: axum only records it when the
-/// request does not have one yet, so normalization checks in handlers, the session and debug middleware, the
-/// sensitive-page list and access-log redaction all see root-relative paths, the same as a root deployment.
+/// request does not have one yet, so normalization checks in handlers, the session middleware, the sensitive-page
+/// list and access-log redaction all see root-relative paths, the same as a root deployment. The metrics and debug
+/// layers run outside it, so what resolution reads counts for the request: the debug layer only sees the prefixed
+/// path, so this layer tells it which requests it must not profile ([`crate::debug::unprofiled`]), and hands it the
+/// resolved site on the response, for the panel's language.
 pub(crate) async fn entry(
     State(state): State<Arc<crate::router::AppState>>,
     mut request: Request,
@@ -480,9 +500,29 @@ pub(crate) async fn entry(
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned)
         .or_else(|| request.uri().authority().map(|a| a.as_str().to_owned()));
-    let site = match resolve(&state, host.as_deref(), request.uri().path()).await {
+    let resolving = resolve(&state, host.as_deref(), request.uri().path());
+    let resolved = if health_path(request.uri().path()) {
+        let Ok(resolved) = tokio::time::timeout(HEALTH_BUDGET, resolving).await else {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                [(header::CACHE_CONTROL, "no-store")],
+                format!(
+                    "{}\n",
+                    crate::i18n::current().common_health_timeout(state.db.backend().label())
+                ),
+            )
+                .into_response();
+        };
+        resolved
+    } else {
+        resolving.await
+    };
+    let site = match resolved {
         Resolved::Site(site) => site,
-        Resolved::Outside => {
+        // The health check answers on every host, like it does at the root of a sub-path site: the deploy script
+        // probes the listen address, which may be registered only with a sub-path.
+        Resolved::Outside(main) if request.uri().path() == "/healthz" => main,
+        Resolved::Outside(_) => {
             return (
                 StatusCode::NOT_FOUND,
                 format!("{}\n", crate::i18n::current().common_error_page_not_found()),
@@ -581,7 +621,15 @@ pub(crate) async fn entry(
             .into_response();
     }
     request.extensions_mut().insert(site.clone());
-    scope(site, next.run(request)).await
+    let unprofiled = crate::debug::unprofiled_path(request.uri().path());
+    let run = scope(site.clone(), next.run(request));
+    let mut response = if unprofiled {
+        crate::debug::unprofiled(run).await
+    } else {
+        run.await
+    };
+    response.extensions_mut().insert(site);
+    response
 }
 
 #[cfg(test)]

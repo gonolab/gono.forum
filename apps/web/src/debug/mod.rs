@@ -41,16 +41,90 @@ pub struct DebugState {
     pub global: crate::cache::GlobalCache,
 }
 
-/// Always mounted as the outermost layer; each request decides whether to collect by the admin switch
-/// `settings.debug.panel` ("Tools & maintenance › Maintenance", docs/settings-and-caching.md, "Profiling"); there is no
-/// configuration or environment switch for it. The switch comes from the process cache, so no extra query is sent for
-/// it; when the settings cannot be read (bad value, missing row) nothing is collected, and the page itself shows the
-/// settings error page. Static/protocol responses are left unchanged.
+/// Mounted outside the entry layer (`site::entry`), so what site resolution reads is part of the request too; each
+/// request decides whether to collect by the admin switch `settings.debug.panel` ("Tools & maintenance › Maintenance",
+/// docs/settings-and-caching.md, "Profiling"); there is no configuration or environment switch for it. The switch is
+/// read inside the request's profile, so the panel lists that read when it goes to the database (a cache miss, or a
+/// cache lifetime of 0); when the settings cannot be read (bad value, missing row) nothing is collected, and the page
+/// itself shows the settings error page. Static/protocol responses are left unchanged.
 pub async fn middleware(State(state): State<DebugState>, request: Request, next: Next) -> Response {
-    let settings = state.global.settings(&state.database).await.ok();
-    let Some(settings) = settings.filter(|block| block.settings.debug.panel) else {
+    if request.method() == Method::HEAD || skipped_before_entry(request.uri().path()) {
         return next.run(request).await;
-    };
+    }
+    let request_path = request.uri().to_string();
+    let method = request.method().to_string();
+    let started = Instant::now();
+    let surrounding = trace::current();
+    let profile = Arc::new(RequestProfile::new());
+    trace::scope(profile.clone(), async move {
+        let settings = state.global.settings(&state.database).await.ok();
+        let Some(settings) = settings.filter(|block| block.settings.debug.panel) else {
+            return trace::resume(surrounding, next.run(request)).await;
+        };
+        let before = ProcessSample::capture();
+        let response = next.run(request).await;
+        if profile.skipped() || response.extensions().get::<Authorized>().is_none() {
+            return response;
+        }
+        // The panel speaks the request's language and links under its prefix, which the entry layer resolved inside.
+        let site = response
+            .extensions()
+            .get::<crate::site::Site>()
+            .cloned()
+            .unwrap_or_default();
+        let page = Page {
+            request_path,
+            method,
+            started,
+            before,
+        };
+        crate::site::scope(site, with_panel(state, &settings, &profile, page, response)).await
+    })
+    .await
+}
+
+/// Requests that never get a panel, told apart before anything is read: a health check must not wait here for a
+/// database connection to read the switch. This layer sees the path before a sub-path prefix is stripped, so only the
+/// root addresses are matched here (and the health check under any prefix); the entry layer checks the stripped path
+/// again ([`unprofiled`]).
+fn skipped_before_entry(path: &str) -> bool {
+    unprofiled_path(path) || path.ends_with("/healthz")
+}
+
+/// Static files, the health check, robots.txt and sensitive pages (`urls::sensitive_page`): the panel neither collects
+/// nor shows anything for them. `path` has no sub-path prefix.
+pub(crate) fn unprofiled_path(path: &str) -> bool {
+    path == "/static"
+        || path.starts_with("/static/")
+        || crate::urls::sensitive_page(path)
+        || matches!(path, "/healthz" | "/robots.txt")
+}
+
+/// For the entry layer, once the prefix is stripped and the path is one of [`unprofiled_path`]: runs the rest of the
+/// request without collecting, and keeps the panel off its response (what site resolution recorded is dropped).
+pub(crate) async fn unprofiled<F: Future>(future: F) -> F::Output {
+    if let Some(profile) = trace::current() {
+        profile.skip();
+    }
+    trace::without(future).await
+}
+
+/// What the middleware noted about the request before running it.
+struct Page {
+    request_path: String,
+    method: String,
+    started: Instant,
+    before: ProcessSample,
+}
+
+/// Adds the panel to an HTML page answered to an administrator.
+async fn with_panel(
+    state: DebugState,
+    settings: &crate::cache::SettingsBlock,
+    profile: &RequestProfile,
+    page: Page,
+    response: Response,
+) -> Response {
     // The panel names the credit-rules cache after the site's points.
     let credit = settings.settings.site.credit_word(crate::i18n::current());
     let DebugState {
@@ -58,106 +132,91 @@ pub async fn middleware(State(state): State<DebugState>, request: Request, next:
         redis_enabled,
         ..
     } = state;
-    let path = request.uri().path();
-    if request.method() == Method::HEAD
-        || path == "/static"
-        || path.starts_with("/static/")
-        || crate::urls::sensitive_page(path)
-        || matches!(path, "/healthz" | "/robots.txt")
+    let Page {
+        request_path,
+        method,
+        started,
+        before,
+    } = page;
+    let html = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| {
+            value
+                .split(';')
+                .next()
+                .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("text/html"))
+        });
+    if !html
+        || response.status().is_redirection()
+        || response.status() == StatusCode::NO_CONTENT
+        || response.headers().contains_key(header::CONTENT_ENCODING)
     {
-        return next.run(request).await;
+        return response;
     }
-    let request_path = request.uri().to_string();
-    let method = request.method().to_string();
-    let started = Instant::now();
-    let before = ProcessSample::capture();
-    let profile = Arc::new(RequestProfile::new());
-    trace::scope(profile.clone(), async move {
-        let response = next.run(request).await;
-        if response.extensions().get::<Authorized>().is_none() {
-            return response;
+    let (mut parts, body) = response.into_parts();
+    let bytes = match to_bytes(body, usize::MAX).await {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            tracing::error!(%error, "failed to read the page response for the debug panel");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                crate::i18n::current().common_error_render(),
+            )
+                .into_response();
         }
-        let html = response
-            .headers()
-            .get(header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .is_some_and(|value| {
-                value
-                    .split(';')
-                    .next()
-                    .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("text/html"))
-            });
-        if !html
-            || response.status().is_redirection()
-            || response.status() == StatusCode::NO_CONTENT
-            || response.headers().contains_key(header::CONTENT_ENCODING)
-        {
-            return response;
-        }
-        let (mut parts, body) = response.into_parts();
-        let bytes = match to_bytes(body, usize::MAX).await {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                tracing::error!(%error, "failed to read the page response for the debug panel");
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    crate::i18n::current().common_error_render(),
-                )
-                    .into_response();
-            }
-        };
-        // The full SSR body has been generated; rendering the debug panel itself and network transfer are not counted
-        // in the page time.
-        let elapsed = started.elapsed();
-        let after = ProcessSample::capture();
-        let Ok(html) = std::str::from_utf8(&bytes) else {
+    };
+    // The full SSR body has been generated; rendering the debug panel itself and network transfer are not counted
+    // in the page time.
+    let elapsed = started.elapsed();
+    let after = ProcessSample::capture();
+    let Ok(html) = std::str::from_utf8(&bytes) else {
+        return Response::from_parts(parts, Body::from(bytes));
+    };
+    let Some(position) = html.rfind("</body>") else {
+        return Response::from_parts(parts, Body::from(bytes));
+    };
+    let records = profile.snapshot();
+    let diagnostic_started = Instant::now();
+    let index_usage = explain::collect(&database, &records).await;
+    let template = DebugTemplate::new(
+        request_path,
+        method,
+        parts.status.as_u16(),
+        elapsed,
+        before,
+        after,
+        records,
+    );
+    let template = if redis_enabled {
+        template.with_redis(profile.redis_snapshot())
+    } else {
+        template
+    }
+    .with_blocks(profile.block_snapshot(), &credit)
+    .with_layout(profile.layout_snapshot())
+    .with_index_usage(index_usage, diagnostic_started.elapsed());
+    let panel = match template.render() {
+        Ok(panel) => panel,
+        Err(error) => {
+            tracing::error!(%error, "failed to render the debug panel");
             return Response::from_parts(parts, Body::from(bytes));
-        };
-        let Some(position) = html.rfind("</body>") else {
-            return Response::from_parts(parts, Body::from(bytes));
-        };
-        let records = profile.snapshot();
-        let diagnostic_started = Instant::now();
-        let index_usage = explain::collect(&database, &records).await;
-        let template = DebugTemplate::new(
-            request_path,
-            method,
-            parts.status.as_u16(),
-            elapsed,
-            before,
-            after,
-            records,
-        );
-        let template = if redis_enabled {
-            template.with_redis(profile.redis_snapshot())
-        } else {
-            template
         }
-        .with_blocks(profile.block_snapshot(), &credit)
-        .with_layout(profile.layout_snapshot())
-        .with_index_usage(index_usage, diagnostic_started.elapsed());
-        let panel = match template.render() {
-            Ok(panel) => panel,
-            Err(error) => {
-                tracing::error!(%error, "failed to render the debug panel");
-                return Response::from_parts(parts, Body::from(bytes));
-            }
-        };
-        let mut output = String::with_capacity(html.len() + panel.len());
-        output.push_str(&html[..position]);
-        output.push_str(&panel);
-        output.push_str(&html[position..]);
-        // Debug data is delivered only with this response; after the body is modified, the original length and
-        // entity tag must not be kept.
-        parts.headers.remove(header::CONTENT_LENGTH);
-        parts.headers.remove(header::ETAG);
-        parts.headers.remove(header::LAST_MODIFIED);
-        parts
-            .headers
-            .insert(header::CACHE_CONTROL, "private, no-store".parse().unwrap());
-        Response::from_parts(parts, Body::from(output))
-    })
-    .await
+    };
+    let mut output = String::with_capacity(html.len() + panel.len());
+    output.push_str(&html[..position]);
+    output.push_str(&panel);
+    output.push_str(&html[position..]);
+    // Debug data is delivered only with this response; after the body is modified, the original length and
+    // entity tag must not be kept.
+    parts.headers.remove(header::CONTENT_LENGTH);
+    parts.headers.remove(header::ETAG);
+    parts.headers.remove(header::LAST_MODIFIED);
+    parts
+        .headers
+        .insert(header::CACHE_CONTROL, "private, no-store".parse().unwrap());
+    Response::from_parts(parts, Body::from(output))
 }
 
 /// One read of the in-process global cache: block name, whether it hit, and how long ago it was loaded.

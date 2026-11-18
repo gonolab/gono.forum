@@ -395,9 +395,11 @@ the deduplication follows the Redis switch; it is not a cache and is not in the 
 
 - **Debug panel** (Tools & maintenance › Maintenance, `settings.debug.panel`): administrators see every SQL statement
   and Redis command of the page with timings and `EXPLAIN`; its "In-process cache" section shows which blocks were
-  hits, loaded or bypassed.
+  hits, loaded or bypassed. The list starts with the request: reading the switch itself and resolving the site (the
+  settings and the domain table) are on it when they go to the database.
 - **Footer line** (Appearance › Display, `settings.display.footer_metrics`):
   a lightning icon, then `19.1 ms · MySQL 11 · Redis 23` (`SQLite` on SQLite sites): the server time and the queries
-  the request itself sent. Without Redis the Redis count is left out, as is the panel's Redis section.
+  the request itself sent up to the footer, counted from the start of the request, site resolution included. Without
+  Redis the Redis count is left out, as is the panel's Redis section.
 - To see every query, set `settings.cache.ttl_seconds` to 0; to count without Redis, also set `[redis] enabled =
   false`. Debug builds give accurate counts but inflated times; measure times with `--release`.

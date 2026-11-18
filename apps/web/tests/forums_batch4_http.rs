@@ -867,3 +867,168 @@ async fn the_icon_picker_leaves_out_images_a_save_refuses() {
     assert!(!page.body.contains("expired.png"));
     site.services.cleanup_ref().await.unwrap();
 }
+
+async fn get_on(site: &Site, host: &str, path: &str) -> Answer {
+    site.send(
+        axum::http::Request::builder()
+            .uri(path)
+            .header(axum::http::header::HOST, host)
+            .body(axum::body::Body::empty())
+            .unwrap(),
+    )
+    .await
+}
+
+/// The deploy script probes `/healthz` at the listen address, which a multi-domain site may have registered only with a
+/// sub-path: the health check answers there like at the root of any other host.
+#[tokio::test]
+async fn the_health_check_answers_on_a_host_registered_only_with_a_sub_path() {
+    let site = Site::new(false).await;
+    enable_domains(&site).await;
+    let answer = save_domain(&site, 0, 0, "http://listen.test/bbs", "self", &[]).await;
+    assert!(answer.status.is_redirection(), "{}", answer.body);
+    let root = get_on(&site, "listen.test", "/healthz").await;
+    assert_eq!(root.status, StatusCode::OK, "{}", root.body);
+    assert_eq!(root.body, "ok\n");
+    assert_eq!(
+        get_on(&site, "listen.test", "/bbs/healthz").await.status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        get_on(&site, "listen.test", "/privacy").await.status,
+        StatusCode::NOT_FOUND
+    );
+    site.services.cleanup_ref().await.unwrap();
+}
+
+/// With every database connection taken, the health check reports the failure within its own budget instead of
+/// waiting for a connection in the layers in front of it; the deploy script's probe gives up after five seconds.
+#[tokio::test]
+async fn the_health_check_answers_in_time_when_the_pool_is_exhausted() {
+    let site = Site::new(false).await;
+    let mut config = site.services.config.clone();
+    config.database.max_connections = 1;
+    config.database.acquire_timeout_seconds = 3;
+    let small = db::Database::connect(&config.database).await.unwrap();
+    let app = gono_forum_web::router::build_with_global(
+        config,
+        &site.services.root,
+        small.clone(),
+        site.services.cache.clone(),
+        // A cold process cache: the settings must come from the database.
+        gono_forum_web::cache::GlobalCache::new(site.services.cache.clone()),
+    );
+    let mysql = match small.pool.as_mysql() {
+        Some(pool) => Some(pool.acquire().await.unwrap()),
+        None => None,
+    };
+    let write = match small.pool.as_sqlite() {
+        Some(pool) => Some(pool.acquire().await.unwrap()),
+        None => None,
+    };
+    let read = match small.pool.as_sqlite_read() {
+        Some(pool) => Some(pool.acquire().await.unwrap()),
+        None => None,
+    };
+    let started = std::time::Instant::now();
+    let response = tower::ServiceExt::oneshot(
+        app,
+        axum::http::Request::builder()
+            .uri("/healthz")
+            .header(axum::http::header::HOST, "127.0.0.1:58833")
+            .body(axum::body::Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    let elapsed = started.elapsed();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "the health check took {elapsed:?}"
+    );
+    drop((mysql, write, read));
+    small.pool.close().await;
+    site.services.cleanup_ref().await.unwrap();
+}
+
+fn footer_sql(body: &str, backend: &str) -> usize {
+    let footer = body
+        .split_once("<p class=\"colophon__legal\" translate=\"no\">")
+        .and_then(|(_, rest)| rest.split_once("</p>"))
+        .map(|(footer, _)| footer)
+        .unwrap_or_else(|| panic!("no footer: {body}"));
+    let tail = footer
+        .split_once(&format!("{backend} "))
+        .unwrap_or_else(|| panic!("no {backend} count: {footer}"))
+        .1;
+    tail.chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>()
+        .parse()
+        .unwrap()
+}
+
+/// With the process cache off, resolving the site reads the settings and the domain table on every request: those reads
+/// count in the footer and are listed in the debug panel like the rest of the request's SQL.
+#[tokio::test]
+async fn the_footer_and_the_debug_panel_count_what_resolving_the_site_reads() {
+    let site = Site::new(false).await;
+    enable_domains(&site).await;
+    for (key, value) in [
+        ("settings.debug.panel", "true"),
+        ("settings.cache.ttl_seconds", "0"),
+        ("settings.display.footer_metrics", "true"),
+    ] {
+        gono_forum_web::test_support::set_setting(site.db(), key, value)
+            .await
+            .unwrap();
+    }
+    site.changed();
+    let page = site.get("/privacy", Some(&site.admin)).await;
+    assert_eq!(page.status, StatusCode::OK);
+    let panel = &page.body[page
+        .body
+        .find("<details id=\"gonof-debug\"")
+        .expect("the administrator gets the panel")..];
+    assert!(
+        panel.contains("FROM gonof_common_site_domain_forum"),
+        "the domain links site resolution read are listed"
+    );
+    let listed: usize = panel
+        .split("data-debug-queries=\"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_eq!(
+        footer_sql(&page.body, site.db().backend().label()),
+        listed,
+        "the footer counts the same statements the panel lists"
+    );
+    site.services.cleanup_ref().await.unwrap();
+}
+
+/// The debug layer runs before the sub-path prefix is stripped: pages under the prefix still get the panel, while
+/// sensitive pages, robots.txt and static files under it get none.
+#[tokio::test]
+async fn a_sub_path_site_profiles_its_pages_but_not_sensitive_ones() {
+    let site = Site::new(false).await;
+    gono_forum_web::test_support::set_site_url(site.db(), &format!("{TEST_SITE_URL}/bbs"))
+        .await
+        .unwrap();
+    gono_forum_web::test_support::set_setting(site.db(), "settings.debug.panel", "true")
+        .await
+        .unwrap();
+    site.changed();
+    let page = site.get("/bbs/privacy", Some(&site.admin)).await;
+    assert_eq!(page.status, StatusCode::OK);
+    assert!(page.body.contains("<details id=\"gonof-debug\""));
+    for path in ["/bbs/my/api", "/bbs/robots.txt"] {
+        let answer = site.get(path, Some(&site.admin)).await;
+        assert_eq!(answer.status, StatusCode::OK, "{path}");
+        assert!(!answer.body.contains("gonof-debug"), "{path}");
+    }
+    site.services.cleanup_ref().await.unwrap();
+}

@@ -82,10 +82,12 @@ pub async fn scope<F: Future>(metrics: Arc<RequestMetrics>, future: F) -> F::Out
     REQUEST_METRICS.scope(Some(metrics), future).await
 }
 
-/// Always-on middleware: creates a set of counters for each request; static assets are not counted.
+/// Always-on middleware: creates a set of counters for each request; static assets at the root are not counted.
 ///
-/// In the layer order it must wrap the identity and cache middleware — session queries are also a cost of this
-/// request, and the footer should reflect that faithfully.
+/// It is the outermost layer, wrapping site resolution, the debug layer and the identity and cache middleware — their
+/// queries are also a cost of this request, and the footer should reflect that faithfully. Being outside the entry
+/// layer, it sees the path before a sub-path prefix is stripped: static files under a prefix get counters too, which
+/// costs nothing visible (they render no footer).
 pub async fn middleware(
     request: axum::extract::Request,
     next: axum::middleware::Next,

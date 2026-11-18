@@ -880,12 +880,16 @@ async fn assert_html_responses(db: &Database, cookie: &str) {
 async fn panel_state(db: &Database) -> debug::DebugState {
     set_panel(db, true).await;
     let config = support::config_for(db);
+    let global = gono_forum_web::cache::GlobalCache::new(
+        gono_forum_web::cache::Cache::new(&config.redis).unwrap(),
+    );
+    // The switch is read inside the request's profile, so a cold settings block would add its queries to the panel;
+    // these checks count the handler's own.
+    global.settings(db).await.unwrap();
     debug::DebugState {
         database: db.clone(),
         redis_enabled: true,
-        global: gono_forum_web::cache::GlobalCache::new(
-            gono_forum_web::cache::Cache::new(&config.redis).unwrap(),
-        ),
+        global,
     }
 }
 

@@ -1,7 +1,10 @@
 //! Tokio task-local query profiles. A profile exists only for an opted-in HTTP request.
 use std::{
     future::Future,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -111,11 +114,22 @@ pub struct RequestProfile {
     redis: Mutex<Vec<RedisRecord>>,
     blocks: Mutex<Vec<BlockRecord>>,
     layout: Mutex<Vec<LayoutRecord>>,
+    /// Set once the request turned out to be one that gets no panel ([`super::unprofiled`]).
+    skipped: AtomicBool,
 }
 
 impl RequestProfile {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Marks the request as one that gets no panel: what was recorded so far is not shown.
+    pub fn skip(&self) {
+        self.skipped.store(true, Ordering::Relaxed);
+    }
+
+    pub fn skipped(&self) -> bool {
+        self.skipped.load(Ordering::Relaxed)
     }
 
     pub fn snapshot(&self) -> Vec<QueryRecord> {
@@ -300,6 +314,13 @@ pub fn current() -> Option<Arc<RequestProfile>> {
 /// Diagnostic queries must not become application SQL records or recursively explain themselves.
 pub async fn without<F: Future>(future: F) -> F::Output {
     REQUEST_PROFILE.scope(None, future).await
+}
+
+/// Runs `future` under the profile the caller had before (or none): the debug layer opens a profile before it knows
+/// whether the request is profiled, and hands the rest of an unprofiled request back to the surrounding one (a test
+/// that profiles a whole request, say).
+pub async fn resume<F: Future>(profile: Option<Arc<RequestProfile>>, future: F) -> F::Output {
+    REQUEST_PROFILE.scope(profile, future).await
 }
 
 pub(crate) struct QueryGuard {

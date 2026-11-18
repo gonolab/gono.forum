@@ -415,20 +415,21 @@ fn build_full(
         }))
         .layer(axum::middleware::from_fn_with_state(state.clone(), auth::context))
         .with_state(state.clone());
-    let router = crate::cache::protect(router, cache)
-        .layer(axum::middleware::from_fn(crate::metrics::middleware));
-    let router = router.layer(axum::middleware::from_fn_with_state(
-        debug_state,
-        crate::debug::middleware,
-    ));
+    let router = crate::cache::protect(router, cache);
     // Site resolution and prefix stripping must happen before routing: wrap an empty router that has only a
     // fallback service, attach the entry layer to that fallback, and hand the rewritten address to the real router
-    // for matching. Outwardly it is still a `Router`.
+    // for matching. Outwardly it is still a `Router`. The debug layer wraps the entry layer and the metrics layer
+    // wraps everything, so the footer counts and the panel include what resolving the site reads (layers added
+    // later run first).
     Router::new()
         .fallback_service(router)
         .layer(axum::middleware::from_fn_with_state(
             state,
             crate::site::entry,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            debug_state,
+            crate::debug::middleware,
         ))
         .layer(SetResponseHeaderLayer::if_not_present(
             header::CONTENT_SECURITY_POLICY,
@@ -438,6 +439,7 @@ fn build_full(
             header::X_CONTENT_TYPE_OPTIONS,
             HeaderValue::from_static("nosniff"),
         ))
+        .layer(axum::middleware::from_fn(crate::metrics::middleware))
 }
 
 /// When site resolution fails there is no page frame yet. Pages and the member API each use their existing error

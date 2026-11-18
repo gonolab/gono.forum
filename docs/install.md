@@ -313,6 +313,8 @@ different.
 ## Health and logs
 
 - `GET /healthz` returns 200 when the forum is serving, 503 during setup or when the database (or Redis, if
-  enabled) is unavailable. Under a sub-path it is `/forum/healthz`, and `/healthz` at the root answers too, so a
-  check on the listen address works without the forum address.
+  enabled) is unavailable or does not answer within 2 seconds, which holds even when every database connection is
+  busy. Under a sub-path it is `/forum/healthz`, and `/healthz` at the root answers too (on every host of a site with
+  several domains, also one registered only with a sub-path), so a check on the listen address works without the
+  forum address.
 - Logs go to the journal: `journalctl -u gono-forum-main`.
