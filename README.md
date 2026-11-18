@@ -108,10 +108,12 @@ key means re-entering the SMTP and SMS secrets.
 
 ## MySQL or SQLite
 
-The database is chosen by the scheme of `database.url`: `mysql://…` or `sqlite:///absolute/path.db`. Both run the
-same code and the same test suite; queries are written for MySQL and rewritten for SQLite by a small set of fixed
-rules. SQLite allows one writer at a time, so it fits small and medium sites served by a single process. The
-setup wizard creates the SQLite file; outside the wizard only `gono-forum-cli migrate` creates it.
+The database is chosen by the scheme of `database.url`: `mysql://…` or `sqlite:///absolute/path.db` (a relative
+file, `sqlite://data/db/gonof.db`, is in the instance directory; escape `%`, `?` and `#` in a file name as `%25`,
+`%3F` and `%23`). Both run the same code and the same test suite; queries are written for MySQL and rewritten for
+SQLite by a small set of fixed rules. SQLite allows one writer at a time, so it fits small and medium sites served by
+a single process. The setup wizard creates the SQLite file; outside the wizard only `gono-forum-cli migrate` creates
+it.
 
 ## Redis
 

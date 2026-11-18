@@ -4,7 +4,12 @@
 //! foreign key checks on, 5-second lock wait, case-sensitive LIKE (like MySQL's utf8mb4_bin), and the built-in `lower`
 //! replaced by a version that lowercases by Unicode rules: SQLite's own only knows ASCII, while title search and
 //! username filters must be case-insensitive for letters such as Ä and Σ.
-use std::{ffi::c_int, str::FromStr, time::Duration};
+use std::{
+    ffi::c_int,
+    path::{Path, PathBuf},
+    str::FromStr,
+    time::Duration,
+};
 
 use anyhow::{Context, Result, ensure};
 use libsqlite3_sys as ffi;
@@ -18,6 +23,58 @@ use crate::config::DatabaseConfig;
 /// The bundled SQLite is 3.46.0; we use STRICT tables, generated columns, `unixepoch()`, `->>`, RETURNING and
 /// `UPDATE … FROM`.
 const MINIMUM: (u32, u32, u32) = (3, 46, 0);
+
+/// Whether a byte of a file path is escaped in a `sqlite://` URL: `%` starts an escape and `?` the parameters, `#`
+/// would end a URL's path anywhere else, and control characters are escaped as in any URL.
+fn escaped(byte: u8) -> bool {
+    matches!(byte, b'%' | b'?' | b'#') || byte.is_ascii_control()
+}
+
+/// The `sqlite://` URL of a database file. The driver percent-decodes the part before `?`, so the characters that
+/// decoding or the parameters would change are escaped, and it opens exactly `path`: `community%20archive.db` stays
+/// that name. Other characters are written as they are, so the URL in the configuration stays readable. Fails for a
+/// path that is not UTF-8, which the configuration file cannot hold.
+pub fn url_for(path: &Path) -> Result<String> {
+    let text = path
+        .to_str()
+        .context(crate::i18n::current().setup_config_sqlite_form())?;
+    let mut url = String::from("sqlite://");
+    for character in text.chars() {
+        match u8::try_from(character) {
+            Ok(byte) if escaped(byte) => url.push_str(percent_encoding::percent_encode_byte(byte)),
+            _ => url.push(character),
+        }
+    }
+    Ok(url)
+}
+
+/// The database file a `sqlite://` URL names, decoded as the driver decodes it; `None` for another kind of URL or a
+/// file name that is not UTF-8 once decoded.
+pub fn file_of(url: &str) -> Option<PathBuf> {
+    let rest = url.strip_prefix("sqlite://")?;
+    let file = rest.split_once('?').map_or(rest, |(file, _)| file);
+    let decoded = percent_encoding::percent_decode_str(file)
+        .decode_utf8()
+        .ok()?;
+    Some(PathBuf::from(decoded.as_ref()))
+}
+
+/// A `sqlite://` URL whose file is relative, made to name that file in `root` (the instance directory), with its
+/// parameters kept. Any other URL, an absolute file or an in-memory database comes back unchanged.
+pub fn resolve(url: &str, root: &Path) -> Result<String> {
+    let Some(file) = file_of(url) else {
+        return Ok(url.to_owned());
+    };
+    if file.as_os_str().is_empty() || file.is_absolute() || file == Path::new(":memory:") {
+        return Ok(url.to_owned());
+    }
+    let mut resolved = url_for(&root.join(file))?;
+    if let Some((_, parameters)) = url.split_once('?') {
+        resolved.push('?');
+        resolved.push_str(parameters);
+    }
+    Ok(resolved)
+}
 
 pub(super) fn options(url: &str) -> Result<SqliteConnectOptions> {
     Ok(SqliteConnectOptions::from_str(url)
@@ -165,7 +222,60 @@ pub(super) fn is_lock_conflict(error: &sqlx::sqlite::SqliteError) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::supported_version;
+    use super::{file_of, options, resolve, supported_version, url_for};
+    use std::path::Path;
+
+    #[test]
+    fn file_names_round_trip_through_the_url() {
+        for name in [
+            "/srv/forum/data/db/gonof.db",
+            "/srv/forum/community%20archive.db",
+            "/srv/forum/what?.db",
+            "/srv/forum/#1 forum.db",
+            // Characters outside ASCII (here CJK) stay as they are.
+            "/srv/forum/100%/a b/\u{8ad6}\u{58c7}.db",
+        ] {
+            let url = url_for(Path::new(name)).unwrap();
+            assert_eq!(file_of(&url).unwrap(), Path::new(name), "{url}");
+            // The driver opens the same file.
+            assert_eq!(
+                options(&url).unwrap().get_filename(),
+                Path::new(name),
+                "{url}"
+            );
+        }
+        assert_eq!(
+            url_for(Path::new("/srv/community%20archive.db")).unwrap(),
+            "sqlite:///srv/community%2520archive.db"
+        );
+        assert_eq!(
+            file_of("sqlite:///srv/gonof.db?mode=rwc").unwrap(),
+            Path::new("/srv/gonof.db")
+        );
+        assert!(file_of("mysql://localhost/gonof").is_none());
+    }
+
+    #[test]
+    fn relative_files_resolve_against_the_instance_directory() {
+        let root = Path::new("/opt/gono-forum-main");
+        assert_eq!(
+            resolve("sqlite://data/db/gonof.db", root).unwrap(),
+            "sqlite:///opt/gono-forum-main/data/db/gonof.db"
+        );
+        assert_eq!(
+            resolve("sqlite://a%3Fb.db?mode=rwc", root).unwrap(),
+            "sqlite:///opt/gono-forum-main/a%3Fb.db?mode=rwc"
+        );
+        for unchanged in [
+            "sqlite:///srv/gonof.db",
+            "sqlite://:memory:",
+            "sqlite://?mode=memory",
+            "mysql://gonof@localhost/gonof",
+            "",
+        ] {
+            assert_eq!(resolve(unchanged, root).unwrap(), unchanged);
+        }
+    }
 
     #[test]
     fn requires_the_bundled_sqlite_floor() {

@@ -720,8 +720,10 @@ async fn configure(
                 if path.is_empty() {
                     return Err(crate::i18n::current().setup_error_sqlite_path().into());
                 }
-                let path = wizard.root.join(path);
-                format!("sqlite://{}", path.display())
+                // The path as typed: characters a URL reads differently (`%`, `?`, `#`) are escaped, so the
+                // file created is the one named here.
+                crate::db::sqlite::url_for(&wizard.root.join(path))
+                    .map_err(|error| shown(&error))?
             }
             "mysql" => form.mysql_url.trim().to_owned(),
             _ => return Err(crate::i18n::current().setup_error_backend().into()),
@@ -755,8 +757,7 @@ async fn configure(
             .await
             .map_err(|error| crate::i18n::current().setup_error_redis(shown(&error)))?;
     }
-    if let Some(file) = database.url.strip_prefix("sqlite://") {
-        let file = Path::new(file.split('?').next().unwrap_or_default());
+    if let Some(file) = crate::db::sqlite::file_of(&database.url) {
         if let Some(parent) = file.parent() {
             std::fs::create_dir_all(parent).map_err(|error| {
                 crate::i18n::current()
@@ -774,10 +775,6 @@ async fn configure(
     if tables > 0 && !migrated {
         return Err(crate::i18n::current().setup_error_foreign_tables().into());
     }
-    crate::systemd::extend_start(600);
-    db.migrate()
-        .await
-        .map_err(|error| crate::i18n::current().setup_error_migrate(shown(&error)))?;
     let detached = GlobalCache::new(
         Cache::new(&RedisConfig {
             enabled: false,
@@ -791,6 +788,16 @@ async fn configure(
         wizard.root.clone(),
         detached.clone(),
     );
+    // A site that is already installed is refused before its schema changes: the wizard pointed at a live database by
+    // mistake must leave it as it was. A check that fails on an older schema is not a refusal; the database is
+    // migrated as before and checked again after.
+    if migrated && matches!(probe.needs_admin().await, Ok(false)) {
+        return Err(crate::i18n::current().setup_error_installed().into());
+    }
+    crate::systemd::extend_start(600);
+    db.migrate()
+        .await
+        .map_err(|error| crate::i18n::current().setup_error_migrate(shown(&error)))?;
     if !probe
         .needs_admin()
         .await

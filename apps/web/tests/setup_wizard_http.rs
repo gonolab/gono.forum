@@ -357,6 +357,66 @@ async fn configure_stage_refuses_foreign_tables_and_resumes_an_interrupted_insta
     services.cleanup().await.unwrap();
 }
 
+/// A database whose site is already installed is refused before the wizard migrates it: picking a live site's database
+/// by mistake leaves its schema as it was.
+#[tokio::test]
+async fn configure_stage_refuses_an_installed_site_before_migrating_it() {
+    let services = TestFixture::new().await.unwrap();
+    // A site set up on an older version: migrated to 4 of 5, with its administrator created.
+    services.db.migrate_until(4).await.unwrap();
+    gono_forum_web::db::query(
+        "UPDATE gonof_common_settings SET svalue='complete' WHERE skey='identity.bootstrap_admin'",
+    )
+    .execute(services.db.executor())
+    .await
+    .unwrap();
+    let root = Root::new();
+    let app = Wizard::configure(root.0.clone(), root.config(), fresh(&services))
+        .app()
+        .unwrap();
+    let mut fields = install_fields(&services, &app);
+    fields.retain(|(key, _)| *key != "redis_enabled");
+    let (_, _, body) = post(&app.router, &fields).await;
+    assert!(
+        body.contains("Gono Forum is already installed in this database"),
+        "{body}"
+    );
+    assert_eq!(
+        count(&services, "SELECT MAX(version) FROM _sqlx_migrations").await,
+        4,
+        "the refused database is not migrated"
+    );
+    assert!(!root.config().exists());
+    services.cleanup().await.unwrap();
+}
+
+/// The SQLite path is the file name as typed, even with characters that mean something in a URL.
+#[tokio::test]
+async fn configure_stage_creates_the_sqlite_file_it_was_given() {
+    if !gono_forum_web::test_support::sqlite_tests() {
+        return;
+    }
+    let services = TestFixture::new().await.unwrap();
+    let root = Root::new();
+    let app = Wizard::configure(root.0.clone(), root.config(), fresh(&services))
+        .app()
+        .unwrap();
+    let mut fields = install_fields(&services, &app);
+    fields.retain(|(key, _)| !matches!(*key, "redis_enabled" | "sqlite_path"));
+    fields.push(("sqlite_path", "db/community%20archive #1?.db".into()));
+    let (_, _, body) = post(&app.router, &fields).await;
+    assert!(body.contains("Installation finished"), "{body}");
+    let file = root.0.join("db/community%20archive #1?.db");
+    assert!(file.is_file(), "{}", file.display());
+    assert!(!root.0.join("db/community archive #1").exists());
+    let config = Config::load(&root.0, Some(&root.config())).unwrap();
+    assert_eq!(
+        gono_forum_web::db::sqlite::file_of(&config.database.url).unwrap(),
+        file
+    );
+    services.cleanup().await.unwrap();
+}
+
 #[tokio::test]
 async fn administrator_stage_only_creates_the_administrator() {
     let services = TestFixture::migrated().await.unwrap();

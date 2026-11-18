@@ -13,7 +13,7 @@ mod rows;
 #[cfg(test)]
 mod source_guards;
 pub mod sql_display;
-mod sqlite;
+pub mod sqlite;
 #[cfg(test)]
 mod sqlite_statements;
 

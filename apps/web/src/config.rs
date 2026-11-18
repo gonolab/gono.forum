@@ -94,14 +94,17 @@ impl DatabaseConfig {
             }
             Some(crate::db::Backend::Sqlite) => {
                 // Files only: every connection to an in-memory database gets its own copy, so the forum's data would
-                // vanish with the connection.
-                let file = self
-                    .url
-                    .strip_prefix("sqlite://")
+                // vanish with the connection. The file is read as the driver reads it (percent-decoded).
+                let file = crate::db::sqlite::file_of(&self.url)
                     .context(crate::i18n::current().setup_config_sqlite_form())?;
-                let path = file.split('?').next().unwrap_or_default();
+                let parameters = self
+                    .url
+                    .split_once('?')
+                    .map_or("", |(_, parameters)| parameters);
                 ensure!(
-                    !path.is_empty() && !path.contains(":memory:") && !file.contains("mode=memory"),
+                    !file.as_os_str().is_empty()
+                        && file != Path::new(":memory:")
+                        && !parameters.contains("mode=memory"),
                     crate::i18n::current().setup_config_sqlite_memory()
                 );
             }
@@ -305,6 +308,9 @@ impl Config {
             std::env::var_os("GONOF_TWO_FACTOR_KEY").as_deref(),
             std::env::var_os("GONOF_TWO_FACTOR_PREVIOUS_KEYS").as_deref(),
         )?;
+        // A relative SQLite file is in the instance directory, wherever the command runs (docs/releasing.md, "How the
+        // binaries are built"), whether it comes from the file or from GONOF_DATABASE_URL.
+        config.database.url = crate::db::sqlite::resolve(&config.database.url, root)?;
         Ok(config)
     }
 
@@ -737,6 +743,36 @@ mod tests {
         let config = Config::load(&root, None).unwrap();
         assert_eq!(config.database.max_connections, 3);
         assert_eq!(config.database.acquire_timeout_seconds, 10);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A relative SQLite file names a file in the instance directory, not in the directory the command runs in.
+    #[test]
+    fn relative_sqlite_files_are_in_the_instance_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "gonof-sqlite-root-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("config")).unwrap();
+        let path = root.join("config/gono-forum.toml");
+        std::fs::write(
+            &path,
+            CONNECTIONS.replace(
+                "url = 'mysql://127.0.0.1/gonof_test'",
+                "url = 'sqlite://data/review%25.db?mode=rwc'",
+            ),
+        )
+        .unwrap();
+        let config = Config::load(&root, Some(&path)).unwrap();
+        assert_eq!(
+            crate::db::sqlite::file_of(&config.database.url).unwrap(),
+            root.join("data/review%.db")
+        );
+        assert!(config.database.url.ends_with("?mode=rwc"));
         std::fs::remove_dir_all(root).unwrap();
     }
 

@@ -73,7 +73,8 @@ Until setup is finished, every address shows the wizard and `/healthz` returns 5
 reverse proxy (or an SSH tunnel to the listen port) and enter the token. Then:
 
 1. **Database.** SQLite: the file path, by default `data/db/gonof.db` in the instance directory; it is created if
-   missing. MySQL: a connection string such as `mysql://gonof:password@127.0.0.1:3306/gonof` (URL-encode special
+   missing. A relative path is in the instance directory, and the file name is used as typed (`%`, `?` and `#`
+   included). MySQL: a connection string such as `mysql://gonof:password@127.0.0.1:3306/gonof` (URL-encode special
    characters in the password). Create the database first, empty, with `utf8mb4` and `utf8mb4_bin`, and give the
    account all privileges on that database only:
 
@@ -84,7 +85,7 @@ reverse proxy (or an SSH tunnel to the listen port) and enter the token. Then:
    ```
 
    No global privileges such as SUPER are needed. A database that already holds other tables, or another Gono Forum
-   site, is refused.
+   site, is refused before anything in it changes.
 
    The connection uses TLS whenever the server offers it. The client's TLS library (rustls) only accepts ECDHE key
    exchange, which some MySQL 5.7 builds do not offer; the official `mysql:5.7` Docker image is one of them. With

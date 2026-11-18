@@ -34,7 +34,8 @@ instructions, `https://gono.dev/forum.install.sh`, redirects to that file of the
   rebuild. Templates, translations and `config/default.toml` are compiled into every build, bundled or not.
 - **Instance root and configuration.** `GONOF_HOME` sets the instance directory. Without it a bundled binary uses
   the directory it is in, and a source build uses the source tree. Relative paths in the configuration
-  (`local_directory`, a relative SQLite file) resolve against the instance directory. The private configuration is
+  (`local_directory`, a relative SQLite file, also one given in `GONOF_DATABASE_URL`) resolve against the instance
+  directory, wherever the command runs. The private configuration is
   the file named by `GONOF_CONFIG`, otherwise `config/gono-forum.toml` in the instance directory (bundled) or
   `config/development.toml` (source build), read on top of the compiled-in defaults.
 - **Version.** The crate version in `apps/web/Cargo.toml`, or the value of `GONOF_BUILD_VERSION` at build time (for
