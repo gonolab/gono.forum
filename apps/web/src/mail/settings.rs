@@ -202,7 +202,25 @@ impl Mailer {
             *field = field.trim().to_owned();
         }
         settings.validate()?;
-        let password_encrypted = if input.password.is_empty() {
+        let password_encrypted = if input.password.is_empty() && settings.transport == "local" {
+            // Local delivery sends nothing, so the stored code is neither read nor needed now: one that can no longer
+            // be decrypted (the encryption key changed) must not stand in the way of switching to local delivery. It
+            // is kept for a later switch back to SMTP while it still belongs to the same server and account, and
+            // dropped when the server or account changes.
+            if settings.host != current.settings.host
+                || settings.username != current.settings.username
+            {
+                Vec::new()
+            } else if credential_context(&settings) == credential_context(&current.settings) {
+                current.password_encrypted.clone()
+            } else {
+                // The same server and account on another port or security mode: bound to the old ones, so re-sealed
+                // if it can still be read, and dropped otherwise.
+                decrypt(&self.config, &current.password_encrypted, &current.settings)
+                    .and_then(|password| encrypt(&self.config, &password, &settings))
+                    .unwrap_or_default()
+            }
+        } else if input.password.is_empty() {
             ensure!(
                 current.password_encrypted.is_empty()
                     || (settings.host == current.settings.host
@@ -380,6 +398,65 @@ mod tests {
         assert!(decrypt(&config, &broken, &settings).is_err());
         assert!(encrypt(&CommonConfig::default(), "x", &settings).is_err());
     }
+    /// Switching to local delivery with the password left blank neither reads nor demands the stored SMTP code: one
+    /// sealed with an encryption key the site no longer has used to block the switch, as did clearing the SMTP server
+    /// at the same time. The code is kept while server and account stay the same, and dropped when they change.
+    #[tokio::test]
+    async fn switching_to_local_delivery_does_not_read_the_stored_code() {
+        let services = crate::test_support::TestFixture::migrated().await.unwrap();
+        let old_key = CommonConfig {
+            encryption_key: "01".repeat(32),
+        };
+        let smtp = MailSettings {
+            revision: 3,
+            transport: "smtp".into(),
+            host: "smtp.example.test".into(),
+            username: "sender@example.test".into(),
+            from_address: "sender@example.test".into(),
+            ..MailSettings::default()
+        };
+        let current = Stored {
+            password_encrypted: encrypt(&old_key, "authorization-secret", &smtp).unwrap(),
+            settings: smtp.clone(),
+        };
+        // The key in the private config has since been replaced.
+        let mailer = Mailer::new(
+            services.db.clone(),
+            CommonConfig {
+                encryption_key: "02".repeat(32),
+            },
+            services.root.join(".local/mail"),
+            crate::test_support::detached_global(),
+        );
+        let local = |settings: MailSettings| MailInput {
+            settings: MailSettings {
+                transport: "local".into(),
+                ..settings
+            },
+            password: String::new(),
+        };
+        let kept = mailer.candidate(local(smtp.clone()), &current).unwrap();
+        assert_eq!(kept.settings.transport, "local");
+        assert_eq!(kept.password_encrypted, current.password_encrypted);
+        let cleared = mailer
+            .candidate(
+                local(MailSettings {
+                    host: String::new(),
+                    ..smtp.clone()
+                }),
+                &current,
+            )
+            .unwrap();
+        assert!(cleared.password_encrypted.is_empty());
+        // Switching back to SMTP still needs a code that can be read.
+        let back = MailInput {
+            settings: smtp.clone(),
+            password: String::new(),
+        };
+        assert!(mailer.candidate(back, &current).is_err());
+        services.cleanup().await.unwrap();
+    }
+
     #[test]
     fn settings_reject_header_injection_and_cleartext_transport() {
         let mut settings = MailSettings {

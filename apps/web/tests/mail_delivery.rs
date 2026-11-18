@@ -4,6 +4,7 @@
 use std::path::PathBuf;
 
 use gono_forum_web::{
+    administration,
     content::{
         self,
         writes::{ContentWriter, NewThread, WriteConfig},
@@ -531,5 +532,80 @@ async fn content_mail_survives_undoing_one_of_two_overlapping_follows() {
         ("sent", None)
     );
     assert!(f.delivered(event.eventid).is_some());
+    f.f.cleanup().await.unwrap();
+}
+
+/// The admin task list labels every kind of mail as mail; it used to look for an `email.` prefix that no mail event
+/// has, and showed them all as generic background tasks.
+#[tokio::test]
+async fn the_task_list_labels_mail_tasks_as_mail() {
+    let f = Fixture::new().await;
+    let db = &f.f.db;
+    let now = identity::now();
+    for (n, kind) in [
+        "password_reset",
+        "sanction_issued",
+        "login_alert",
+        "notification.email",
+        "message.email",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        db::query("INSERT INTO gonof_common_outbox(event_key,event_type,aggregate_type,aggregate_id,payload,dateline,available_at) VALUES(?,?,'member',?,'{}',?,?)")
+            .bind(format!("label-test:{n}"))
+            .bind(kind)
+            .bind(ADMIN)
+            .bind(now)
+            .bind(now)
+            .execute(db.executor())
+            .await
+            .unwrap();
+    }
+    let (tasks, total) = administration::tasks(db, actor(ADMIN), &Default::default())
+        .await
+        .unwrap();
+    assert_eq!(total, 5);
+    let mail = gono_forum_web::i18n::current().maintenance_tasks_kind_email();
+    for task in &tasks {
+        assert_eq!(task.kind_label(), mail, "{}", task.kind);
+    }
+    f.f.cleanup().await.unwrap();
+}
+
+/// A private message mail alert waits ten minutes so a message read in that time needs no mail. Retrying it from the
+/// task list keeps that wait instead of making it due at once.
+#[tokio::test]
+async fn retrying_a_message_mail_alert_keeps_its_reading_window() {
+    let f = Fixture::new().await;
+    let db = &f.f.db;
+    let now = identity::now();
+    let window = 600;
+    let eventid = db::query("INSERT INTO gonof_common_outbox(event_key,event_type,aggregate_type,aggregate_id,payload,dateline,available_at) VALUES('message.email:8801:1','message.email','member',?,'{}',?,?)")
+        .bind(ADMIN)
+        .bind(now)
+        .bind(now + window)
+        .execute(db.executor())
+        .await
+        .unwrap()
+        .last_insert_id() as i64;
+    administration::retry_task(
+        db,
+        actor(ADMIN),
+        eventid,
+        0,
+        now + window,
+        0,
+        "pending",
+        "Checking the queue",
+    )
+    .await
+    .unwrap();
+    let due: i64 = db::query_scalar("SELECT available_at FROM gonof_common_outbox WHERE eventid=?")
+        .bind(eventid)
+        .fetch_one(db.executor())
+        .await
+        .unwrap();
+    assert_eq!(due, now + window);
     f.f.cleanup().await.unwrap();
 }

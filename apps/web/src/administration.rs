@@ -502,7 +502,7 @@ impl Task {
             "media.process" => t.maintenance_tasks_kind_media_process(),
             "media.purge" => t.maintenance_tasks_kind_media_purge(),
             "notification.content" => t.maintenance_tasks_kind_notification(),
-            kind if kind.starts_with("email.") => t.maintenance_tasks_kind_email(),
+            kind if crate::mail::EVENT_TYPES.contains(&kind) => t.maintenance_tasks_kind_email(),
             kind if kind.starts_with("privacy.") => t.maintenance_tasks_kind_privacy(),
             _ => t.maintenance_tasks_kind_other(),
         }
@@ -604,7 +604,7 @@ pub async fn retry_task(
     let why = reason(why)?;
     let mut tx = db.begin_write().await?;
     runtime::admin_locked(db, &mut tx, actor).await?;
-    let row=db::query("SELECT status,attempts,available_at,lease_until,event_type,aggregate_type,aggregate_id,last_error FROM gonof_common_outbox WHERE eventid=? FOR UPDATE").bind(id).fetch_optional(db.observe(&mut *tx)).await?.ok_or(IdentityError::NotFound)?;
+    let row=db::query("SELECT status,attempts,available_at,lease_until,event_type,aggregate_type,aggregate_id,last_error,dateline FROM gonof_common_outbox WHERE eventid=? FOR UPDATE").bind(id).fetch_optional(db.observe(&mut *tx)).await?.ok_or(IdentityError::NotFound)?;
     let status = db::text(&row, "status")?;
     if status != expected
         || row.try_get::<i64, _>("attempts")? != attempts
@@ -626,13 +626,18 @@ pub async fn retry_task(
         ));
     }
     // A data request is not due before its own time: an account closure or erasure waits out its cooling period
-    // whoever retries it, the same floor as the retry on the data requests page (`privacy::retry`).
+    // whoever retries it, the same floor as the retry on the data requests page (`privacy::retry`). A private
+    // message mail alert likewise waits out the reading window it was queued with: read within it, the message
+    // needs no mail.
     let earliest = if db::text(&row, "aggregate_type")? == "data_request" {
         db::query_scalar::<i64>("SELECT execute_after FROM gonof_common_data_request WHERE id=?")
             .bind(row.try_get::<i64, _>("aggregate_id")?)
             .fetch_optional(db.observe(&mut *tx))
             .await?
             .unwrap_or(0)
+    } else if db::text(&row, "event_type")? == crate::messages::mail::EVENT_TYPE {
+        row.try_get::<i64, _>("dateline")?
+            .saturating_add(crate::messages::mail::DELAY_SECONDS)
     } else {
         0
     };

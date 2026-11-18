@@ -28,6 +28,30 @@ use crate::{
 const LEASE_SECONDS: i64 = 60;
 const BATCH_SIZE: usize = 50;
 
+/// Every outbox event type the mail worker delivers: account and moderation mail first, then content notification
+/// mail and private message mail alerts ([`MAIL_CLAIM_ORDER`] claims them in these two tiers). The admin task list
+/// labels these as mail, and retention cleanup deletes them once sent (`maintenance.rs`).
+pub const EVENT_TYPES: [&str; 12] = [
+    "email_verification",
+    "password_reset",
+    "email_change",
+    "appeal_access",
+    "privacy_access",
+    "sanction_issued",
+    "sanction_ended",
+    "appeal_result",
+    login_alert::EVENT_TYPE,
+    security_notice::EVENT_TYPE,
+    "notification.email",
+    crate::messages::mail::EVENT_TYPE,
+];
+
+/// Whether the mail library accepts `value` as an address it can send to. Every address a member enters goes
+/// through this as well (`identity::normalize_email`), so an account never holds an address its mail cannot reach.
+pub(crate) fn valid_address(value: &str) -> bool {
+    value.parse::<lettre::Address>().is_ok()
+}
+
 #[derive(Clone)]
 pub struct Mailer {
     database: Database,
@@ -559,10 +583,10 @@ async fn abandon(mailer: &Mailer, mail: &ClaimedMail, reason: &str) -> Result<()
 ///
 /// Sign-in alerts and two-factor security notices are account security and go in the first tier; private message
 /// mail alerts sit with content notification mail in the second tier.
-const MAIL_CLAIM_ORDER: [&str; 2] = [
-    "'email_verification', 'password_reset', 'email_change', 'appeal_access', 'privacy_access', 'sanction_issued', 'sanction_ended', 'appeal_result', 'login_alert', 'security_notice'",
-    "'notification.email', 'message.email'",
-];
+const MAIL_CLAIM_ORDER: [&[&str]; 2] = {
+    let (account, content) = EVENT_TYPES.split_at(10);
+    [account, content]
+};
 
 async fn claim(database: &Database, now: i64) -> Result<Option<ClaimedMail>> {
     let mut transaction = database.begin_write().await?;
@@ -572,9 +596,14 @@ async fn claim(database: &Database, now: i64) -> Result<Option<ClaimedMail>> {
         // every historical sent row (with a locking read, too). `gonof_outbox_delivery` takes a range by status and
         // due time and only reads due pending rows.
         let statement = format!(
-            "SELECT eventid, event_key, event_type, aggregate_id, payload, attempts,dateline FROM gonof_common_outbox FORCE INDEX (gonof_outbox_delivery) WHERE event_type IN ({types}) AND status IN ('pending', 'processing') AND available_at <= ? AND lease_until <= ? ORDER BY eventid LIMIT 1 FOR UPDATE"
+            "SELECT eventid, event_key, event_type, aggregate_id, payload, attempts,dateline FROM gonof_common_outbox FORCE INDEX (gonof_outbox_delivery) WHERE event_type IN ({}) AND status IN ('pending', 'processing') AND available_at <= ? AND lease_until <= ? ORDER BY eventid LIMIT 1 FOR UPDATE",
+            vec!["?"; types.len()].join(",")
         );
-        found = crate::db::query(&statement)
+        let mut query = crate::db::query(&statement);
+        for kind in types {
+            query = query.bind(*kind);
+        }
+        found = query
             .bind(now)
             .bind(now)
             .fetch_optional(database.observe(&mut *transaction))
@@ -938,6 +967,31 @@ impl Drop for TemporaryFile {
 #[cfg(test)]
 mod claim_tests {
     use super::*;
+
+    /// The second claim tier is exactly the notification mail, so a type added to [`EVENT_TYPES`] lands in a tier on
+    /// purpose; every account mail type has its own text and link.
+    #[test]
+    fn mail_event_types_split_into_account_and_notification_tiers() {
+        assert_eq!(MAIL_CLAIM_ORDER[1], ["notification.email", "message.email"]);
+        assert_eq!(
+            MAIL_CLAIM_ORDER
+                .iter()
+                .map(|tier| tier.len())
+                .sum::<usize>(),
+            EVENT_TYPES.len()
+        );
+        for kind in MAIL_CLAIM_ORDER[0] {
+            let routed = matches!(
+                *kind,
+                "sanction_issued" | "sanction_ended" | "appeal_result"
+            ) || *kind == login_alert::EVENT_TYPE
+                || *kind == security_notice::EVENT_TYPE;
+            assert!(
+                routed || template(kind, crate::i18n::Lang::EN).is_ok(),
+                "{kind}"
+            );
+        }
+    }
 
     /// Claim order: with a batch of content notification mail queued first, a later password reset mail is still
     /// claimed first; content notification mail only comes after the account mail is claimed, each still first-in

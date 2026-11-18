@@ -50,9 +50,11 @@ pub const SMS_CODE_RETENTION: i64 = 2 * 86_400;
 /// worker's lease lasts a minute, so a file this old belongs to a write that stopped.
 pub const TEMPORARY_MAIL_AGE: i64 = 3600;
 
-/// Outbox event types that can be deleted by retention period: content notifications, content notification mails,
-/// account and moderation mails.
-const DELETABLE_EVENTS: &str = "'notification.content','notification.email','message.email','login_alert','security_notice','email_verification','password_reset','email_change','appeal_access','privacy_access','sanction_issued','sanction_ended','appeal_result'";
+/// Outbox event types that can be deleted by retention period: content notifications and every kind of mail
+/// ([`crate::mail::EVENT_TYPES`]).
+fn deletable_events() -> impl Iterator<Item = &'static str> {
+    std::iter::once("notification.content").chain(crate::mail::EVENT_TYPES)
+}
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct MaintenanceReport {
@@ -276,12 +278,15 @@ async fn purge_requests(database: &Database, table: &str, cutoff: i64) -> Result
 async fn purge_outbox(database: &Database, mail_directory: &Path, cutoff: i64) -> Result<u64> {
     // Takes a range via `gonof_outbox_delivery (status, available_at, …)`; deletes by primary key with the condition
     // checked once more, so rows whose status changed between the two steps are not deleted.
-    let candidates: Vec<i64> = db::query_scalar(&format!(
-        "SELECT eventid FROM gonof_common_outbox FORCE INDEX (gonof_outbox_delivery) WHERE status='sent' AND available_at<? AND event_type IN ({DELETABLE_EVENTS}) LIMIT {BATCH}"
-    ))
-    .bind(cutoff)
-    .fetch_all(database.executor())
-    .await?;
+    let sql = format!(
+        "SELECT eventid FROM gonof_common_outbox FORCE INDEX (gonof_outbox_delivery) WHERE status='sent' AND available_at<? AND event_type IN ({}) LIMIT {BATCH}",
+        vec!["?"; deletable_events().count()].join(",")
+    );
+    let mut query = db::query_scalar(&sql).bind(cutoff);
+    for kind in deletable_events() {
+        query = query.bind(kind);
+    }
+    let candidates: Vec<i64> = query.fetch_all(database.executor()).await?;
     // A mail event is the only record of whom its local files are for: account deletion finds `mail/{eventid}.eml`
     // and the draft in `prepared/` through the member's events. So the files go first, and an event whose files
     // cannot be removed stays for the next round.

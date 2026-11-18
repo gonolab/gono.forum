@@ -626,11 +626,14 @@ pub(crate) fn normalize_email(value: &str) -> Result<String> {
             && !domain.starts_with('.')
             && !domain.ends_with('.')
     });
+    // Last, the mail library's own reading of the address: an address it refuses would be accepted here and then
+    // never receive a single mail, after registration has already used up the invitation.
     if !valid
         || value.chars().count() > 255
         || value
             .chars()
             .any(|ch| ch.is_whitespace() || ch.is_control())
+        || !crate::mail::valid_address(&value)
     {
         return Err(IdentityError::Validation(
             crate::i18n::current().account_error_email(),
@@ -2296,5 +2299,28 @@ mod tests {
                 .await
                 .unwrap()
         );
+    }
+
+    /// An address is accepted only if the mail library will send to it: `first..last@example.test` used to pass
+    /// registration, use up the invitation and then fail every verification mail for good.
+    #[test]
+    fn email_addresses_the_mail_library_refuses_are_rejected() {
+        for refused in [
+            "first..last@example.test",
+            ".first@example.test",
+            "first.@example.test",
+            &format!("{}@example.test", "a".repeat(65)),
+        ] {
+            assert!(normalize_email(refused).is_err(), "{refused}");
+        }
+        for accepted in [
+            "first.last@example.test",
+            "first+tag@example.test",
+            "o'brien@example.test",
+            "First.Last@Sub.Example.TEST",
+        ] {
+            let normalized = normalize_email(accepted).unwrap();
+            assert!(crate::mail::valid_address(&normalized), "{accepted}");
+        }
     }
 }
