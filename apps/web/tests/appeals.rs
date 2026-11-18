@@ -168,6 +168,80 @@ impl Fixture {
     }
 }
 
+/// The application statements one appeal read runs.
+async fn appeal_statements<F: std::future::Future>(future: F) -> (F::Output, usize) {
+    use gono_forum_web::debug::trace::{self, QuerySource, RequestProfile};
+    let profile = std::sync::Arc::new(RequestProfile::new());
+    let output = trace::scope(profile.clone(), future).await;
+    let count = profile
+        .snapshot()
+        .into_iter()
+        .filter(|record| record.source == QuerySource::Application)
+        .count();
+    (output, count)
+}
+
+/// Reading the appeal list or one case writes nothing, so it runs in a read-only transaction without locks: it does
+/// not wait for another transaction holding the member's row (on SQLite, the only writer), and a list page reads its
+/// sanctions and their appeals in the same number of statements however many records it shows.
+#[tokio::test]
+async fn appeal_pages_read_without_locks_in_a_fixed_number_of_statements() {
+    let f = Fixture::new().await;
+    let db = &f.services.db;
+    let now = identity::now();
+    let access = AppealAccess::Session(actor(3));
+    let first = f.sanction(3, "warning", now).await;
+    for n in 1..6 {
+        f.sanction(3, "warning", now + n).await;
+    }
+    gov::submit_appeal(
+        db,
+        &access,
+        first,
+        "The warning was about another member",
+        &identity::random_token(),
+        now + 10,
+    )
+    .await
+    .unwrap();
+    // Another transaction holds the member's row (and, on SQLite, the write lock): reading still goes through.
+    let mut holder = db.begin_write().await.unwrap();
+    db::query("SELECT uid FROM gonof_common_member WHERE uid=3 FOR UPDATE")
+        .fetch_one(db.observe(&mut *holder))
+        .await
+        .unwrap();
+    let wait = std::time::Duration::from_secs(3);
+    let listed = tokio::time::timeout(wait, gov::appeal_cases(db, &access, 0, now + 11)).await;
+    let case = tokio::time::timeout(wait, gov::appeal_case(db, &access, first, now + 11)).await;
+    holder.rollback().await.unwrap();
+    let cases = listed.expect("the list does not wait").unwrap();
+    assert_eq!(cases.len(), 6);
+    for case in &cases {
+        assert_eq!(case.appeal.is_some(), case.sanction.id == first);
+        assert_eq!(case.can_submit, case.sanction.id != first);
+    }
+    let case = case.expect("a case does not wait").unwrap();
+    assert!(case.appeal.is_some() && !case.can_submit);
+    // One record or six: the same statements.
+    let other = AppealAccess::Session(actor(2));
+    let foreign = f.sanction(2, "warning", now + 12).await;
+    let (one, single) = appeal_statements(gov::appeal_cases(db, &other, 0, now + 13)).await;
+    assert_eq!(one.unwrap().len(), 1);
+    let (six, many) = appeal_statements(gov::appeal_cases(db, &access, 0, now + 13)).await;
+    assert_eq!(six.unwrap().len(), 6);
+    assert_eq!(
+        single, many,
+        "statements do not grow with the records shown"
+    );
+    // A case of someone else is still not found.
+    assert!(
+        gov::appeal_case(db, &access, foreign, now + 14)
+            .await
+            .is_err()
+    );
+    f.services.cleanup().await.unwrap();
+}
+
 #[tokio::test]
 async fn frozen_access_rotates_and_is_limited_to_owned_appeals() {
     let f = Fixture::new().await;

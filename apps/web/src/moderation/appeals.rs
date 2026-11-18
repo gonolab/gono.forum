@@ -105,6 +105,18 @@ impl AppealCase {
     }
 }
 
+/// The appeal window for pages that only read, from the settings in their read-only transaction (no lock: see
+/// [`appeal_window`] for writes).
+async fn appeal_window_read(db: &Database, tx: &mut Tx<'_>) -> Result<i64> {
+    let settings = crate::runtime::read_in(db, tx)
+        .await
+        .map_err(crate::organization::identity_error)?;
+    Ok(settings
+        .governance
+        .appeal_window_days
+        .saturating_mul(86_400))
+}
+
 /// One member lock serializes token rotation, requests, sanctions and account changes.
 async fn owner(
     db: &Database,
@@ -112,6 +124,29 @@ async fn owner(
     access: &AppealAccess,
     now: i64,
     mail_ticket: bool,
+) -> Result<i64> {
+    owner_checked(db, tx, access, now, mail_ticket, " FOR UPDATE").await
+}
+
+/// [`owner`] without locks, for the pages that only read (the appeal list and one case) in a read-only transaction:
+/// MySQL refuses locking reads in a READ ONLY transaction, and a write transaction would hold SQLite's only writer
+/// for an ordinary page view. The checks are the same, on the rows as the snapshot has them.
+async fn owner_read(
+    db: &Database,
+    tx: &mut Tx<'_>,
+    access: &AppealAccess,
+    now: i64,
+) -> Result<i64> {
+    owner_checked(db, tx, access, now, false, "").await
+}
+
+async fn owner_checked(
+    db: &Database,
+    tx: &mut Tx<'_>,
+    access: &AppealAccess,
+    now: i64,
+    mail_ticket: bool,
+    lock: &str,
 ) -> Result<i64> {
     let uid = match access {
         AppealAccess::Session(actor) => actor.uid,
@@ -123,9 +158,9 @@ async fn owner(
                 .bind(access_hash(raw, mail_ticket)).fetch_optional(db.observe(&mut **tx)).await?.ok_or(ContentWriteError::Unauthorized)?
         }
     };
-    let member = crate::db::query(
-        "SELECT credentials_version,`freeze`,email,account_state FROM gonof_common_member WHERE uid=? FOR UPDATE",
-    )
+    let member = crate::db::query(&format!(
+        "SELECT credentials_version,`freeze`,email,account_state FROM gonof_common_member WHERE uid=?{lock}"
+    ))
     .bind(uid)
     .fetch_optional(db.observe(&mut **tx))
     .await?
@@ -142,7 +177,7 @@ async fn owner(
             }
         }
         AppealAccess::Token(raw) => {
-            let token=crate::db::query("SELECT email,dateline,expires_at FROM gonof_common_member_token WHERE uid=? AND token_hash=? AND purpose='appeal_access' AND consumed_at IS NULL AND revoked_at IS NULL FOR UPDATE")
+            let token=crate::db::query(&format!("SELECT email,dateline,expires_at FROM gonof_common_member_token WHERE uid=? AND token_hash=? AND purpose='appeal_access' AND consumed_at IS NULL AND revoked_at IS NULL{lock}"))
                 .bind(uid).bind(access_hash(raw, mail_ticket)).fetch_optional(db.observe(&mut **tx)).await?.ok_or(ContentWriteError::Unauthorized)?;
             if member.try_get::<Option<String>, _>("email")?.as_deref()
                 != Some(db::text(&token, "email")?.as_str())
@@ -297,15 +332,61 @@ async fn case_locked(
     .await?
     .map(decode)
     .transpose()?;
+    Ok(case_of(sanction, appeal, (now, window)))
+}
+
+fn case_of(sanction: Sanction, appeal: Option<Appeal>, (now, window): (i64, i64)) -> AppealCase {
     let can_submit = appeal.is_none()
         && now >= sanction.starts_at
         && now <= sanction.starts_at.saturating_add(window);
-    Ok(AppealCase {
+    AppealCase {
         sanction,
         appeal,
         can_submit,
         window_seconds: window,
-    })
+    }
+}
+
+/// The member's sanctions among `rows` (already read, newest first) with their appeals, read without locks in one
+/// statement: the read-only counterpart of [`case_locked`] for a whole list page.
+async fn cases_read(
+    db: &Database,
+    tx: &mut Tx<'_>,
+    uid: i64,
+    rows: Vec<crate::db::DbRow>,
+    (now, window): (i64, i64),
+) -> Result<Vec<AppealCase>> {
+    let sanctions = rows
+        .into_iter()
+        .map(sanctions::decode)
+        .collect::<Result<Vec<_>>>()?;
+    if sanctions.is_empty() {
+        return Ok(Vec::new());
+    }
+    let sql = format!(
+        "SELECT * FROM gonof_common_member_appeal WHERE uid=? AND sanction_id IN ({})",
+        vec!["?"; sanctions.len()].join(",")
+    );
+    let mut query = crate::db::query(&sql).bind(uid);
+    for sanction in &sanctions {
+        query = query.bind(sanction.id);
+    }
+    let mut appeals = query
+        .fetch_all(db.observe(&mut **tx))
+        .await?
+        .into_iter()
+        .map(decode)
+        .collect::<Result<Vec<_>>>()?;
+    Ok(sanctions
+        .into_iter()
+        .map(|sanction| {
+            let appeal = appeals
+                .iter()
+                .position(|appeal| appeal.sanction_id == sanction.id)
+                .map(|at| appeals.swap_remove(at));
+            case_of(sanction, appeal, (now, window))
+        })
+        .collect())
 }
 pub async fn appeal_case(
     db: &Database,
@@ -313,12 +394,18 @@ pub async fn appeal_case(
     id: i64,
     now: i64,
 ) -> Result<AppealCase> {
-    let mut tx = db.begin_write().await?;
-    let window = appeal_window(db, &mut tx).await?;
-    let uid = owner(db, &mut tx, access, now, false).await?;
-    let result = case_locked(db, &mut tx, uid, id, (now, window)).await?;
+    // Reading a case writes nothing: a read-only transaction without locks (see `owner_read`).
+    let mut tx = db.begin_read_only().await?;
+    let window = appeal_window_read(db, &mut tx).await?;
+    let uid = owner_read(db, &mut tx, access, now).await?;
+    let rows = crate::db::query("SELECT * FROM gonof_common_member_sanction WHERE uid=? AND id=?")
+        .bind(uid)
+        .bind(id)
+        .fetch_all(db.observe(&mut *tx))
+        .await?;
+    let mut cases = cases_read(db, &mut tx, uid, rows, (now, window)).await?;
     tx.commit().await?;
-    Ok(result)
+    cases.pop().ok_or(ContentWriteError::NotFound)
 }
 pub async fn appeal_cases(
     db: &Database,
@@ -331,17 +418,16 @@ pub async fn appeal_cases(
             crate::i18n::current().governance_error_page(),
         ));
     }
-    let mut tx = db.begin_write().await?;
-    let window = appeal_window(db, &mut tx).await?;
-    let uid = owner(db, &mut tx, access, now, false).await?;
-    let ids:Vec<i64>=crate::db::query_scalar("SELECT id FROM gonof_common_member_sanction WHERE uid=? AND (?=0 OR id<?) ORDER BY id DESC LIMIT 21")
+    // A page of the list is one read of the sanctions and one of their appeals, in a read-only transaction without
+    // locks, however many records it shows.
+    let mut tx = db.begin_read_only().await?;
+    let window = appeal_window_read(db, &mut tx).await?;
+    let uid = owner_read(db, &mut tx, access, now).await?;
+    let rows = crate::db::query("SELECT * FROM gonof_common_member_sanction WHERE uid=? AND (?=0 OR id<?) ORDER BY id DESC LIMIT 21")
         .bind(uid).bind(before).bind(before).fetch_all(db.observe(&mut *tx)).await?;
-    let mut rows = Vec::with_capacity(ids.len());
-    for id in ids {
-        rows.push(case_locked(db, &mut tx, uid, id, (now, window)).await?);
-    }
+    let cases = cases_read(db, &mut tx, uid, rows, (now, window)).await?;
     tx.commit().await?;
-    Ok(rows)
+    Ok(cases)
 }
 pub async fn submit_appeal(
     db: &Database,

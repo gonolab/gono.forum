@@ -197,6 +197,15 @@ pub async fn read(db: &Database) -> Result<SiteSettings> {
     decode_rows(&rows)
 }
 
+/// [`read`] inside a transaction, without a lock: for read-only transactions that want the settings from the same
+/// snapshot as the rest of what they read.
+pub async fn read_in(db: &Database, tx: &mut Tx<'_>) -> Result<SiteSettings> {
+    let rows = db::query(&READ_SQL)
+        .fetch_all(db.observe(&mut **tx))
+        .await?;
+    decode_rows(&rows)
+}
+
 /// What the page frame reads in its one statement.
 pub struct FrameRows {
     pub settings: SiteSettings,
