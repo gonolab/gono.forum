@@ -19,15 +19,8 @@ A skin is a directory named after its id:
   skin.css                 the skin's stylesheet, optional
 ```
 
-Other files are ignored with a warning. The built-in skins live in `apps/web/skins/`:
-
-- `default`, the standard look: the core color scheme unchanged and no stylesheet.
-- `harbor`: the boards and the new-thread button in side navigation (the header leaves the boards out), the page head
-  as a banner, round avatars, flat topic lists with each row's board as a label in the board's color and a reply count
-  column, title bands in the board's color over board and thread pages, posts beside a 64px avatar, and all four
-  behavior modules; the home and board pages have no aside, the thread page's holds the member card and the timeline.
-  Palettes: `main` (slate), `contrast` (stronger secondary text, lines and field borders) and `colored` (the header in
-  the main color).
+Other files are ignored with a warning. The built-in skins live in `apps/web/skins/` and are listed under "Built-in
+skins" below.
 
 ### The manifest
 
@@ -109,6 +102,17 @@ import and lists every problem and warning; `--builtin` applies the rules of bui
 The same for every source, so any skin can be packed and imported again: the stylesheet at most 256 KiB as written,
 comments included; all palettes together at most 128 KiB as stored; the manifest at most 16 KiB; a pack file at most
 1 MiB; at most 10,000 rules in the stylesheet.
+
+### Built-in skins
+
+Built-in skins follow every rule of [styles.md](styles.md) ("Two kinds of rules"), which `skins::tests` checks for each
+of them, and any site can choose them at `/manage/skins`.
+
+| Skin | Look | Frame, layout and behavior modules | Palettes |
+| --- | --- | --- | --- |
+| `default` | The standard look: the core color scheme unchanged and no stylesheet. | Top navigation, the core default layout, no modules. | `default` |
+| `harbor` | A white ground with flat surfaces. Topic lists are flat rows with each row's board as a label in the board's color at the end of the row and a reply count column; pinned and locked rows show the pin and lock icons instead of the pinned tag, unread rows a bold title and count instead of the dot. Board pages and thread pages open under a title band in the board's color (the banner, and `article.thread`); the forum directory marks each board with its glyph, or a dot in its color. Posts sit beside a 64px round avatar. | Side navigation with the boards and the new-thread button, without the header's boards; round avatars; the page head as a banner; the thread list as the home page. `side.nav`: the board tree; `home.aside` and `board.aside`: empty; `thread.aside`: the member card and the timeline. All four modules. | `main` (slate, default); `contrast` strengthens secondary text, lines and field borders; `colored` draws the header in the main color. |
+| `ledger` | Flat white pages ruled into columns: no cards, thin rules between items, small square corners and filled guest buttons. Topic lists are columns: the title over the board badge (a square in the board's color, `row-end`) and the labels (the pin and lock icons instead of the pinned tag, categories as a colored dot and a name), then the poster's avatar, replies, views and activity; unread titles are a step heavier, with the number of new replies as a small count where it is known. Board heads and the board directory carry the board's color. Posts are flat, with a 48px round avatar, the time on the end side and the actions with their icons on the end side; the thread head shows its Reply shortcut. | Side navigation without the header's boards, round avatars, the page head in the column, the thread list as the home page. `side.nav`: the board tree and the header's navigation entries; `home.aside` and `board.aside`: the member card, hot threads and statistics; `thread.aside`: the member card and the timeline. All four modules. | `blue` (default); `teal` and `indigo` change only the accent; `contrast` darkens text, rules and borders. |
 
 ## Sources
 

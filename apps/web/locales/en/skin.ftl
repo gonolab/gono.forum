@@ -15,6 +15,8 @@ skin-builtin-default-name = Default
 skin-builtin-default-description = The standard look of Gono Forum.
 skin-builtin-harbor-name = Harbor
 skin-builtin-harbor-description = Boards in a side column, flat lists and posts beside large avatars.
+skin-builtin-ledger-name = Ledger
+skin-builtin-ledger-description = Flat white pages ruled into columns, with the boards at the side.
 
 ## Problems found in a skin. $file is the file of the skin (skin.toml, palettes/<name>.json, skin.css), $text the
 ## problem.

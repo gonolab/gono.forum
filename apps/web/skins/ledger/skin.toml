@@ -1,0 +1,49 @@
+# The built-in Ledger skin: flat white pages ruled into columns, the boards in a column at the side, a timeline beside
+# long threads and the reply box docked at the bottom of the window (docs/skins.md, "Built-in skins"). See skin.css.
+contract = 1
+id = "ledger"
+version = "1.0.0"
+# Built-in skins write only English here: their names and descriptions are translated in the translation files
+# (skin-builtin-ledger-name and -description in locales/<language>/skin.ftl, docs/skins.md, "The manifest").
+name = { en = "Ledger" }
+description = { en = "Flat white pages ruled into columns, with the boards at the side." }
+author = "Gono Forum"
+license = "MIT OR Apache-2.0"
+
+# blue is the standard set; teal and indigo change only the accent; contrast darkens text, rules and borders.
+[palettes]
+default = "blue"
+variants = ["teal", "indigo", "contrast"]
+
+[frame]
+nav = "side"
+header_boards = false
+avatar_shape = "circle"
+page_head = "column"
+home = "threads"
+
+# The side column holds the board tree and the header's navigation entries (which the header leaves out here); the
+# lists keep an aside with the member card, hot threads and statistics; thread pages put the timeline under the
+# member card. The other places follow the core default (the board head on board pages, nothing in the footer).
+[layout]
+"side.nav" = [
+  { id = "side-boards", source = "nav-boards" },
+  { id = "side-links", source = "nav-links" },
+]
+"home.aside" = [
+  { id = "me", source = "member-card" },
+  { id = "hot", source = "threads", view = "mini-list", params = { scope = "current", sort = "hot", limit = "site" }, title = { key = "block-title-hot" } },
+  { id = "stats", source = "site.stats", view = "figures", params = { scope = "site" }, title = { key = "block-title-stats" } },
+]
+"board.aside" = [
+  { id = "me-board", source = "member-card" },
+  { id = "hot-board", source = "threads", view = "mini-list", params = { scope = "current", sort = "hot", limit = "site" }, title = { key = "block-title-hot" } },
+  { id = "stats-board", source = "site.stats", view = "figures", params = { scope = "current" }, title = { key = "block-title-stats" } },
+]
+"thread.aside" = [
+  { id = "me-thread", source = "member-card" },
+  { id = "outline", source = "thread.outline", view = "timeline", params = { tid = "current" }, title = { key = "block-title-outline" } },
+]
+
+[behaviors]
+enabled = ["timeline", "progress", "autohide-header", "docked-composer"]

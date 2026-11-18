@@ -9,6 +9,8 @@ skin-builtin-default-name = 默认
 skin-builtin-default-description = Gono Forum 的标准外观。
 skin-builtin-harbor-name = 港湾
 skin-builtin-harbor-description = 版块放在侧栏，列表和帖子平铺，帖子旁是大头像。
+skin-builtin-ledger-name = 账本
+skin-builtin-ledger-description = 白底平铺、细线分栏，版块列在侧边。
 
 skin-finding-file = { $file }：{ $text }
 skin-more-findings = { $count ->

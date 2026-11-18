@@ -216,6 +216,10 @@ pub fn builtin_text(id: &str, t: crate::i18n::Lang) -> Option<(&'static str, &'s
             t.skin_builtin_harbor_name(),
             t.skin_builtin_harbor_description(),
         )),
+        "ledger" => Some((
+            t.skin_builtin_ledger_name(),
+            t.skin_builtin_ledger_description(),
+        )),
         _ => None,
     }
 }
