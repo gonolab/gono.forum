@@ -26,9 +26,9 @@ skins" below.
 
 ```toml
 contract = 1                         # the skin contract this core reads; must be 1
-id = "ledger"                        # 2 to 32 lowercase letters, digits and hyphens, starting with a letter
+id = "inkwell"                       # 2 to 32 lowercase letters, digits and hyphens, starting with a letter
 version = "1.2.0"
-name = { en = "Ledger", fr = "Registre" }    # by language tag; English is required
+name = { en = "Inkwell", fr = "Encrier" }    # by language tag; English is required
 description = { en = "Flat surfaces separated by rules" }   # optional; English required when present
 author = "…"                         # optional
 license = "MIT"                      # optional
