@@ -467,6 +467,37 @@ async fn run(
                     .bind(tid)
                     .execute(db.observe(&mut *tx))
                     .await?;
+                // A lottery's prizes, entry conditions and removal reasons are the author's text too (the export has
+                // them, `export.rs`). Prize names must be non-empty (guaranteed in code), so each becomes a numbered
+                // placeholder, written prize by prize (at most `MAX_PRIZES`); notes and conditions are optional and
+                // are cleared. Winners keep their awards and see the placeholder in their prize list.
+                let prizes: Vec<i64> = db::query_scalar(
+                    "SELECT prize_no FROM gonof_forum_lottery_prize WHERE tid=? ORDER BY prize_no",
+                )
+                .bind(tid)
+                .fetch_all(db.observe(&mut *tx))
+                .await?;
+                for prize in prizes {
+                    db::query(
+                        "UPDATE gonof_forum_lottery_prize SET name=?,note='' WHERE tid=? AND prize_no=?",
+                    )
+                    .bind(words.lang().governance_erased_prize(prize.to_string()))
+                    .bind(tid)
+                    .bind(prize)
+                    .execute(db.observe(&mut *tx))
+                    .await?;
+                }
+                db::query("UPDATE gonof_forum_lottery SET requirements=NULL WHERE tid=?")
+                    .bind(tid)
+                    .execute(db.observe(&mut *tx))
+                    .await?;
+                // A removal reason must be non-empty, and the removed entrant's card shows it as the sign of the
+                // removal, so it becomes the placeholder text rather than empty.
+                db::query("UPDATE gonof_forum_lottery_exclusion SET reason=? WHERE tid=?")
+                    .bind(words.erased_text())
+                    .bind(tid)
+                    .execute(db.observe(&mut *tx))
+                    .await?;
             }
             for aid in aids {
                 purge_if_unused(db, &mut tx, aid, words, now).await?;

@@ -69,11 +69,15 @@ impl Archive {
             let mut finalized = false;
             while let Some(command) = receiver.blocking_recv() {
                 match command {
+                    // Every entry carries ZIP64 sizes: the size is only known once the entry is written, and without
+                    // them an entry past 4 GiB uncompressed (all posts go into one `posts.json`) aborts the export,
+                    // and every retry fails on the same data.
                     ArchiveCommand::Entry(name) => zip.start_file(
                         name,
                         SimpleFileOptions::default()
                             .compression_method(zip::CompressionMethod::Deflated)
-                            .unix_permissions(0o600),
+                            .unix_permissions(0o600)
+                            .large_file(true),
                     )?,
                     ArchiveCommand::Bytes(bytes) => zip.write_all(&bytes)?,
                     ArchiveCommand::Finalize => {
@@ -205,6 +209,43 @@ async fn table(
             archive.write_json(&json_row(row)?).await?;
         }
         before = rows.last().unwrap().try_get(key)?;
+    }
+    archive.write(b"\n]\n").await?;
+    Ok(())
+}
+
+/// Like [`table`], for detail tables with several rows per thread (poll options, lottery prizes). Pages go by the
+/// primary key `(tid, number)`: paging by `tid` alone would drop the rest of a thread whose rows straddle a page
+/// boundary. `sql` takes the uid, then the last `tid` twice and the last number, and returns `tid` and `number`.
+async fn thread_rows(
+    db: &Database,
+    tx: &mut Tx<'_>,
+    archive: &mut Archive,
+    name: &str,
+    (sql, number): (&str, &str),
+    uid: i64,
+) -> anyhow::Result<()> {
+    archive.entry(&format!("{name}.json")).await?;
+    archive.write(b"[\n").await?;
+    let mut before = (0_i64, 0_i64);
+    let mut first = true;
+    loop {
+        let rows = db::query(sql)
+            .bind(uid)
+            .bind(before.0)
+            .bind(before.0)
+            .bind(before.1)
+            .fetch_all(db.observe(&mut **tx))
+            .await?;
+        let Some(last) = rows.last() else { break };
+        before = (last.try_get("tid")?, last.try_get(number)?);
+        for row in &rows {
+            if !first {
+                archive.write(b",\n").await?;
+            }
+            first = false;
+            archive.write_json(&json_row(row)?).await?;
+        }
     }
     archive.write(b"\n]\n").await?;
     Ok(())
@@ -552,6 +593,18 @@ pub(super) async fn build(
             "tid",
         ),
         (
+            // The source of the member's own news threads: what permanent erasure overwrites.
+            "news_sources",
+            "SELECT n.tid,n.source_url,n.source_name,n.source_author FROM gonof_forum_news n JOIN gonof_forum_activity a ON a.tid=n.tid WHERE a.owner_uid=? AND n.tid>? ORDER BY n.tid LIMIT 100",
+            "tid",
+        ),
+        (
+            // The settings of the member's own lotteries; `requirements` is the stored JSON array of entry conditions.
+            "lotteries",
+            "SELECT l.tid,l.entry_mode,l.requirements,l.review,l.early_draw FROM gonof_forum_lottery l JOIN gonof_forum_activity a ON a.tid=l.tid WHERE a.owner_uid=? AND l.tid>? ORDER BY l.tid LIMIT 100",
+            "tid",
+        ),
+        (
             "lottery_entries",
             "SELECT tid,source_pid,amount,dateline FROM gonof_forum_lottery_entry WHERE uid=? AND tid>? ORDER BY tid LIMIT 100",
             "tid",
@@ -584,6 +637,22 @@ pub(super) async fn build(
         ),
     ] {
         table(db, &mut tx, &mut archive, name, sql, key, c.uid).await?;
+    }
+    // The option text of the member's own polls and the prizes of their own lotteries, which permanent erasure
+    // overwrites (`worker.rs`); redemption codes stay out, as above.
+    for (name, sql, number) in [
+        (
+            "poll_options",
+            "SELECT o.tid,o.option_no,o.label FROM gonof_forum_poll_option o JOIN gonof_forum_activity a ON a.tid=o.tid WHERE a.owner_uid=? AND (o.tid>? OR (o.tid=? AND o.option_no>?)) ORDER BY o.tid,o.option_no LIMIT 100",
+            "option_no",
+        ),
+        (
+            "lottery_prizes",
+            "SELECT p.tid,p.prize_no,p.name,p.winners,p.kind,p.amount,p.note FROM gonof_forum_lottery_prize p JOIN gonof_forum_activity a ON a.tid=p.tid WHERE a.owner_uid=? AND (p.tid>? OR (p.tid=? AND p.prize_no>?)) ORDER BY p.tid,p.prize_no LIMIT 100",
+            "prize_no",
+        ),
+    ] {
+        thread_rows(db, &mut tx, &mut archive, name, (sql, number), c.uid).await?;
     }
     invite_batches(db, &mut tx, &mut archive, c.uid).await?;
     let mut before = 0;
@@ -756,6 +825,34 @@ mod tests {
         assert_eq!(entry("first.bin"), large);
         assert_eq!(entry("second.json"), r#"{"k":"value"}"#.as_bytes());
         assert_eq!(entry("third.txt"), b"tail");
+    }
+
+    /// Entries are written with ZIP64 sizes, so one entry may pass 4 GiB uncompressed (writing that much here would
+    /// take minutes): the 32-bit size fields of the local header hold the ZIP64 marker 0xFFFFFFFF, and the entry still
+    /// reads back.
+    #[tokio::test]
+    async fn archive_entries_carry_zip64_sizes() {
+        let root = temp_dir();
+        let path = root.0.join("archive.zip");
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        let mut archive = Archive::create(file, path.clone(), root.0.clone(), root.0.clone());
+        archive.entry("posts.json").await.unwrap();
+        archive.write(b"[]").await.unwrap();
+        archive.finish().await.unwrap();
+
+        let written = std::fs::read(&path).unwrap();
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&written)).unwrap();
+        let mut entry = zip.by_name("posts.json").unwrap();
+        // Compressed and uncompressed size sit at offsets 18 and 22 of the local file header.
+        let start = usize::try_from(entry.header_start()).unwrap();
+        assert_eq!(&written[start + 18..start + 26], &[0xFF; 8]);
+        let mut body = Vec::new();
+        entry.read_to_end(&mut body).unwrap();
+        assert_eq!(body, b"[]");
     }
 
     /// When the async side aborts before reaching finish, the archive thread must not wrap up the half-finished

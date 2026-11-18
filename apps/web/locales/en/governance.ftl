@@ -288,6 +288,8 @@ governance-erased-text = Deleted
 governance-erased-subject = Content deleted
 # A poll option after erasure; $number is the option's number.
 governance-erased-option = Option { $number }
+# A lottery prize after erasure; $number is the prize's number.
+governance-erased-prize = Prize { $number }
 # The ledger entry giving up the remaining points on account closure; $credit is the site's name for its points.
 governance-close-ledger = Remaining { $credit } given up on account closure
 # README.txt of a personal data export; $site is the site's name.

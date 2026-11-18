@@ -212,6 +212,7 @@ governance-erased-attachment = 已删除的附件
 governance-erased-text = 已删除
 governance-erased-subject = 内容已删除
 governance-erased-option = 选项 { $number }
+governance-erased-prize = 奖品 { $number }
 governance-close-ledger = 注销账号放弃剩余{ $credit }
 governance-export-readme = { $site }本人数据导出。JSON 为结构化记录，markdown 为本人原文，attachments 按 AID 对应 attachments.json 的文件名与类型。隔离、未通过检查及已清理附件仅列状态，不提供原始文件；若有 attachments-missing.json，其中的 AID 在导出时已被清理或存储中找不到原件。已永久擦除的正文和修订不会恢复。此包不含密码、令牌、内部日志或他人举报身份。
 governance-notice-report-resolved = 举报已处理：{ $reason }

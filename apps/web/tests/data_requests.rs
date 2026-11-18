@@ -301,6 +301,109 @@ impl Fixture {
             .await
             .unwrap()
     }
+    /// Another member with a verified email, registered through an invite like the data owner.
+    async fn member(&self, username: &str) -> SessionGrant {
+        let invite = self
+            .identity
+            .generate_invite(self.admin.member.uid, &identity::random_token())
+            .await
+            .unwrap();
+        let grant = self
+            .identity
+            .register(
+                username,
+                &format!("{username}@example.test"),
+                PASSWORD,
+                &invite.code,
+            )
+            .await
+            .unwrap();
+        db::query("UPDATE gonof_common_member SET emailstatus=1,regdate=1 WHERE uid=?")
+            .bind(grant.member.uid)
+            .execute(self.db.executor())
+            .await
+            .unwrap();
+        grant
+    }
+    /// `author` publishes a poll, a news thread and a one-click lottery (with a review step and an early draw) whose
+    /// text all starts with `prefix`: the text that the export carries and permanent erasure overwrites. Returns the
+    /// thread ids of the poll, the news thread and the lottery.
+    async fn own_activities(&self, author: i64, prefix: &str, now: i64) -> (i64, i64, i64) {
+        use gono_forum_web::activities::PrizeSpec;
+        let fid: i64 = db::query_scalar("SELECT fid FROM gonof_forum_forum ORDER BY fid LIMIT 1")
+            .fetch_one(self.db.executor())
+            .await
+            .unwrap();
+        let writer = ContentWriter::new(self.db.clone(), WriteConfig::default())
+            .with_codes(self.services.config.identity.two_factor.clone());
+        let prize = |name: &str, note: &str| PrizeSpec {
+            name: format!("{prefix} {name}"),
+            winners: 1,
+            kind: "item".into(),
+            amount: 0,
+            note: format!("{prefix} {note}"),
+            codes: vec![],
+        };
+        let mut tids = vec![];
+        for activity in [
+            ActivitySpec {
+                kind: 4,
+                deadline: now + 3600,
+                options: vec![format!("{prefix} option A"), format!("{prefix} option B")],
+                ..Default::default()
+            },
+            ActivitySpec {
+                kind: 5,
+                source_url: "https://example.test/private-source".into(),
+                source_name: format!("{prefix} source"),
+                source_author: format!("{prefix} byline"),
+                ..Default::default()
+            },
+            ActivitySpec {
+                kind: 3,
+                deadline: now + 3600,
+                entry_mode: "click".into(),
+                requirements: vec![format!("{prefix} condition")],
+                review: true,
+                early_draw: true,
+                prizes: vec![
+                    prize("prize A", "call me on 555-0100"),
+                    prize("prize B", "note B"),
+                ],
+                ..Default::default()
+            },
+        ] {
+            let published = writer
+                .publish_at(
+                    author,
+                    NewThread {
+                        visibility: Default::default(),
+                        activity,
+                        fid,
+                        title: "Activity thread".into(),
+                        body: "Activity body".into(),
+                        attachment_ids: vec![],
+                        request_key: identity::random_token(),
+                    },
+                    now,
+                )
+                .await
+                .unwrap();
+            tids.push(published.tid);
+        }
+        (tids[0], tids[1], tids[2])
+    }
+    /// The archive of a finished export request.
+    async fn archive(&self, id: i64, now: i64) -> zip::ZipArchive<std::fs::File> {
+        let dir = privacy::directory(
+            &self.services.root,
+            &self.services.config.identity.local_directory,
+        );
+        let (path, _) = privacy::download(&self.db, &self.access(), id, &dir, now)
+            .await
+            .unwrap();
+        zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap()
+    }
     /// One processed restore appeal of the member: the export includes the appeal and the
     /// outcome, without the hider or the handler; after account deletion it is kept like reports and appeals.
     async fn restore_request(&self, pid: i64, now: i64) {
@@ -2280,4 +2383,196 @@ async fn closing_an_account_retries_failed_member_cache_cleanup_before_completio
     f.work(due + 61).await;
     assert_eq!(status().await.unwrap(), "completed");
     f.services.cleanup().await.unwrap();
+}
+
+/// The text of the member's own activities is in the export, because permanent erasure overwrites it: poll options,
+/// the news source, the lottery's entry conditions and its prizes. Options and prizes page by (thread, number), so a
+/// poll longer than one export page (100 rows) keeps every option; another member's activities stay out.
+#[tokio::test]
+async fn data_export_includes_the_text_of_own_activities() {
+    let f = Fixture::new().await;
+    let now = identity::now();
+    let (poll, news, lottery) = f.own_activities(f.user.member.uid, "Mine:", now).await;
+    let (theirs, _, _) = f.own_activities(f.admin.member.uid, "Theirs:", now).await;
+    for option in 3..=150_i64 {
+        db::query("INSERT INTO gonof_forum_poll_option(tid,option_no,label) VALUES(?,?,?)")
+            .bind(poll)
+            .bind(option)
+            .bind(format!("Mine: option {option}"))
+            .execute(f.db.executor())
+            .await
+            .unwrap();
+    }
+    let id = privacy::submit(&f.db, &f.access(), f.request("export", "retain"), now)
+        .await
+        .unwrap();
+    f.work(now).await;
+    let mut archive = f.archive(id, now).await;
+    let mut json = |name: &str| -> serde_json::Value {
+        serde_json::from_reader(
+            archive
+                .by_name(name)
+                .unwrap_or_else(|error| panic!("{name}: {error}")),
+        )
+        .unwrap()
+    };
+    let options = json("poll_options.json");
+    let options = options.as_array().unwrap();
+    assert_eq!(
+        options
+            .iter()
+            .map(|o| (o["tid"].as_i64().unwrap(), o["option_no"].as_i64().unwrap()))
+            .collect::<Vec<_>>(),
+        (1..=150).map(|number| (poll, number)).collect::<Vec<_>>(),
+        "every option of the member's poll once, in order, and none of {theirs}"
+    );
+    assert_eq!(options[0]["label"], "Mine: option A");
+    assert_eq!(options[149]["label"], "Mine: option 150");
+    assert_eq!(
+        json("news_sources.json"),
+        serde_json::json!([{
+            "tid": news,
+            "source_url": "https://example.test/private-source",
+            "source_name": "Mine: source",
+            "source_author": "Mine: byline",
+        }])
+    );
+    let lotteries = json("lotteries.json");
+    assert_eq!(lotteries.as_array().map(Vec::len), Some(1), "{lotteries}");
+    assert_eq!(lotteries[0]["tid"], lottery);
+    assert_eq!(lotteries[0]["requirements"], r#"["Mine: condition"]"#);
+    let prizes = json("lottery_prizes.json");
+    assert_eq!(
+        prizes
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| (
+                p["tid"].as_i64().unwrap(),
+                p["prize_no"].as_i64().unwrap(),
+                p["name"].as_str().unwrap().to_owned(),
+                p["note"].as_str().unwrap().to_owned()
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                lottery,
+                1,
+                "Mine: prize A".to_owned(),
+                "Mine: call me on 555-0100".to_owned()
+            ),
+            (
+                lottery,
+                2,
+                "Mine: prize B".to_owned(),
+                "Mine: note B".to_owned()
+            ),
+        ]
+    );
+    f.services.cleanup_ref().await.unwrap();
+}
+
+/// Erasing a lottery's first post also overwrites the lottery's text in the database: prize names become numbered
+/// placeholders, notes and entry conditions are cleared, and removal reasons become the placeholder (the removed
+/// entrant still sees that they were removed). An export made during the cooling period still has the original text,
+/// and the winner's prize list shows the placeholder.
+#[tokio::test]
+async fn erasure_overwrites_the_prizes_conditions_and_removal_reasons_of_own_lotteries() {
+    use gono_forum_web::activities;
+    let f = Fixture::new().await;
+    let now = identity::now();
+    let (_, _, lottery) = f.own_activities(f.user.member.uid, "Mine:", now).await;
+    let removed = f.member("removedentrant").await;
+    for entrant in [f.admin.member.actor(), removed.member.actor()] {
+        activities::enter(&f.db, entrant, lottery, &[1], now + 1)
+            .await
+            .unwrap();
+    }
+    activities::exclude(
+        &f.db,
+        f.user.member.actor(),
+        lottery,
+        removed.member.uid,
+        "Mine: removal reason",
+        now + 2,
+    )
+    .await
+    .unwrap();
+    activities::draw_now(&f.db, f.user.member.actor(), lottery, now + 3)
+        .await
+        .unwrap();
+    activities::process_due(&f.db, now + 5, 20).await.unwrap();
+    let erase = privacy::submit(&f.db, &f.access(), f.request("erase", "erase"), now + 6)
+        .await
+        .unwrap();
+
+    let export = privacy::submit(&f.db, &f.access(), f.request("export", "retain"), now + 7)
+        .await
+        .unwrap();
+    f.work(now + 7).await;
+    let mut archive = f.archive(export, now + 7).await;
+    let mut prizes = String::new();
+    archive
+        .by_name("lottery_prizes.json")
+        .unwrap()
+        .read_to_string(&mut prizes)
+        .unwrap();
+    assert!(prizes.contains("Mine: prize A") && prizes.contains("Mine: call me on 555-0100"));
+
+    let due = now + 6 + privacy::COOLING_SECONDS;
+    f.work(due).await;
+    f.work(due + 3).await;
+    assert_eq!(
+        f.scalar(&format!(
+            "SELECT COUNT(*) FROM gonof_common_data_request WHERE id={erase} AND status='completed'"
+        ))
+        .await,
+        1
+    );
+    let rows = db::query(
+        "SELECT prize_no,name,note FROM gonof_forum_lottery_prize WHERE tid=? ORDER BY prize_no",
+    )
+    .bind(lottery)
+    .fetch_all(f.db.executor())
+    .await
+    .unwrap();
+    assert_eq!(
+        rows.iter()
+            .map(|row| (
+                row.try_get::<i64, _>("prize_no").unwrap(),
+                db::text(row, "name").unwrap(),
+                db::text(row, "note").unwrap()
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (1, "Prize 1".to_owned(), String::new()),
+            (2, "Prize 2".to_owned(), String::new())
+        ]
+    );
+    assert_eq!(
+        f.scalar(&format!(
+            "SELECT COUNT(*) FROM gonof_forum_lottery WHERE tid={lottery} AND requirements IS NULL"
+        ))
+        .await,
+        1
+    );
+    let reason: String =
+        db::query_scalar("SELECT reason FROM gonof_forum_lottery_exclusion WHERE tid=? AND uid=?")
+            .bind(lottery)
+            .bind(removed.member.uid)
+            .fetch_one(f.db.executor())
+            .await
+            .unwrap();
+    assert_eq!(reason, "Deleted");
+    let (won, _) = activities::my_prizes(
+        &f.db,
+        &f.services.config.identity.two_factor,
+        f.admin.member.uid,
+        0,
+    )
+    .await
+    .unwrap();
+    assert_eq!(won.len(), 1);
+    assert!(won[0].prize.starts_with("Prize ") && won[0].note.is_empty());
+    f.services.cleanup_ref().await.unwrap();
 }
