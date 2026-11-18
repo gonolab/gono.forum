@@ -107,24 +107,33 @@ therefore list several versions in one `checksums.txt`. The result is kept in th
 ## In-app update check and one-click upgrade
 
 Tools & maintenance › Version updates (`/manage/updates`, administrators only) checks the release source and, when a
-newer version exists and nothing blocks it, offers a one-click upgrade. It runs in the background and the page shows
-its progress:
+newer version exists and nothing blocks it, offers a one-click upgrade. The result of a check is kept in the process,
+so the upgrade form sends back the version and package digest the page showed; when a check run since (from another
+tab, or by another administrator) found another release, the upgrade is refused with 409 and the page has to be looked
+at again. The upgrade runs in the background and the page shows its progress:
 
 1. Download the package (at most 256 MiB) and compare its SHA-256 with `checksums.txt`; a mismatch stops here.
 2. Take the two binaries out of the archive: only regular files named `gono-forum-web` and `gono-forum-cli`, at the
    top level or one directory down. Links, other entries and paths with `..` are ignored; an entry over 256 MiB is
    refused.
-3. Write them next to the running binaries as `*.new` and run `gono-forum-web.new --version`. It must print exactly
-   `gono-forum-web <new version>` within 15 seconds, which proves the binary runs on this machine.
+3. Write them next to the running binaries as `*.new` and run each with `--version`. Each must print exactly
+   `<binary> <new version>` (`gono-forum-web 0.2.0`, `gono-forum-cli 0.2.0`) within 15 seconds, which proves it runs on
+   this machine and belongs to the release; otherwise both `*.new` files are removed and nothing else changes.
 4. Write the marker `data/upgrade/pending` (from, to, time).
-5. Rename each current binary to `*.previous` and each new one into place. If a rename fails, every rename already
-   done is undone, last first, so both binaries are the running version again; the marker is removed once that
-   worked (and kept for the start guard if it did not).
+5. For the web binary and then the command-line tool: hard-link the current binary as `*.previous` (a copy where the
+   file system has no hard links), then rename the new one over it. Each step is a single rename, so no binary is ever
+   missing. If a step fails, the steps already done are undone, last first, so both binaries are the running version
+   again; the marker and the `*.new` files are removed once that worked (and kept for the start guard and the new
+   version if it did not).
 6. Shut down gracefully. systemd (`Restart=always`) starts the new binary.
 
-The new version runs migrations, sends `READY=1` and then confirms the upgrade: if `pending` names its own version, it
-writes `data/upgrade/last` with `result=upgraded` and removes the marker. While migrations run, the process keeps
-extending systemd's start timeout (`EXTEND_TIMEOUT_USEC`).
+The new version runs migrations, sends `READY=1` and then confirms the upgrade if `pending` names its own version. An
+upgrade cut short between the two binaries (power lost, the process killed) leaves the command-line tool's `*.new`;
+the new version first moves it in the same way. It then runs `gono-forum-cli --version` and writes
+`data/upgrade/last`: `result=upgraded` when the tool reports the new version, otherwise `result=incomplete`, for which
+the admin page says to run `forum.install.sh upgrade --force`. Either way it removes the marker and the start count. When
+`last` cannot be written, it keeps the marker, removes only the start count and records the outcome at the next start.
+While migrations run, the process keeps extending systemd's start timeout (`EXTEND_TIMEOUT_USEC`).
 
 While the upgrade runs, the page reloads every 3 seconds to show the current step. Between step 6 and the new
 version's first answer there is a gap of at least `RestartSec=3` in which a reverse proxy answers 502, so `site.js`

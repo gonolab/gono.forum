@@ -463,9 +463,9 @@ async fn main() -> Result<()> {
     gono_forum_web::systemd::notify("READY=1\nSTATUS=Serving");
     // Serving: an upgrade that switched to this version has succeeded, so the start guard must not roll it back.
     if let Some(outcome) =
-        gono_forum_web::updates::confirm(&gono_forum_web::updates::Paths::for_process(&root))
+        gono_forum_web::updates::confirm(&gono_forum_web::updates::Paths::for_process(&root)).await
     {
-        tracing::info!(from = %outcome.from, to = %outcome.to, "upgrade confirmed");
+        tracing::info!(from = %outcome.from, to = %outcome.to, result = %outcome.result, "upgrade confirmed");
     }
     axum::serve(
         listener,

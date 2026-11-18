@@ -188,6 +188,8 @@ maintenance-updates-last-switched = Last upgrade: switched from { $from } to { $
 maintenance-updates-last-rolled-back = Last upgrade: from { $from } to { $to } failed because the new version did not start; switched back to { $from } automatically
 # $from and $to are versions.
 maintenance-updates-last-upgraded = Last upgrade: from { $from } to { $to }
+# $from and $to are versions; $command_html is the command that finishes the upgrade.
+maintenance-updates-last-incomplete = Last upgrade: from { $from } to { $to }, but gono-forum-cli does not report { $to }. Run { $command_html } on the server to put both programs in place.
 maintenance-updates-check = Check for updates
 maintenance-updates-never-checked = Not checked yet. A check reads the release source's checksums.txt once; it downloads no program and changes nothing.
 # $time is when the check ran, $error why it failed.
@@ -217,6 +219,7 @@ maintenance-updates-error-platform = There are no release packages for this plat
 maintenance-updates-error-status-lock = The upgrade status is unavailable
 maintenance-updates-error-running = An upgrade is already running
 maintenance-updates-error-no-release = There is no newer version to upgrade to; check for updates first
+maintenance-updates-error-changed = The update check has found another release since this page was shown (another check ran in the meantime), so nothing was installed. Look at the page again and confirm the upgrade there.
 # Upgrade steps; $package is the package file, $version the new version.
 maintenance-updates-downloading = Downloading { $package }
 maintenance-updates-installing = SHA-256 checked, installing { $version }

@@ -197,9 +197,11 @@ Upgrades do not take backups (next section).
 ## Upgrades
 
 **From the admin area**: Tools & maintenance › Version updates checks the release source and, on a Linux release package
-started by systemd, upgrades with one click: it downloads the package, checks its SHA-256, makes sure the new binary
-runs on this machine, swaps it in (keeping the old one as `*.previous`) and lets systemd start the new version. If
-the new version fails to start twice, the start guard puts the previous binaries back, all of them or none. The
+started by systemd, upgrades with one click: it downloads the package, checks its SHA-256, makes sure both new
+binaries run on this machine and report the new version, swaps them in (keeping the old ones as `*.previous`) and lets
+systemd start the new version. If the new version fails to start twice, the start guard puts the previous binaries
+back, all of them or none. If the page says the last upgrade is incomplete (the command-line tool is not the new
+version), run `forum.install.sh upgrade --force` to put both in place. The
 page explains why the button is missing when it cannot upgrade this way (source build, unsupported platform, not
 started by systemd, program directory not writable, or an unfinished upgrade or rollback from the shell). A one-click upgrade replaces only the two binaries; `forum.install.sh upgrade` also
 updates `forum.install.sh` and the unit file.

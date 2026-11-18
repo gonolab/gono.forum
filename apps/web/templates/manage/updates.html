@@ -7,7 +7,7 @@
 {% if !failure.is_empty() %}<p class="form-feedback" role="alert">{{ p.t.maintenance_updates_failure(failure) }}</p>{% endif %}
 <p>{{ p.t.maintenance_updates_version(crate::i18n::Markup::tag("code", version))|safe }}{% if !platform.is_empty() %}{{ p.t.maintenance_updates_parenthesized(platform) }}{% endif %}</p>
 <p>{{ p.t.maintenance_updates_source(crate::i18n::Markup::tag("code", releases_url), crate::i18n::Markup::tag("code", "[update] releases_url"))|safe }}</p>
-{% if let Some(last) = last %}<p>{% if last.switched %}{{ p.t.maintenance_updates_last_switched(last.from, last.to) }}{% else if last.rolled_back %}{{ p.t.maintenance_updates_last_rolled_back(last.from, last.to) }}{% else %}{{ p.t.maintenance_updates_last_upgraded(last.from, last.to) }}{% endif %}{% if !last.at.is_empty() %}{{ p.t.maintenance_updates_parenthesized(last.at) }}{% endif %}</p>{% endif %}
+{% if let Some(last) = last %}<p>{% if last.switched %}{{ p.t.maintenance_updates_last_switched(last.from, last.to) }}{% else if last.rolled_back %}{{ p.t.maintenance_updates_last_rolled_back(last.from, last.to) }}{% else if last.incomplete %}{{ p.t.maintenance_updates_last_incomplete(last.from, last.to, crate::i18n::Markup::tag("code", "forum.install.sh upgrade --force"))|safe }}{% else %}{{ p.t.maintenance_updates_last_upgraded(last.from, last.to) }}{% endif %}{% if !last.at.is_empty() %}{{ p.t.maintenance_updates_parenthesized(last.at) }}{% endif %}</p>{% endif %}
 </section>
 
 <form method="post" action="{{ crate::site::base() }}/manage/updates/check">
@@ -25,6 +25,8 @@
 {% if newer %}
 <form method="post" action="{{ crate::site::base() }}/manage/updates/apply">
 <input type="hidden" name="_csrf" value="{{ p.csrf }}">
+<input type="hidden" name="version" value="{{ latest }}">
+<input type="hidden" name="sha256" value="{{ latest_sha256 }}">
 <section class="panel" id="section-apply" aria-labelledby="section-apply-title"><h2 class="panel__title" id="section-apply-title">{{ p.t.maintenance_updates_apply(latest) }}</h2>
 {% if blockers.is_empty() %}
 <p>{% if previous %}{{ p.t.maintenance_updates_apply_lead_previous() }}{% else %}{{ p.t.maintenance_updates_apply_lead() }}{% endif %}</p>

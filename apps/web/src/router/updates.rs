@@ -23,6 +23,8 @@ struct UpdatesPage<'a> {
     checked_at: String,
     check_error: String,
     latest: String,
+    /// The package digest of `latest`, sent back with the upgrade form so that the upgrade installs what the page showed.
+    latest_sha256: String,
     newer: bool,
     running: String,
     failure: String,
@@ -37,6 +39,8 @@ struct LastUpgrade {
     from: String,
     to: String,
     rolled_back: bool,
+    /// The web binary was upgraded but the command-line tool does not report its version.
+    incomplete: bool,
     /// Switched by hand with `forum.install.sh rollback`.
     switched: bool,
     at: String,
@@ -54,6 +58,7 @@ fn show(state: &AppState, notice: &str, alert: &str, status: StatusCode) -> Resp
     let blockers = crate::updates::blockers(&state.instance);
     let last = crate::updates::last(&state.instance).map(|outcome| LastUpgrade {
         rolled_back: outcome.result == "rolled_back",
+        incomplete: outcome.result == "incomplete",
         switched: outcome.result == "switched",
         from: outcome.from,
         to: outcome.to,
@@ -86,6 +91,11 @@ fn show(state: &AppState, notice: &str, alert: &str, status: StatusCode) -> Resp
             .release
             .as_ref()
             .is_some_and(crate::updates::Release::is_newer),
+        latest_sha256: current
+            .release
+            .as_ref()
+            .map(|release| release.sha256.clone())
+            .unwrap_or_default(),
         latest: current
             .release
             .map(|release| release.version)
@@ -124,14 +134,22 @@ async fn check(
     auth::redirect("/manage/updates")
 }
 
+/// Starts the upgrade to the release the page showed (the form's `version` and `sha256`); a check run since, from
+/// another tab or by another administrator, that found another release makes it refuse with 409.
 async fn apply(
     AdminPage(state): AdminPage,
-    CsrfForm(_): CsrfForm<HashMap<String, String>>,
+    CsrfForm(form): CsrfForm<HashMap<String, String>>,
 ) -> Response {
-    match state
-        .updater
-        .start(state.config.update.clone(), state.instance.clone())
-    {
+    let field = |name: &str| form.get(name).cloned().unwrap_or_default();
+    let confirmed = crate::updates::Confirmed {
+        version: field("version"),
+        sha256: field("sha256"),
+    };
+    match state.updater.start(
+        state.config.update.clone(),
+        state.instance.clone(),
+        &confirmed,
+    ) {
         Ok(()) => auth::redirect("/manage/updates?notice=started"),
         Err(message) => show(&state, "", &message, StatusCode::CONFLICT),
     }

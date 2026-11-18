@@ -146,6 +146,16 @@ async fn the_update_page_checks_a_release_source_and_explains_why_it_cannot_upgr
             "{body}"
         );
         assert!(!body.contains("<button>Upgrade to 99.0.0</button>"));
+        // The upgrade form names the release the page shows, so that it installs that one and not whatever a later
+        // check found.
+        assert!(
+            body.contains(r#"<input type="hidden" name="version" value="99.0.0">"#)
+                && body.contains(&format!(
+                    r#"<input type="hidden" name="sha256" value="{}">"#,
+                    "ab".repeat(32)
+                )),
+            "{body}"
+        );
     } else {
         assert!(
             body.contains("failed: There are no release packages for this platform"),

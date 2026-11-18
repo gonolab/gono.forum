@@ -10,13 +10,13 @@
 //! ```
 //!
 //! Upgrading downloads the package, refuses it unless `checksums.txt` lists it with a matching digest, unpacks the two
-//! binaries next to the running ones, checks that the new web binary runs on this machine and reports the expected
-//! version, then renames the current binaries to `*.previous`, moves the new ones in and asks the process to exit:
-//! systemd (`Restart=always`) starts the new version. `data/upgrade/pending` marks the switch; the new version removes
-//! it once it is serving ([`confirm`]), and the start guard forum.install.sh puts in the unit (`ExecStartPre`) moves
-//! the previous binaries back when the new version fails to start twice. Database migrations get no special treatment
-//! and the upgrade takes no backup: if the new version migrated before failing, the old one may refuse the database
-//! until it is restored from a backup.
+//! binaries next to the running ones, checks that both run on this machine and report the expected version, then keeps
+//! each current binary as `*.previous`, moves the new one in and asks the process to exit: systemd (`Restart=always`)
+//! starts the new version. `data/upgrade/pending` marks the switch; the new version finishes a switch that was cut
+//! short and removes the marker once it is serving ([`confirm`]), and the start guard forum.install.sh puts in the
+//! unit (`ExecStartPre`) moves the previous binaries back when the new version fails to start twice. Database
+//! migrations get no special treatment and the upgrade takes no backup: if the new version migrated before failing,
+//! the old one may refuse the database until it is restored from a backup.
 use std::{
     cmp::Ordering,
     io::Read,
@@ -516,25 +516,35 @@ pub async fn install(paths: &Paths, release: &Release, unpacked: Unpacked) -> Re
             )
         })
         .collect();
-    for ((new, _, _), bytes) in staged.iter().zip([&unpacked.web, &unpacked.cli]) {
-        write_executable(new, bytes).with_context(|| {
-            crate::i18n::current().maintenance_updates_error_write(new.display().to_string())
-        })?;
-    }
-    let expected = format!("{} {}", BINARIES[0], release.version);
-    let reported = run_version(&staged[0].0).await;
-    if reported.as_deref() != Some(expected.as_str()) {
+    let remove_staged = || {
         for (new, _, _) in &staged {
             let _ = std::fs::remove_file(new);
         }
-        bail!(crate::i18n::current().maintenance_updates_error_version(
-            expected.as_str(),
-            reported.unwrap_or_else(|| {
-                crate::i18n::current()
-                    .maintenance_updates_no_output()
-                    .into()
-            })
-        ));
+    };
+    for ((new, _, _), bytes) in staged.iter().zip([&unpacked.web, &unpacked.cli]) {
+        if let Err(error) = write_executable(new, bytes) {
+            remove_staged();
+            return Err(anyhow!(error).context(
+                crate::i18n::current().maintenance_updates_error_write(new.display().to_string()),
+            ));
+        }
+    }
+    // Both binaries must run here and report the release: a package can carry a command-line tool of another version
+    // or architecture next to a good web binary, and nothing would notice until an operator ran a command.
+    for ((new, _, _), name) in staged.iter().zip(BINARIES) {
+        let expected = format!("{name} {}", release.version);
+        let reported = run_version(new).await;
+        if reported.as_deref() != Some(expected.as_str()) {
+            remove_staged();
+            bail!(crate::i18n::current().maintenance_updates_error_version(
+                expected.as_str(),
+                reported.unwrap_or_else(|| {
+                    crate::i18n::current()
+                        .maintenance_updates_no_output()
+                        .into()
+                })
+            ));
+        }
     }
     std::fs::create_dir_all(paths.state())
         .context(crate::i18n::current().maintenance_updates_error_state_dir())?;
@@ -547,19 +557,40 @@ pub async fn install(paths: &Paths, release: &Release, unpacked: Unpacked) -> Re
         ],
     )?;
     let _ = std::fs::remove_file(paths.state().join("attempts"));
-    // Each binary moves in two renames, current to previous and new to current. When one fails, the renames already
-    // done are undone, last first, so that the binaries on disk are again the running version and not a new web
-    // binary next to the old command-line tool. The marker goes only once that worked; otherwise the start guard
-    // still has it.
-    let mut done: Vec<(&Path, &Path)> = Vec::new();
-    for (new, current, previous) in &staged {
-        for (from, to) in [(current, previous), (new, current)] {
-            if let Err(error) = std::fs::rename(from, to) {
-                let restored = done
-                    .iter()
-                    .rev()
-                    .all(|(from, to)| std::fs::rename(to, from).is_ok());
+    // The web binary goes first, then the command-line tool, each in two steps that never leave its name missing: the
+    // current binary is linked as `*.previous`, then the new one is renamed over it. An upgrade cut short between the
+    // two binaries leaves the tool's `.new`, which the new web binary moves in when it starts ([`confirm`]). When a
+    // step fails, the steps already done are undone, last first, so that the binaries on disk are again the running
+    // version and not a new web binary next to the old command-line tool. The marker goes only once that worked;
+    // otherwise the start guard and the new version still have it.
+    let mut done: Vec<(&(PathBuf, PathBuf, PathBuf), bool)> = Vec::new();
+    for binary in &staged {
+        let (new, current, previous) = binary;
+        let step = match put(current, previous) {
+            Ok(()) => {
+                done.push((binary, false));
+                std::fs::rename(new, current)
+            }
+            Err(error) => Err(error),
+        };
+        match step {
+            Ok(()) => {
+                if let Some(last) = done.last_mut() {
+                    last.1 = true;
+                }
+            }
+            Err(error) => {
+                // A binary already moved in comes back from its `*.previous`, which is the running binary; the
+                // `*.previous` itself was replaced by the first step and goes, as it would have with a rename.
+                let restored = done.iter().rev().all(|((_, current, previous), moved)| {
+                    let back = !moved || put(previous, current).is_ok();
+                    if back {
+                        let _ = std::fs::remove_file(previous);
+                    }
+                    back
+                });
                 if restored {
+                    remove_staged();
                     let _ = std::fs::remove_file(paths.pending());
                 } else {
                     tracing::error!(
@@ -570,11 +601,56 @@ pub async fn install(paths: &Paths, release: &Release, unpacked: Unpacked) -> Re
                 return Err(anyhow!(error)
                     .context(crate::i18n::current().maintenance_updates_error_replace()));
             }
-            done.push((from, to));
         }
     }
     sync_directory(&paths.root);
     Ok(())
+}
+
+/// Makes `target` the same file as `source` with one rename, so that `target` is never missing while it changes: a
+/// hard link to `source` (a copy where the file system has none) is made next to `target` first, as `forum.install.sh`
+/// does.
+fn put(source: &Path, target: &Path) -> std::io::Result<()> {
+    let mut name = target.as_os_str().to_owned();
+    name.push(".tmp");
+    let temporary = PathBuf::from(name);
+    let _ = std::fs::remove_file(&temporary);
+    if std::fs::hard_link(source, &temporary).is_err() {
+        std::fs::copy(source, &temporary)?;
+    }
+    std::fs::rename(&temporary, target).inspect_err(|_| {
+        let _ = std::fs::remove_file(&temporary);
+    })
+}
+
+/// Moves in every binary whose `.new` is still there, as [`install`] would have, the current one kept as
+/// `*.previous`. Only an upgrade cut short between the two binaries leaves one.
+fn finish_switch(paths: &Paths) {
+    for name in BINARIES {
+        let new = paths.with_suffix(name, ".new");
+        if !new.is_file() {
+            continue;
+        }
+        let current = paths.binary(name);
+        let moved = if current.is_file() {
+            put(&current, &paths.with_suffix(name, ".previous"))
+        } else {
+            Ok(())
+        }
+        .and_then(|()| std::fs::rename(&new, &current));
+        match moved {
+            Ok(()) => tracing::warn!(
+                binary = name,
+                "moved in the new binary an interrupted upgrade had left"
+            ),
+            Err(error) => tracing::error!(
+                %error,
+                binary = name,
+                "could not move in the new binary an interrupted upgrade had left"
+            ),
+        }
+    }
+    sync_directory(&paths.root);
 }
 
 fn write_executable(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -651,7 +727,8 @@ fn read_record(path: &Path) -> Option<Vec<(String, String)>> {
 pub struct Outcome {
     pub from: String,
     pub to: String,
-    /// `upgraded`, `rolled_back` (the new version did not start) or `switched` (`forum.install.sh rollback`).
+    /// `upgraded`, `incomplete` (the new web binary serves, but the command-line tool does not report its version),
+    /// `rolled_back` (the new version did not start) or `switched` (`forum.install.sh rollback`).
     pub result: String,
     pub at: i64,
 }
@@ -677,8 +754,9 @@ pub fn last(paths: &Paths) -> Option<Outcome> {
     })
 }
 
-/// Called by the new version once it is serving: the upgrade marked pending succeeded. Returns its outcome.
-pub fn confirm(paths: &Paths) -> Option<Outcome> {
+/// Called by the new version once it is serving: the upgrade marked pending succeeded. Finishes a switch that was cut
+/// short, records the outcome and returns it.
+pub async fn confirm(paths: &Paths) -> Option<Outcome> {
     let fields = read_record(&paths.pending())?;
     let get = |key: &str| {
         fields
@@ -691,20 +769,49 @@ pub fn confirm(paths: &Paths) -> Option<Outcome> {
     if get("to") != crate::VERSION {
         return None;
     }
-    let finished = crate::identity::now().to_string();
+    finish_switch(paths);
+    // This binary is the new version; the command-line tool must be too. When it is not (it could not be moved in, or
+    // it does not run), the upgrade stays as it is, recorded as incomplete: `forum.install.sh upgrade --force` puts
+    // both in place, and the admin page says so.
+    let expected = format!("{} {}", BINARIES[1], crate::VERSION);
+    let reported = run_version(&paths.binary(BINARIES[1])).await;
+    let result = if reported.as_deref() == Some(expected.as_str()) {
+        "upgraded"
+    } else {
+        tracing::error!(
+            expected,
+            reported = reported.as_deref().unwrap_or_default(),
+            "the command-line tool is not the upgraded version; run forum.install.sh upgrade --force"
+        );
+        "incomplete"
+    };
+    let finished = crate::identity::now();
+    let outcome = Outcome {
+        from: get("from").to_owned(),
+        to: get("to").to_owned(),
+        result: result.to_owned(),
+        at: finished,
+    };
     let record = [
         ("from", get("from")),
         ("to", get("to")),
         ("at", get("at")),
-        ("result", "upgraded"),
-        ("finished", finished.as_str()),
+        ("result", result),
+        ("finished", &finished.to_string()),
     ];
-    if let Err(error) = write_record(&paths.last(), &record) {
-        tracing::warn!(%error, "could not record the finished upgrade");
+    // The marker goes only with the result written. Without it the next start records the outcome; the start count
+    // goes either way, so that the start guard never takes a version that started for one that did not.
+    match write_record(&paths.last(), &record) {
+        Ok(()) => {
+            let _ = std::fs::remove_file(paths.pending());
+        }
+        Err(error) => tracing::error!(
+            %error,
+            "could not record the finished upgrade; the upgrade marker is kept and the next start records it"
+        ),
     }
-    let _ = std::fs::remove_file(paths.pending());
     let _ = std::fs::remove_file(paths.state().join("attempts"));
-    last(paths)
+    Some(outcome)
 }
 
 /// Why this process cannot upgrade itself in place; empty when it can. Checking for updates works everywhere.
@@ -759,6 +866,15 @@ pub async fn restart_requested() {
     restart_token().cancelled().await;
 }
 
+/// The release an administrator confirmed on the update page: its version and package digest, sent with the form.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct Confirmed {
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub sha256: String,
+}
+
 /// What the admin page shows about checking and upgrading in this process.
 #[derive(Clone, Debug, Default)]
 pub struct Status {
@@ -796,6 +912,33 @@ impl Updater {
         self.update(|status| status.running = step.to_owned());
     }
 
+    /// Marks the upgrade to the release of the last check as running and returns that release, when it is the one the
+    /// administrator confirmed: another administrator may have checked again since the page was shown, and the result
+    /// held by the process is then another release.
+    fn claim(&self, confirmed: &Confirmed) -> std::result::Result<Release, String> {
+        let t = crate::i18n::current();
+        let mut guard = self
+            .status
+            .lock()
+            .map_err(|_| t.maintenance_updates_error_status_lock().to_owned())?;
+        if !guard.running.is_empty() {
+            return Err(t.maintenance_updates_error_running().into());
+        }
+        let release = guard
+            .release
+            .clone()
+            .filter(Release::is_newer)
+            .ok_or_else(|| t.maintenance_updates_error_no_release().to_owned())?;
+        if release.version != confirmed.version
+            || !release.sha256.eq_ignore_ascii_case(&confirmed.sha256)
+        {
+            return Err(t.maintenance_updates_error_changed().into());
+        }
+        guard.running = t.maintenance_updates_downloading(&release.package);
+        guard.failure.clear();
+        Ok(release)
+    }
+
     pub async fn check(&self, config: &UpdateConfig) {
         let result = latest(config).await;
         self.update(|status| {
@@ -814,39 +957,21 @@ impl Updater {
     }
 
     /// Starts the upgrade to the release found by the last check, in the background. Errors when there is nothing to
-    /// upgrade to, an upgrade is already running, or this process cannot upgrade itself.
-    pub fn start(&self, config: UpdateConfig, paths: Paths) -> std::result::Result<(), String> {
+    /// upgrade to, the last check found another release than `confirmed` (the one the page showed), an upgrade is
+    /// already running, or this process cannot upgrade itself.
+    pub fn start(
+        &self,
+        config: UpdateConfig,
+        paths: Paths,
+        confirmed: &Confirmed,
+    ) -> std::result::Result<(), String> {
         let blockers = blockers(&paths);
         if !blockers.is_empty() {
             return Err(
                 blockers.join(crate::i18n::current().maintenance_updates_blocker_separator())
             );
         }
-        let release = {
-            let mut guard = self.status.lock().map_err(|_| {
-                crate::i18n::current()
-                    .maintenance_updates_error_status_lock()
-                    .to_owned()
-            })?;
-            if !guard.running.is_empty() {
-                return Err(crate::i18n::current()
-                    .maintenance_updates_error_running()
-                    .into());
-            }
-            let release = guard
-                .release
-                .clone()
-                .filter(Release::is_newer)
-                .ok_or_else(|| {
-                    crate::i18n::current()
-                        .maintenance_updates_error_no_release()
-                        .to_owned()
-                })?;
-            guard.running =
-                crate::i18n::current().maintenance_updates_downloading(&release.package);
-            guard.failure.clear();
-            release
-        };
+        let release = self.claim(confirmed)?;
         let updater = self.clone();
         // The steps and failures below are shown on the update page in the language of the request that started it.
         let site = crate::site::current();
@@ -1110,15 +1235,21 @@ mod tests {
                 && pending.contains("to=9.9.9\n")
         );
         // The running build is not 9.9.9, so it never confirms someone else's upgrade.
-        assert!(confirm(&paths).is_none());
+        assert!(confirm(&paths).await.is_none());
         assert!(paths.pending().exists());
-        // What the 9.9.9 binary would do once serving: record the result and drop the marker.
+        // What the new binary would do once serving: record the result and drop the marker. The command-line tool
+        // reports the running version, as the one of the upgrade would.
+        write_executable(
+            &instance.join("gono-forum-cli"),
+            &version_script("gono-forum-cli", crate::VERSION),
+        )
+        .unwrap();
         write_record(
             &paths.pending(),
             &[("from", "9.9.8"), ("to", crate::VERSION), ("at", "1")],
         )
         .unwrap();
-        let outcome = confirm(&paths).unwrap();
+        let outcome = confirm(&paths).await.unwrap();
         assert_eq!(outcome.result, "upgraded");
         assert_eq!(outcome.from, "9.9.8");
         assert!(!paths.pending().exists());
@@ -1150,6 +1281,228 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(source);
         let _ = std::fs::remove_dir_all(instance);
+    }
+
+    fn version_script(name: &str, version: &str) -> Vec<u8> {
+        format!("#!/bin/sh\necho \"{name} {version}\"\n").into_bytes()
+    }
+
+    /// The installed binaries, read back as text.
+    fn installed(instance: &Path, suffix: &str) -> Vec<String> {
+        BINARIES
+            .iter()
+            .map(|name| {
+                std::fs::read_to_string(instance.join(format!("{name}{suffix}")))
+                    .unwrap_or_default()
+            })
+            .collect()
+    }
+
+    /// A package whose web binary is the release but whose command-line tool reports another version (or does not run
+    /// here) is refused before anything is replaced.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_command_line_tool_of_another_version_is_refused() {
+        let instance = temp_dir("wrong-cli");
+        for name in BINARIES {
+            std::fs::write(instance.join(name), format!("old {name}")).unwrap();
+        }
+        let release = Release {
+            version: "9.9.12".into(),
+            package: "unused".into(),
+            sha256: String::new(),
+        };
+        let paths = Paths::new(&instance);
+        for cli in [
+            version_script("gono-forum-cli", "9.9.11"),
+            b"\x7fELF not for this machine".to_vec(),
+        ] {
+            let unpacked = Unpacked {
+                web: version_script("gono-forum-web", "9.9.12"),
+                cli,
+            };
+            let error = install(&paths, &release, unpacked).await.unwrap_err();
+            assert!(
+                error.to_string().contains("gono-forum-cli 9.9.12"),
+                "{error}"
+            );
+            assert_eq!(
+                installed(&instance, ""),
+                ["old gono-forum-web", "old gono-forum-cli"]
+            );
+            for name in BINARIES {
+                assert!(!instance.join(format!("{name}.new")).exists());
+                assert!(!instance.join(format!("{name}.previous")).exists());
+            }
+            assert!(!paths.pending().exists());
+        }
+        let _ = std::fs::remove_dir_all(instance);
+    }
+
+    /// An upgrade cut short between the two binaries: the new web binary is in place and confirms, and it moves in the
+    /// command-line tool that was still `.new` before recording the upgrade. That holds whether the old tool was still
+    /// in place or (as a rename-based switch could leave it) already gone.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_new_version_finishes_a_switch_cut_short_before_confirming() {
+        for old_tool_gone in [false, true] {
+            let instance = temp_dir("cut-short");
+            let paths = Paths::new(&instance);
+            write_executable(
+                &instance.join("gono-forum-web"),
+                &version_script("gono-forum-web", crate::VERSION),
+            )
+            .unwrap();
+            std::fs::write(
+                instance.join("gono-forum-web.previous"),
+                "old gono-forum-web",
+            )
+            .unwrap();
+            if old_tool_gone {
+                std::fs::write(
+                    instance.join("gono-forum-cli.previous"),
+                    "old gono-forum-cli",
+                )
+                .unwrap();
+            } else {
+                std::fs::write(instance.join("gono-forum-cli"), "old gono-forum-cli").unwrap();
+            }
+            write_executable(
+                &instance.join("gono-forum-cli.new"),
+                &version_script("gono-forum-cli", crate::VERSION),
+            )
+            .unwrap();
+            std::fs::create_dir_all(paths.state()).unwrap();
+            write_record(
+                &paths.pending(),
+                &[("from", "9.9.8"), ("to", crate::VERSION), ("at", "1")],
+            )
+            .unwrap();
+            let outcome = confirm(&paths).await.unwrap();
+            assert_eq!(outcome.result, "upgraded", "old tool gone: {old_tool_gone}");
+            assert_eq!(
+                run_version(&instance.join("gono-forum-cli"))
+                    .await
+                    .as_deref(),
+                Some(format!("gono-forum-cli {}", crate::VERSION).as_str())
+            );
+            assert_eq!(
+                installed(&instance, ".previous"),
+                ["old gono-forum-web", "old gono-forum-cli"]
+            );
+            assert!(!instance.join("gono-forum-cli.new").exists());
+            assert!(!paths.pending().exists());
+            assert_eq!(last(&paths).unwrap().result, "upgraded");
+            let _ = std::fs::remove_dir_all(instance);
+        }
+    }
+
+    /// A command-line tool that is not the new version, with no `.new` left to move in, makes the upgrade incomplete
+    /// rather than upgraded; the marker goes all the same, because the web binary serves.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_old_command_line_tool_leaves_the_upgrade_incomplete() {
+        let instance = temp_dir("old-cli");
+        let paths = Paths::new(&instance);
+        write_executable(
+            &instance.join("gono-forum-cli"),
+            &version_script("gono-forum-cli", "9.9.8"),
+        )
+        .unwrap();
+        std::fs::create_dir_all(paths.state()).unwrap();
+        write_record(
+            &paths.pending(),
+            &[("from", "9.9.8"), ("to", crate::VERSION), ("at", "1")],
+        )
+        .unwrap();
+        let outcome = confirm(&paths).await.unwrap();
+        assert_eq!(outcome.result, "incomplete");
+        assert_eq!(last(&paths), Some(outcome));
+        assert!(!paths.pending().exists());
+        let _ = std::fs::remove_dir_all(instance);
+    }
+
+    /// When the result cannot be written, the new version keeps the marker for its next start and returns what it
+    /// found, not an older result still on disk; the start count goes, so the start guard does not count this start.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_unwritten_result_keeps_the_marker_for_the_next_start() {
+        let instance = temp_dir("unwritten");
+        let paths = Paths::new(&instance);
+        write_executable(
+            &instance.join("gono-forum-cli"),
+            &version_script("gono-forum-cli", crate::VERSION),
+        )
+        .unwrap();
+        std::fs::create_dir_all(paths.state()).unwrap();
+        write_record(
+            &paths.last(),
+            &[
+                ("from", "9.9.6"),
+                ("to", "9.9.7"),
+                ("result", "rolled_back"),
+                ("finished", "5"),
+            ],
+        )
+        .unwrap();
+        write_record(
+            &paths.pending(),
+            &[("from", "9.9.8"), ("to", crate::VERSION), ("at", "1")],
+        )
+        .unwrap();
+        std::fs::write(paths.state().join("attempts"), "2\n").unwrap();
+        // A directory where the result's temporary file goes makes writing it fail.
+        std::fs::create_dir_all(paths.state().join("last.tmp/occupied")).unwrap();
+        let outcome = confirm(&paths).await.unwrap();
+        assert_eq!(outcome.result, "upgraded");
+        assert_eq!(outcome.from, "9.9.8");
+        assert!(paths.pending().exists());
+        assert!(!paths.state().join("attempts").exists());
+        assert_eq!(last(&paths).unwrap().result, "rolled_back");
+        // The next start writes it.
+        std::fs::remove_dir_all(paths.state().join("last.tmp")).unwrap();
+        assert_eq!(confirm(&paths).await.unwrap().result, "upgraded");
+        assert_eq!(last(&paths).unwrap().result, "upgraded");
+        assert!(!paths.pending().exists());
+        let _ = std::fs::remove_dir_all(instance);
+    }
+
+    /// The upgrade installs the release the page showed: once another check found a different one, it refuses.
+    #[test]
+    fn an_upgrade_starts_only_for_the_release_the_page_showed() {
+        let updater = Updater::default();
+        let shown = Release {
+            version: "99.0.0".into(),
+            package: package_name("99.0.0", "linux_amd64"),
+            sha256: "ab".repeat(32),
+        };
+        updater.update(|status| status.release = Some(shown.clone()));
+        let confirmed = Confirmed {
+            version: shown.version.clone(),
+            sha256: shown.sha256.to_ascii_uppercase(),
+        };
+        let changed = crate::i18n::current().maintenance_updates_error_changed();
+        // Another administrator checks again and finds 99.0.1, or the same version with another package.
+        for found in [
+            Release {
+                version: "99.0.1".into(),
+                package: package_name("99.0.1", "linux_amd64"),
+                ..shown.clone()
+            },
+            Release {
+                sha256: "cd".repeat(32),
+                ..shown.clone()
+            },
+        ] {
+            updater.update(|status| status.release = Some(found));
+            assert_eq!(updater.claim(&confirmed).unwrap_err(), changed);
+            assert!(updater.status().running.is_empty());
+        }
+        // A form without the fields (a page from before them) does not install whatever the process holds.
+        updater.update(|status| status.release = Some(shown.clone()));
+        assert_eq!(updater.claim(&Confirmed::default()).unwrap_err(), changed);
+        assert_eq!(updater.claim(&confirmed).unwrap(), shown);
+        assert!(!updater.status().running.is_empty());
     }
 
     /// When the command-line tool cannot be moved into place, the web binary that already was goes back too, and the
