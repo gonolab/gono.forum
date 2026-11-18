@@ -425,7 +425,8 @@ one_click() {
   printf 'from=%s\nto=%s\nat=%s\n' "$from" "$version" "$(date +%s)" > "$dir/data/upgrade/pending"
   rm -f "$dir/data/upgrade/attempts"
   for name in gono-forum-web gono-forum-cli; do
-    mv -fT "$dir/$name" "$dir/$name.previous"
+    ln -f "$dir/$name" "$dir/$name.previous.tmp"
+    mv -fT "$dir/$name.previous.tmp" "$dir/$name.previous"
     mv -fT "$dir/$name.new" "$dir/$name"
   done
   systemctl stop gono-forum-main
