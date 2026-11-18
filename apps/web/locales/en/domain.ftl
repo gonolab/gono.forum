@@ -150,3 +150,5 @@ domain-error-url-conflict = The new forum address conflicts with other addresses
 domain-error-load-status = The status value in the domain table is not valid: { $value }
 # $value is the stored canonical value.
 domain-error-load-canonical = The canonical value in the domain table is not valid: { $value }
+# $table is a database table name, $limit the number of rows the forum reads from it.
+domain-error-load-bound = The table { $table } has more than { $limit } rows, more than the forum reads. Remove the extra rows in the database.

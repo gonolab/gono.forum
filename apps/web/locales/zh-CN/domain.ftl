@@ -120,3 +120,4 @@ domain-error-url-registered = 新的论坛地址已登记在多域名站点里�
 domain-error-url-conflict = 新的论坛地址与多域名站点里登记的其他地址冲突（同一主机根路径重复、子路径嵌套，或子路径与版块地址同名），请先调整那些行
 domain-error-load-status = 域名表 status 取值不正确：{ $value }
 domain-error-load-canonical = 域名表 canonical 取值不正确：{ $value }
+domain-error-load-bound = 数据表 { $table } 超过 { $limit } 行，超出论坛读取的上限；请在数据库里删掉多出的行

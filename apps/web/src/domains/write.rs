@@ -6,12 +6,12 @@
 //! Only this module writes the two tables (checked by `db/source_guards.rs`). Lock order: saving the forum URL is
 //! "settings row (exclusive) → top-level forums (shared) → domain rows (exclusive)"; saving a domain is "write gate
 //! (shared) → forum rows (shared) → domain rows (exclusive)"; saving a forum is "forum row (exclusive) → domain rows
-//! (shared)"; deleting a forum is "forum row (exclusive) → link rows". All take forums before domains, so there is no
-//! cycle.
+//! (shared, or exclusive when the save changes its links)"; deleting a forum is "forum row (exclusive) → link rows".
+//! All take forums before domains, so there is no cycle.
 use crate::db::Tx;
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Canonical, Domain, DomainMap, MAX_DOMAINS, authority_of};
+use super::{Canonical, Domain, DomainMap, MAX_DOMAINS, MAX_LINKS, authority_of, bounded};
 use crate::{
     cache::{Block, GlobalCache},
     db::{self, Database},
@@ -21,14 +21,23 @@ use crate::{
 
 /// Exclusive locking read of the domain rows: the whole table by primary key, with the same upper bound as reading the
 /// table. Under REPEATABLE READ it also locks the gaps, so concurrent inserts queue up.
+///
+/// Like the reads in [`super::DomainMap::load`], every bounded read here takes one row more than its bound and fails
+/// when it gets it, instead of working on a truncated table.
 const LOCK_SQL: &str = "SELECT domain_id,site_url,site_name,canonical,logo_aid,favicon_aid,verification,login_methods,participation,language,status,version,dateline FROM gonof_common_site_domain ORDER BY domain_id LIMIT 51 FOR UPDATE";
-/// Shared locking read used when saving a forum: only the URL and status are needed.
+/// Locking reads used when saving a forum: only the URL and status are needed. Shared, unless the save changes the
+/// forum's links and so bumps domain versions ([`forum_saved`]): taking the exclusive lock up front keeps two such saves
+/// from deadlocking on the upgrade.
 const SHARE_SQL: &str = "SELECT domain_id,site_url,status FROM gonof_common_site_domain ORDER BY domain_id LIMIT 51 LOCK IN SHARE MODE";
+const EXCLUSIVE_SQL: &str = "SELECT domain_id,site_url,status FROM gonof_common_site_domain ORDER BY domain_id LIMIT 51 FOR UPDATE";
 const LINKS_SQL: &str =
-    "SELECT domain_id,fid FROM gonof_common_site_domain_forum ORDER BY domain_id,fid LIMIT 20000";
-/// Saving and deleting a domain first take a shared lock on all forums (the number of forums is bounded), blocking
-/// concurrent forum saves that change a slug or level or delete a forum.
-const FORUMS_SQL: &str = "SELECT fid,slug,name,parent_fid FROM gonof_forum_forum ORDER BY fid LIMIT 10000 LOCK IN SHARE MODE";
+    "SELECT domain_id,fid FROM gonof_common_site_domain_forum ORDER BY domain_id,fid LIMIT 20001";
+/// Saving and deleting a domain first take a shared lock on all forums (the number of forums is bounded: at most
+/// [`crate::organization::MAX_TOP_FORUMS`] top-level forums with [`crate::organization::MAX_CHILD_FORUMS`] children
+/// each), blocking concurrent forum saves that change a slug or level or delete a forum.
+const FORUMS_SQL: &str = "SELECT fid,slug,name,parent_fid FROM gonof_forum_forum ORDER BY fid LIMIT 10001 LOCK IN SHARE MODE";
+/// The bound of [`FORUMS_SQL`] and the other reads of the whole forum table here.
+const MAX_FORUMS: usize = 10_000;
 
 #[derive(Debug)]
 pub enum DomainError {
@@ -152,6 +161,7 @@ async fn lock_forums(db: &Database, tx: &mut Tx<'_>) -> Result<Vec<ForumRow>, Do
     let rows = db::query(FORUMS_SQL)
         .fetch_all(db.observe(&mut **tx))
         .await?;
+    bounded("gonof_forum_forum", rows.len(), MAX_FORUMS)?;
     rows.iter()
         .map(|row| {
             Ok(ForumRow {
@@ -169,9 +179,11 @@ async fn lock_forums(db: &Database, tx: &mut Tx<'_>) -> Result<Vec<ForumRow>, Do
 /// rows are not locked separately: everyone who writes them first takes the lock on the domain or forum rows.
 async fn lock_map(db: &Database, tx: &mut Tx<'_>) -> anyhow::Result<DomainMap> {
     let rows = db::query(LOCK_SQL).fetch_all(db.observe(&mut **tx)).await?;
+    bounded("gonof_common_site_domain", rows.len(), MAX_DOMAINS)?;
     let links = db::query(LINKS_SQL)
         .fetch_all(db.observe(&mut **tx))
         .await?;
+    bounded("gonof_common_site_domain_forum", links.len(), MAX_LINKS)?;
     let mut forums: BTreeMap<i64, BTreeSet<i64>> = BTreeMap::new();
     for link in links {
         forums
@@ -278,7 +290,10 @@ fn check_map(map: &DomainMap, forum_url: &str, forums: &[(i64, &str)]) -> Result
         if crate::urls::reserved_segment(first) {
             return Err(crate::i18n::current().domain_error_reserved(&row.site_url, first));
         }
-        if forums.iter().any(|(_, slug)| *slug == first) {
+        if forums
+            .iter()
+            .any(|(_, slug)| crate::urls::board_address(first, slug))
+        {
             return Err(crate::i18n::current().domain_error_forum_slug(&row.site_url, first));
         }
     }
@@ -895,27 +910,28 @@ pub async fn follow_settings(
     }
     // Lock the top-level forums first (link rows are inserted for the primary domain), then the domain rows.
     let tops: Vec<(i64, String)> = if after.domains.enabled {
-        db::query(
-            "SELECT fid,slug FROM gonof_forum_forum ORDER BY fid LIMIT 10000 LOCK IN SHARE MODE",
+        let rows = db::query(
+            "SELECT fid,slug FROM gonof_forum_forum ORDER BY fid LIMIT 10001 LOCK IN SHARE MODE",
         )
         .fetch_all(db.observe(&mut **tx))
-        .await?
-        .iter()
-        .map(|row| -> anyhow::Result<(i64, String)> {
-            Ok((row.try_get("fid")?, db::text(row, "slug")?))
-        })
-        .collect::<anyhow::Result<_>>()?
+        .await?;
+        bounded("gonof_forum_forum", rows.len(), MAX_FORUMS)?;
+        rows.iter()
+            .map(|row| -> anyhow::Result<(i64, String)> {
+                Ok((row.try_get("fid")?, db::text(row, "slug")?))
+            })
+            .collect::<anyhow::Result<_>>()?
     } else {
         Vec::new()
     };
     let parents: BTreeSet<i64> = if after.domains.enabled {
-        db::query_scalar::<i64>(
-            "SELECT fid FROM gonof_forum_forum WHERE parent_fid IS NULL ORDER BY fid LIMIT 10000",
+        let tops = db::query_scalar::<i64>(
+            "SELECT fid FROM gonof_forum_forum WHERE parent_fid IS NULL ORDER BY fid LIMIT 10001",
         )
         .fetch_all(db.observe(&mut **tx))
-        .await?
-        .into_iter()
-        .collect()
+        .await?;
+        bounded("gonof_forum_forum", tops.len(), MAX_FORUMS)?;
+        tops.into_iter().collect()
     } else {
         BTreeSet::new()
     };
@@ -1012,13 +1028,21 @@ fn into_identity(error: DomainError) -> IdentityError {
     }
 }
 
-/// Before saving a forum (new or slug changed): when a host has registered the root path, the slug must not equal the
-/// first segment of any sub-path of that host. Also takes a shared lock on the domain rows, blocking concurrent domain
-/// saves that register a sub-path. Called inside the forum save transaction after the forum row is locked.
-pub async fn check_forum_slug(db: &Database, tx: &mut Tx<'_>, slug: &str) -> anyhow::Result<bool> {
-    let rows = db::query(SHARE_SQL)
+/// Before saving a forum: when a host has registered the root path, no sub-path of that host may start with one of the
+/// forum's addresses (the slug, or a page of it such as `<slug>-2`; [`crate::urls::board_address`]). Also locks the
+/// domain rows, blocking concurrent domain saves that register a sub-path: shared, or exclusive when the save will
+/// change the forum's links (`exclusive`, see [`forum_saved`]). Called inside the forum save transaction after the
+/// forum row is locked.
+pub async fn check_forum_slug(
+    db: &Database,
+    tx: &mut Tx<'_>,
+    slug: &str,
+    exclusive: bool,
+) -> anyhow::Result<bool> {
+    let rows = db::query(if exclusive { EXCLUSIVE_SQL } else { SHARE_SQL })
         .fetch_all(db.observe(&mut **tx))
         .await?;
+    bounded("gonof_common_site_domain", rows.len(), MAX_DOMAINS)?;
     let mut enabled = Vec::new();
     for row in &rows {
         if row.try_get::<i64, _>("status")? == 1 {
@@ -1027,54 +1051,123 @@ pub async fn check_forum_slug(db: &Database, tx: &mut Tx<'_>, slug: &str) -> any
     }
     let taken = enabled.iter().any(|url| {
         let (authority, prefix) = place(url);
-        prefix.split('/').nth(1) == Some(slug)
+        prefix
+            .split('/')
+            .nth(1)
+            .is_some_and(|first| crate::urls::board_address(first, slug))
             && enabled.iter().any(|other| place(other) == (authority, ""))
     });
     Ok(!taken)
 }
 
-/// After saving a forum: a forum turned into a child forum has its link rows deleted; a newly created
-/// top-level forum gets one added to the primary domain row. Returns whether the domain table changed. Before the call,
-/// [`check_forum_slug`] has already taken a shared lock on the domain rows.
+/// How a forum save changed the forum's place, which decides its link rows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ForumPlacement {
+    /// A new top-level forum.
+    Created,
+    /// A child forum of `from` became a top-level forum.
+    Promoted { from: i64 },
+    /// A top-level forum became a child forum.
+    Demoted,
+    /// A new child forum, or one that stayed a child forum.
+    Child,
+    /// A top-level forum stayed one.
+    Kept,
+}
+
+impl ForumPlacement {
+    /// Whether the save changes the forum's links: [`check_forum_slug`] then locks the domain rows exclusively.
+    pub fn changes_links(self) -> bool {
+        matches!(self, Self::Created | Self::Promoted { .. } | Self::Demoted)
+    }
+}
+
+/// After saving a forum: a child forum has no link rows of its own (they are deleted, for one that was top-level); a
+/// new top-level forum is linked to the main domain; a promoted one gets the links its former parent has, so it stays
+/// on the domains that showed it (and its threads), or the main domain when the parent had none. Every domain whose
+/// links changed gets a new version, so a domain form opened before is refused instead of writing back the old set.
+/// Returns whether the domain table changed. Before the call, [`check_forum_slug`] has already locked the domain rows
+/// (exclusively, unless the placement is [`ForumPlacement::Kept`]).
 pub async fn forum_saved(
     db: &Database,
     tx: &mut Tx<'_>,
     fid: i64,
-    parent_fid: Option<i64>,
-    created: bool,
+    placement: ForumPlacement,
 ) -> anyhow::Result<bool> {
-    if parent_fid.is_some() {
-        let removed = db::query("DELETE FROM gonof_common_site_domain_forum WHERE fid=?")
-            .bind(fid)
-            .execute(db.observe(&mut **tx))
-            .await?
-            .rows_affected();
-        return Ok(removed > 0);
-    }
-    if !created {
-        return Ok(false);
-    }
-    let forum_url: Option<String> =
-        db::query_scalar("SELECT svalue FROM gonof_common_settings WHERE skey='settings.site.url'")
-            .fetch_optional(db.observe(&mut **tx))
-            .await?;
-    let Some(forum_url) = forum_url.filter(|url| !url.is_empty()) else {
-        return Ok(false);
+    let linked = |forum: i64| {
+        db::query_scalar::<i64>(
+            "SELECT domain_id FROM gonof_common_site_domain_forum WHERE fid=? ORDER BY domain_id",
+        )
+        .bind(forum)
     };
-    let main: Option<i64> =
-        db::query_scalar("SELECT domain_id FROM gonof_common_site_domain WHERE site_url=?")
-            .bind(&forum_url)
-            .fetch_optional(db.observe(&mut **tx))
-            .await?;
-    let Some(main) = main else {
-        return Ok(false);
+    let domains: Vec<i64> = match placement {
+        ForumPlacement::Kept => return Ok(false),
+        // A child forum never has links (domain saves accept top-level forums only); one that has them anyway loses
+        // them like a demoted one.
+        ForumPlacement::Demoted | ForumPlacement::Child => {
+            let removed = linked(fid).fetch_all(db.observe(&mut **tx)).await?;
+            if removed.is_empty() {
+                return Ok(false);
+            }
+            db::query("DELETE FROM gonof_common_site_domain_forum WHERE fid=?")
+                .bind(fid)
+                .execute(db.observe(&mut **tx))
+                .await?;
+            bump_versions(db, tx, &removed).await?;
+            return Ok(true);
+        }
+        ForumPlacement::Promoted { from } => linked(from).fetch_all(db.observe(&mut **tx)).await?,
+        ForumPlacement::Created => Vec::new(),
     };
-    db::query("INSERT INTO gonof_common_site_domain_forum(domain_id,fid) VALUES(?,?)")
-        .bind(main)
+    let domains = if domains.is_empty() {
+        let forum_url: Option<String> = db::query_scalar(
+            "SELECT svalue FROM gonof_common_settings WHERE skey='settings.site.url'",
+        )
+        .fetch_optional(db.observe(&mut **tx))
+        .await?;
+        let Some(forum_url) = forum_url.filter(|url| !url.is_empty()) else {
+            return Ok(false);
+        };
+        let main: Option<i64> =
+            db::query_scalar("SELECT domain_id FROM gonof_common_site_domain WHERE site_url=?")
+                .bind(&forum_url)
+                .fetch_optional(db.observe(&mut **tx))
+                .await?;
+        let Some(main) = main else {
+            return Ok(false);
+        };
+        vec![main]
+    } else {
+        domains
+    };
+    // A forum promoted from a child has no links of its own; clearing first keeps the insert exact either way.
+    db::query("DELETE FROM gonof_common_site_domain_forum WHERE fid=?")
         .bind(fid)
         .execute(db.observe(&mut **tx))
         .await?;
+    let values = vec!["(?,?)"; domains.len()].join(",");
+    let sql = format!("INSERT INTO gonof_common_site_domain_forum(domain_id,fid) VALUES{values}");
+    let mut query = db::query(&sql);
+    for domain_id in &domains {
+        query = query.bind(*domain_id).bind(fid);
+    }
+    query.execute(db.observe(&mut **tx)).await?;
+    bump_versions(db, tx, &domains).await?;
     Ok(true)
+}
+
+/// A new version for domain rows whose links a forum save changed. The caller holds the exclusive lock on them.
+async fn bump_versions(db: &Database, tx: &mut Tx<'_>, domains: &[i64]) -> anyhow::Result<()> {
+    let marks = vec!["?"; domains.len()].join(",");
+    let sql = format!(
+        "UPDATE gonof_common_site_domain SET version=version+1 WHERE domain_id IN ({marks})"
+    );
+    let mut query = db::query(&sql);
+    for domain_id in domains {
+        query = query.bind(*domain_id);
+    }
+    query.execute(db.observe(&mut **tx)).await?;
+    Ok(())
 }
 
 /// Before deleting a forum: deletes its link rows (the foreign key has no `ON DELETE`). Returns whether the domain table
@@ -1132,14 +1225,21 @@ mod tests {
         ]);
         assert!(check_map(&nested, "https://x.com/bbs", FORUMS).is_err());
         // With a root path plus sub-paths, the first segment of a sub-path avoids forum URLs and system paths.
+        // A page of a board's list (`/feedback-2`) is the board's address too.
         for clash in [
             "https://demo.com/feedback",
+            "https://demo.com/feedback-2",
             "https://demo.com/manage",
             "https://demo.com/thread-1",
         ] {
             let map = DomainMap::new(vec![row(1, main, &[1]), row(2, clash, &[])]);
             assert!(check_map(&map, main, FORUMS).is_err(), "{clash}");
         }
+        let other = DomainMap::new(vec![
+            row(1, main, &[1]),
+            row(2, "https://demo.com/feedbacks", &[]),
+        ]);
+        assert_eq!(check_map(&other, main, FORUMS), Ok(()));
         // Hosts without a root path are not checked against each other.
         let free = DomainMap::new(vec![
             row(1, main, &[1]),

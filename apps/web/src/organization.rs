@@ -10,6 +10,7 @@ use serde::Deserialize;
 use crate::{
     content::writes::ContentWriteError,
     db::{self, Database, DbRow},
+    domains::write::ForumPlacement,
     identity::{self, Actor},
 };
 
@@ -17,6 +18,10 @@ type Result<T> = std::result::Result<T, ContentWriteError>;
 /// Each parent forum has at most this many child forums: the parent forum page fetches its list in
 /// segments of "visibility combination × forum count", so the number of segments must be bounded.
 pub const MAX_CHILD_FORUMS: i64 = 10;
+/// The site has at most this many top-level forums, checked when one is created or a child forum is promoted (and by
+/// the content import): every domain of a multi-domain site links at most each of them, and the domain reads are
+/// bounded by it ([`crate::domains::MAX_LINKS`]).
+pub const MAX_TOP_FORUMS: i64 = 400;
 
 fn namespace_error(error: sqlx::Error) -> ContentWriteError {
     if error
@@ -642,10 +647,19 @@ async fn save_forum_with_orphan_seconds_inner(
         }
     }
     let parent = (input.parent_fid > 0).then_some(input.parent_fid);
+    let placement = match (before.as_ref().map(|before| before.parent_fid), parent) {
+        (None, None) => ForumPlacement::Created,
+        (Some(Some(from)), None) => ForumPlacement::Promoted { from },
+        (Some(None), None) => ForumPlacement::Kept,
+        (Some(None), Some(_)) => ForumPlacement::Demoted,
+        (_, Some(_)) => ForumPlacement::Child,
+    };
     // Multi-domain sites: when the same host has registered the root path, the forum slug must avoid the first segment
     // of its sub-paths.
-    // This also takes a shared lock on the domain rows (lock order: forum row → domain row).
-    if !crate::domains::write::check_forum_slug(db, &mut tx, &slug).await? {
+    // This also locks the domain rows (lock order: forum row → domain row), exclusively when the links change.
+    if !crate::domains::write::check_forum_slug(db, &mut tx, &slug, placement.changes_links())
+        .await?
+    {
         return Err(ContentWriteError::Validation(
             crate::i18n::current().forum_error_domain_path(),
         ));
@@ -658,9 +672,9 @@ async fn save_forum_with_orphan_seconds_inner(
             .bind(name).bind(&slug).bind(&input.description).bind(&input.guidance).bind(input.displayorder).bind(input.status).bind(&input.visibility).bind(parent).bind(icon).bind(&color).bind(&glyph).bind(input.fid).bind(input.version).execute(db.observe(&mut *tx)).await.map_err(namespace_error)?;
         input.fid
     };
-    // A newly created top-level forum is shown only on the main domain; one changed into a child forum is no longer
-    // registered separately.
-    crate::domains::write::forum_saved(db, &mut tx, fid, parent, input.fid == 0).await?;
+    // A newly created top-level forum is shown only on the main domain, a promoted one where its parent was; one changed
+    // into a child forum is no longer registered separately.
+    crate::domains::write::forum_saved(db, &mut tx, fid, placement).await?;
     // The site-wide version is bumped only when the name, slug, visibility, enabled state or parent forum changed; when
     // the parent forum changed, the top-level forum ID of this forum's threads is also rewritten (the thread row holds
     // no other forum copies); a new forum has no threads yet.
@@ -673,6 +687,26 @@ async fn save_forum_with_orphan_seconds_inner(
             parent_fid: parent,
         };
         crate::content::copies::forum_saved(db, &mut tx, fid, before, &after).await?;
+    }
+    // The top-level limit is counted after the write, holding the exclusive lock on the site-wide version row (a
+    // promotion has just bumped it; a new forum bumps it here): two saves adding a top-level forum each count after
+    // the other one committed, which no lock on the forum rows can ensure for an insert.
+    if matches!(
+        placement,
+        ForumPlacement::Created | ForumPlacement::Promoted { .. }
+    ) {
+        if placement == ForumPlacement::Created {
+            crate::content::copies::bump_site(db, &mut tx).await?;
+        }
+        let tops: i64 =
+            db::query_scalar("SELECT COUNT(*) FROM gonof_forum_forum WHERE parent_fid IS NULL")
+                .fetch_one(db.observe(&mut *tx))
+                .await?;
+        if tops > MAX_TOP_FORUMS {
+            return Err(ContentWriteError::Validation(
+                crate::i18n::current().forum_error_top_level(),
+            ));
+        }
     }
     if let Some(aid) = icon {
         db::query("UPDATE gonof_forum_attachment_0 SET purge_after=NULL WHERE aid=?")

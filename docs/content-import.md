@@ -64,7 +64,9 @@ below are errors, so a misspelt name is caught.
 | `guidance` | optional | Shown when posting in the board. |
 | `parent` | optional | The slug of a top-level board listed earlier. At most two levels and 10 children per parent. |
 
-The list order is the display order. A parent board can hold threads of its own and also lists its children's.
+The list order is the display order. A parent board can hold threads of its own and also lists its children's. A site
+has at most 400 top-level boards, the same limit the admin area keeps when a board is created or a child board is
+moved to the top level, so a dataset may list at most 400 boards without a `parent`.
 
 ### users.jsonl
 

@@ -173,6 +173,7 @@ forum-error-fields = 版块名称、地址、层级或可见性不正确
 forum-error-look = 版块颜色须为 #0f766e 这样的十六进制颜色，内置图标须从列表中选择
 forum-error-levels = 版块最多两层，不能选自身或子版块为父级
 forum-error-children = 每个父版块最多 10 个子版块
+forum-error-top-level = 论坛最多 400 个顶层版块；请把这个版块设为子版块，或先合并、删除一个顶层版块
 forum-error-parent-merging = 那个版块正在合并到别的版块，不能再添加子版块，请换一个父版块
 forum-error-stale = 版块已被修改，请刷新后重试
 forum-error-has-children = 仍有子版块，不能改为子级

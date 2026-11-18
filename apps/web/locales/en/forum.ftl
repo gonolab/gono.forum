@@ -220,6 +220,7 @@ forum-error-fields = The forum name, address, level or access is not valid.
 forum-error-look = The forum color must be a hex color such as #0f766e, and the icon one of the built-in icons.
 forum-error-levels = Forums have at most two levels; a forum cannot be its own parent or have a child forum as its parent.
 forum-error-children = A parent forum can have at most 10 child forums.
+forum-error-top-level = The forum can have at most 400 top-level forums. Make this forum a child forum, or merge or delete a top-level forum first.
 forum-error-parent-merging = That forum is being merged into another one and cannot take child forums. Choose another parent.
 forum-error-stale = The forum has been changed. Refresh and try again.
 forum-error-has-children = This forum still has child forums and cannot become a child forum.

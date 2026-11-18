@@ -8,11 +8,12 @@ use axum::http::StatusCode;
 use gono_forum_web::{
     content::writes::{ContentWriteError, ContentWriter, NewThread, WriteConfig},
     db,
+    domains::DomainMap,
     identity::{self, Actor},
     organization::{self, ForumInput, MergeReport},
-    test_support::raise_posting_quotas,
+    test_support::{TEST_SITE_URL, raise_posting_quotas},
 };
-use site::Site;
+use site::{Answer, Site};
 
 async fn admin(site: &Site) -> Actor {
     let row = db::query(
@@ -252,5 +253,341 @@ async fn a_board_being_merged_away_takes_no_child_boards() {
     site.changed();
     let home = site.get("/ai", None).await;
     assert_eq!(home.status, StatusCode::OK);
+    site.services.cleanup_ref().await.unwrap();
+}
+
+/// Turns multi-domain sites on through the admin form and returns the main domain row.
+async fn enable_domains(site: &Site) -> i64 {
+    let answer = site
+        .post("/manage/domains/switch", &site.admin, &[("enabled", "on")])
+        .await;
+    assert!(answer.status.is_redirection(), "{}", answer.body);
+    DomainMap::load(site.db())
+        .await
+        .unwrap()
+        .main(TEST_SITE_URL)
+        .unwrap()
+        .domain_id
+}
+
+async fn domain_version(site: &Site, domain_id: i64) -> i64 {
+    site.scalar(&format!(
+        "SELECT version FROM gonof_common_site_domain WHERE domain_id={domain_id}"
+    ))
+    .await
+}
+
+/// Saves a domain row through the admin form: `domain_id` 0 adds one; the main row takes only its boards.
+async fn save_domain(
+    site: &Site,
+    domain_id: i64,
+    version: i64,
+    url: &str,
+    canonical: &str,
+    fids: &[i64],
+) -> Answer {
+    let mut fields: Vec<(String, String)> = vec![
+        ("domain_id".into(), domain_id.to_string()),
+        ("version".into(), version.to_string()),
+        ("site_url".into(), url.into()),
+        ("site_name".into(), "Other site".into()),
+        ("canonical".into(), canonical.into()),
+        ("enabled".into(), "1".into()),
+    ];
+    for fid in fids {
+        fields.push((format!("forum_{fid}"), "1".into()));
+    }
+    let borrowed: Vec<(&str, &str)> = fields
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect();
+    site.post("/manage/domains", &site.admin, &borrowed).await
+}
+
+async fn top_level(site: &Site) -> Vec<i64> {
+    db::query_scalar("SELECT fid FROM gonof_forum_forum WHERE parent_fid IS NULL ORDER BY fid")
+        .fetch_all(site.db().executor())
+        .await
+        .unwrap()
+}
+
+/// Promoting a child board to the top level keeps it (and its threads) on the domains its parent was on; a parent
+/// shown nowhere hands over the main domain, like a new top-level board gets.
+#[tokio::test]
+async fn a_promoted_child_board_stays_on_the_domains_of_its_parent() {
+    let site = Site::new(false).await;
+    let db = site.db();
+    let admin = admin(&site).await;
+    let main = enable_domains(&site).await;
+    let (daily, ai, hosting, releases) = (
+        site.fid("daily").await,
+        site.fid("ai").await,
+        site.fid("hosting").await,
+        site.fid("releases").await,
+    );
+    // A second site shows daily too, pointing its canonical at the main domain.
+    let answer = save_domain(&site, 0, 0, "http://demo2.test", "main", &[daily]).await;
+    assert!(answer.status.is_redirection(), "{}", answer.body);
+    for (child, parent) in [(ai, daily), (releases, hosting)] {
+        organization::save_forum(
+            db,
+            admin,
+            &ForumInput {
+                parent_fid: parent,
+                ..input(&site, child).await
+            },
+        )
+        .await
+        .unwrap();
+    }
+    // hosting is on no domain at all.
+    let others: Vec<i64> = top_level(&site)
+        .await
+        .into_iter()
+        .filter(|fid| *fid != hosting)
+        .collect();
+    let answer = save_domain(
+        &site,
+        main,
+        domain_version(&site, main).await,
+        TEST_SITE_URL,
+        "self",
+        &others,
+    )
+    .await;
+    assert_eq!(answer.status, StatusCode::OK);
+    assert!(
+        answer.body.contains("no enabled domain shows Hosting"),
+        "{}",
+        answer.body
+    );
+    let tid = thread(&site, admin.uid, ai, "Written in a child board").await;
+    site.changed();
+    assert_eq!(site.get("/ai", None).await.status, StatusCode::OK);
+    assert_eq!(
+        site.get(&format!("/thread-{tid}"), None).await.status,
+        StatusCode::OK
+    );
+
+    for child in [ai, releases] {
+        organization::save_forum(
+            db,
+            admin,
+            &ForumInput {
+                parent_fid: 0,
+                ..input(&site, child).await
+            },
+        )
+        .await
+        .unwrap();
+    }
+    site.changed();
+    assert_eq!(site.get("/ai", None).await.status, StatusCode::OK);
+    assert_eq!(
+        site.get(&format!("/thread-{tid}"), None).await.status,
+        StatusCode::OK
+    );
+    assert_eq!(site.get("/releases", None).await.status, StatusCode::OK);
+    let map = DomainMap::load(db).await.unwrap();
+    let demo2 = map
+        .rows()
+        .iter()
+        .find(|row| row.site_url == "http://demo2.test")
+        .unwrap();
+    assert!(demo2.forums.contains(&ai), "copied from daily");
+    assert!(!demo2.forums.contains(&releases));
+    let main_row = map.get(main).unwrap();
+    assert!(main_row.forums.contains(&ai) && main_row.forums.contains(&releases));
+    site.services.cleanup_ref().await.unwrap();
+}
+
+/// Saving a board changes which boards a domain links, so it gives the domain a new version: a domain form opened
+/// before a new top-level board was created is refused instead of taking the new board off the site.
+#[tokio::test]
+async fn a_main_domain_form_opened_before_a_new_board_is_refused() {
+    let site = Site::new(false).await;
+    let main = enable_domains(&site).await;
+    let opened = domain_version(&site, main).await;
+    let shown = top_level(&site).await;
+    let answer = site
+        .post(
+            "/manage/forums",
+            &site.admin,
+            &[
+                ("fid", "0"),
+                ("version", "0"),
+                ("name", "Fresh"),
+                ("slug", "fresh"),
+                ("status", "1"),
+                ("visibility", "public"),
+            ],
+        )
+        .await;
+    assert!(answer.status.is_redirection(), "{}", answer.body);
+    assert_eq!(domain_version(&site, main).await, opened + 1);
+    let answer = save_domain(&site, main, opened, TEST_SITE_URL, "self", &shown).await;
+    assert_eq!(answer.status, StatusCode::CONFLICT, "{}", answer.body);
+    assert!(answer.body.contains("This domain has been changed."));
+    assert_eq!(site.get("/fresh", None).await.status, StatusCode::OK);
+
+    // Turning it into a child board takes it off the domain, with another new version.
+    let admin = admin(&site).await;
+    let fresh = site.fid("fresh").await;
+    organization::save_forum(
+        site.db(),
+        admin,
+        &ForumInput {
+            parent_fid: site.fid("daily").await,
+            ..input(&site, fresh).await
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(domain_version(&site, main).await, opened + 2);
+    site.services.cleanup_ref().await.unwrap();
+}
+
+/// Top-level boards (new or promoted) stop at the limit the domain links are sized for.
+#[tokio::test]
+async fn top_level_boards_stop_at_the_limit() {
+    let site = Site::new(false).await;
+    let db = site.db();
+    let admin = admin(&site).await;
+    let missing = organization::MAX_TOP_FORUMS - top_level(&site).await.len() as i64;
+    let values: Vec<String> = (0..missing)
+        .map(|n| format!("('filler{n}','Filler {n}','Filler','',100)"))
+        .collect();
+    site.execute(&format!(
+        "INSERT INTO gonof_forum_forum(slug,name,description,guidance,displayorder) VALUES{}",
+        values.join(",")
+    ))
+    .await;
+    let fresh = ForumInput {
+        name: "One too many".into(),
+        slug: "one-too-many".into(),
+        status: 1,
+        visibility: "public".into(),
+        ..Default::default()
+    };
+    assert!(matches!(
+        organization::save_forum(db, admin, &fresh).await,
+        Err(ContentWriteError::Validation(message)) if message.contains("at most 400 top-level forums")
+    ));
+    // Child boards are not counted; promoting one is.
+    let child = organization::save_forum(
+        db,
+        admin,
+        &ForumInput {
+            parent_fid: site.fid("daily").await,
+            ..fresh.clone()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        organization::save_forum(db, admin, &ForumInput { parent_fid: 0, ..input(&site, child).await }).await,
+        Err(ContentWriteError::Validation(message)) if message.contains("at most 400 top-level forums")
+    ));
+    assert_eq!(
+        top_level(&site).await.len() as i64,
+        organization::MAX_TOP_FORUMS
+    );
+    site.services.cleanup_ref().await.unwrap();
+}
+
+/// Domain links past the bound the reads are sized for (only possible by writing the database directly) are an error
+/// instead of quietly dropping the links of the last domains.
+#[tokio::test]
+async fn domain_links_past_the_read_bound_fail_instead_of_being_cut_off() {
+    let site = Site::new(false).await;
+    enable_domains(&site).await;
+    let missing = organization::MAX_TOP_FORUMS + 1 - top_level(&site).await.len() as i64;
+    let values: Vec<String> = (0..missing)
+        .map(|n| format!("('filler{n}','Filler {n}','Filler','',100)"))
+        .collect();
+    site.execute(&format!(
+        "INSERT INTO gonof_forum_forum(slug,name,description,guidance,displayorder) VALUES{}",
+        values.join(",")
+    ))
+    .await;
+    let domains = site
+        .scalar("SELECT COUNT(*) FROM gonof_common_site_domain")
+        .await;
+    let rows: Vec<String> = (domains..gono_forum_web::domains::MAX_DOMAINS as i64)
+        .map(|n| format!("('http://site{n}.test','Site {n}','self',1,1,1)"))
+        .collect();
+    site.execute(&format!(
+        "INSERT INTO gonof_common_site_domain(site_url,site_name,canonical,status,version,dateline) VALUES{}",
+        rows.join(",")
+    ))
+    .await;
+    site.execute("DELETE FROM gonof_common_site_domain_forum")
+        .await;
+    let domain_ids: Vec<i64> =
+        db::query_scalar("SELECT domain_id FROM gonof_common_site_domain ORDER BY domain_id")
+            .fetch_all(site.db().executor())
+            .await
+            .unwrap();
+    let fids = top_level(&site).await;
+    for domain_id in &domain_ids {
+        let links: Vec<String> = fids
+            .iter()
+            .map(|fid| format!("({domain_id},{fid})"))
+            .collect();
+        site.execute(&format!(
+            "INSERT INTO gonof_common_site_domain_forum(domain_id,fid) VALUES{}",
+            links.join(",")
+        ))
+        .await;
+    }
+    let error = DomainMap::load(site.db()).await.unwrap_err().to_string();
+    assert!(
+        error.contains("gonof_common_site_domain_forum has more than 20,000 rows"),
+        "{error}"
+    );
+    site.services.cleanup_ref().await.unwrap();
+}
+
+/// On a host that registered its root path, a subsite path must not take a board's page addresses (`/daily-2` is page
+/// 2 of daily), and a new board must not take a subsite's path the same way.
+#[tokio::test]
+async fn subsite_paths_and_board_page_addresses_keep_apart() {
+    let site = Site::new(false).await;
+    let admin = admin(&site).await;
+    enable_domains(&site).await;
+    let answer = save_domain(
+        &site,
+        0,
+        0,
+        &format!("{TEST_SITE_URL}/daily-2"),
+        "self",
+        &[],
+    )
+    .await;
+    assert_eq!(
+        answer.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        answer.body
+    );
+    assert!(
+        answer.body.contains("is a forum address"),
+        "{}",
+        answer.body
+    );
+
+    let answer = save_domain(&site, 0, 0, &format!("{TEST_SITE_URL}/news-3"), "self", &[]).await;
+    assert!(answer.status.is_redirection(), "{}", answer.body);
+    let news = ForumInput {
+        name: "News".into(),
+        slug: "news".into(),
+        status: 1,
+        visibility: "public".into(),
+        ..Default::default()
+    };
+    assert!(matches!(
+        organization::save_forum(site.db(), admin, &news).await,
+        Err(ContentWriteError::Validation(message)) if message.contains("same as a sub-path registered")
+    ));
     site.services.cleanup_ref().await.unwrap();
 }

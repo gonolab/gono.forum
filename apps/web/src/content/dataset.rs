@@ -302,10 +302,24 @@ fn check_boards(report: &mut Report, entries: Vec<BoardEntry>) -> Vec<NewForum> 
     // slug -> (position, has a parent, children so far)
     let mut seen: HashMap<String, (usize, bool, i64)> = HashMap::new();
     let mut names: HashMap<String, usize> = HashMap::new();
+    let mut tops = 0_i64;
     for (index, entry) in entries.into_iter().enumerate() {
         let position = index + 1;
         let place = format!("{BOARDS_FILE}, board {position} ({})", entry.slug);
         let mut valid = true;
+        if entry.parent.is_none() {
+            tops += 1;
+            if tops == crate::organization::MAX_TOP_FORUMS + 1 {
+                report.error(
+                    &place,
+                    format!(
+                        "more than {} top-level boards",
+                        crate::organization::MAX_TOP_FORUMS
+                    ),
+                );
+                valid = false;
+            }
+        }
         if let Some(problem) = slug_problem(&entry.slug) {
             report.error(&place, problem);
             valid = false;
@@ -1083,6 +1097,40 @@ mod tests {
         for (a, b) in plan.threads.iter().zip(&again.threads) {
             assert_eq!((&a.title, a.created + 100), (&b.title, b.created));
         }
+    }
+
+    #[test]
+    fn boards_stop_at_the_top_level_limit() {
+        let scratch = Scratch::new();
+        small(&scratch);
+        let limit = crate::organization::MAX_TOP_FORUMS;
+        let mut boards = vec![
+            r#"{"slug": "community", "name": "Community", "description": "Everything about us"}"#.to_owned(),
+            r#"{"slug": "intros", "name": "Introductions", "description": "Say hello", "parent": "community"}"#.to_owned(),
+            r#"{"slug": "help", "name": "Help", "description": "Questions"}"#.to_owned(),
+        ];
+        // Two top-level boards above, the rest up to one past the limit; the child board does not count.
+        for n in 3..=limit + 1 {
+            boards.push(format!(
+                r#"{{"slug": "extra{n}", "name": "Extra {n}", "description": "More"}}"#
+            ));
+        }
+        scratch.write(BOARDS_FILE, &format!("[{}]\n", boards.join(",\n")));
+        let checked = check(&scratch.0);
+        let errors: Vec<String> = checked
+            .report
+            .errors
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            errors,
+            [format!(
+                "boards.json, board {} (extra{}): more than {limit} top-level boards",
+                limit + 2,
+                limit + 1
+            )]
+        );
     }
 
     #[test]

@@ -193,6 +193,18 @@ pub(crate) fn reserved_segment(slug: &str) -> bool {
     RESERVED_SEGMENTS.contains(&slug) || RESERVED_PREFIXES.iter().any(|p| slug.starts_with(p))
 }
 
+/// Whether a first path segment is one of a board's own addresses: its page `/<slug>`, or a page of its list
+/// `/<slug>-<digits>`. The router reads the segment the same way ([`PageRoute::parse`]); a numbered page that is out
+/// of range still belongs to the board. Sub-paths registered for other sites on the same host must avoid all of them.
+pub(crate) fn board_address(segment: &str, slug: &str) -> bool {
+    segment
+        .strip_prefix(slug)
+        .is_some_and(|rest| match rest.strip_prefix('-') {
+            None => rest.is_empty(),
+            Some(page) => !page.is_empty() && page.bytes().all(|b| b.is_ascii_digit()),
+        })
+}
+
 /// Personal spaces are addressed by uid: renaming does not affect the URL, and usernames need no path encoding.
 pub fn space(uid: i64) -> String {
     format!("/space/{uid}")
@@ -709,5 +721,30 @@ mod tests {
         ] {
             assert!(PageRoute::parse(input, &["daily"]).is_none(), "{input}");
         }
+    }
+
+    #[test]
+    fn board_addresses_cover_every_page_the_router_gives_the_board() {
+        for segment in ["daily", "daily-2", "daily-01", "daily-1000"] {
+            assert!(board_address(segment, "daily"), "{segment}");
+            assert!(
+                matches!(PageRoute::parse(segment, &["daily"]), Some(PageRoute::Forum { slug, .. }) if slug == "daily"),
+                "{segment}"
+            );
+        }
+        for segment in [
+            "dailyx",
+            "daily-",
+            "daily-2a",
+            "daily-x",
+            "dail",
+            "daily-news",
+            "x-daily",
+        ] {
+            assert!(!board_address(segment, "daily"), "{segment}");
+        }
+        // A board whose slug carries a hyphen keeps its own pages apart from another board's.
+        assert!(board_address("daily-news-3", "daily-news"));
+        assert!(!board_address("daily-news-3", "daily"));
     }
 }

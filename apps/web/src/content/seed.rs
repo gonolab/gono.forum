@@ -219,8 +219,9 @@ pub struct ImportedMember {
 }
 
 /// Creates `forums` in order, the list position as the display order. Organization rules the admin area enforces are
-/// checked here too (there is no validation trigger): the name and address, at most two levels and at most
-/// [`crate::organization::MAX_CHILD_FORUMS`] children per parent.
+/// checked here too (there is no validation trigger): the name and address, at most two levels, at most
+/// [`crate::organization::MAX_CHILD_FORUMS`] children per parent and at most
+/// [`crate::organization::MAX_TOP_FORUMS`] top-level forums (the site has none before an import).
 async fn insert_forums(
     db: &Database,
     transaction: &mut Tx<'static>,
@@ -230,6 +231,12 @@ async fn insert_forums(
          VALUES (?, ?, ?, ?, ?, ?)";
     // slug -> (fid, whether it is top-level, children so far)
     let mut created: HashMap<&str, (i64, bool, i64)> = HashMap::new();
+    let tops = forums.iter().filter(|forum| forum.parent.is_none()).count();
+    ensure!(
+        i64::try_from(tops)? <= crate::organization::MAX_TOP_FORUMS,
+        "more than {} top-level forums",
+        crate::organization::MAX_TOP_FORUMS
+    );
     for (order, forum) in forums.iter().enumerate() {
         ensure!(
             crate::organization::forum_fields(&forum.name, &forum.slug, "public", 1)

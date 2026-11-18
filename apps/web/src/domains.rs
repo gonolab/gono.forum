@@ -18,15 +18,26 @@ use crate::db::{self, Database};
 
 pub mod write;
 
-/// The maximum number of domain table rows (including the main domain), enforced when the admin area adds one; reads
-/// use one more than this as the bound.
+/// The maximum number of domain table rows (including the main domain), enforced when the admin area adds one.
 pub const MAX_DOMAINS: usize = 50;
+/// The maximum number of link rows: each domain links at most every top-level forum, and there are at most
+/// [`crate::organization::MAX_TOP_FORUMS`] of those.
+pub const MAX_LINKS: usize = 20_000;
 
+/// Reads take one row more than [`MAX_DOMAINS`] and [`MAX_LINKS`], so a table that outgrew its bound (edited in the
+/// database) is an error ([`bounded`]) instead of quietly losing the rows past it.
 const LOAD_SQL: &str = "SELECT domain_id,site_url,site_name,canonical,logo_aid,favicon_aid,verification,login_methods,participation,language,status,version,dateline FROM gonof_common_site_domain ORDER BY domain_id LIMIT 51";
-/// Link rows: each domain has at most as many rows as there are top-level forums; the bound allows 50 domains with
-/// 400 top-level forums each.
 const FORUMS_SQL: &str =
-    "SELECT domain_id,fid FROM gonof_common_site_domain_forum ORDER BY domain_id,fid LIMIT 20000";
+    "SELECT domain_id,fid FROM gonof_common_site_domain_forum ORDER BY domain_id,fid LIMIT 20001";
+
+/// The check after a bounded read of `table`: more than `limit` rows came back.
+pub(crate) fn bounded(table: &str, rows: usize, limit: usize) -> Result<()> {
+    anyhow::ensure!(
+        rows <= limit,
+        crate::i18n::current().domain_error_load_bound(table, limit)
+    );
+    Ok(())
+}
 
 /// Where canonical points: this domain or the main domain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -167,7 +178,9 @@ impl DomainMap {
     /// the site scope are aborted.
     pub async fn load(db: &Database) -> Result<Self> {
         let rows = db::query(LOAD_SQL).fetch_all(db.executor()).await?;
+        bounded("gonof_common_site_domain", rows.len(), MAX_DOMAINS)?;
         let links = db::query(FORUMS_SQL).fetch_all(db.executor()).await?;
+        bounded("gonof_common_site_domain_forum", links.len(), MAX_LINKS)?;
         let mut domains = Vec::with_capacity(rows.len());
         for row in rows {
             let canonical = db::text(&row, "canonical")?;
