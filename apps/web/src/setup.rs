@@ -757,13 +757,13 @@ async fn configure(
             .await
             .map_err(|error| crate::i18n::current().setup_error_redis(shown(&error)))?;
     }
-    if let Some(file) = crate::db::sqlite::file_of(&database.url) {
-        if let Some(parent) = file.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| {
-                crate::i18n::current()
-                    .setup_error_directory(parent.display().to_string(), error.to_string())
-            })?;
-        }
+    if let Some(file) = crate::db::sqlite::file_of(&database.url)
+        && let Some(parent) = file.parent()
+    {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            crate::i18n::current()
+                .setup_error_directory(parent.display().to_string(), error.to_string())
+        })?;
     }
     let db = Database::connect_creating(&database)
         .await
