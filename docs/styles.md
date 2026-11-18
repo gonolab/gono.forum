@@ -427,7 +427,8 @@ Redis or a remote host. The pages are listed in `tests/e2e/support/pages.js`, an
   replies with and without a number, the 1,000-thread limit, separate visitor and member state, clearing it in the
   reading preferences, the board directory, and pages without JavaScript.
 - With `GONOF_E2E_SKIN` set to a skin pack (`gono-forum-cli skin pack <dir> --output=<file>`), both sites import it
-  through `/manage/skins`, confirming its warnings, and use it before the checks and screenshots run. The Ruled test
+  through `/manage/skins`, confirming its warnings, and use it before the checks and screenshots run; set to the id of
+  a built-in skin (`ledger`, or `ledger:contrast` for one of its palettes), they only choose it. The Ruled test
   fixture (`tests/fixtures/skins/ruled`) is an imported skin with warnings to try this with; the Atrium fixture
   (`tests/fixtures/skins/atrium`) also chooses the frame a skin can change ([skins.md](skins.md), "Frame").
 - With `GONOF_E2E_COLORS` set to two seed colors (`#0f766e,#f97316`), both sites save them at Appearance › Colors

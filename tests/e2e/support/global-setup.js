@@ -2,7 +2,7 @@
 // with the setup wizard's Chinese sample content, so the Chinese pages carry Chinese titles, names and posts. Signs the administrator in once per instance (sign-ins share one per-IP rate limit on
 // loopback) and hands origins and saved sessions to the workers through the environment; the returned function is
 // Playwright's global teardown.
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { request } from '@playwright/test';
 import { launch } from './instance.js';
@@ -38,7 +38,8 @@ function hidden(page, name) {
 
 /**
  * With GONOF_E2E_SKIN set to a skin pack (gono-forum-cli skin pack), imports it through /manage/skins, confirming
- * its warnings, and makes it the site's skin, so the checks and screenshots run with it (docs/skins.md).
+ * its warnings, and makes it the site's skin, so the checks and screenshots run with it (docs/skins.md). Set to the
+ * id of a built-in skin (`ledger`, optionally with a palette: `ledger:contrast`), it only chooses that skin.
  */
 async function useSkin(instance, state, pack) {
   const context = await request.newContext({ baseURL: instance.origin, storageState: state });
@@ -46,6 +47,12 @@ async function useSkin(instance, state, pack) {
     const headers = { origin: instance.origin };
     let page = await (await context.get('/manage/skins')).text();
     const csrf = hidden(page, '_csrf');
+    if (!existsSync(pack) && /^[a-z][a-z0-9-]{1,31}(:[a-z0-9-]+)?$/.test(pack)) {
+      const choice = pack.includes(':') ? pack : `${pack}:`;
+      const chosen = await context.post('/manage/skins/select', { headers, form: { _csrf: csrf, choice }, maxRedirects: 0 });
+      if (chosen.status() !== 303) throw new Error(`${instance.language}: choosing ${choice} answered ${chosen.status()}`);
+      return;
+    }
     let answer = await context.post('/manage/skins/import', {
       headers,
       multipart: { _csrf: csrf, pack: { name: basename(pack), mimeType: 'application/json', buffer: readFileSync(pack) } },
