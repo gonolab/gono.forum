@@ -19,6 +19,20 @@
       <input type="hidden" name="_csrf" value="{{ p.csrf }}">
       <button class="button button--block" type="submit">{{ p.t.account_verify_resend() }}</button>
     </form>
+    {%- else if p.needs_verification %}
+    {#- The same actions as the banner under the header, for a member who still has to meet this domain's requirement;
+        without an address to verify, the email action leads to the profile, where one is added. #}
+    <div class="form-actions">
+      {%- if p.participation.email %}
+      <a class="button" href="{{ crate::site::base() }}/my/profile">{{ p.t.frame_verify_email() }}</a>
+      {%- endif %}
+      {%- if p.participation.mobile %}
+      <a class="button" href="{{ crate::site::base() }}/my/account#mobile">{{ p.t.frame_bind_mobile() }}</a>
+      {%- endif %}
+      {%- if p.participation.google || p.participation.github %}
+      <a class="button" href="{{ crate::site::base() }}/my/account#external">{{ p.t.frame_bind_external() }}</a>
+      {%- endif %}
+    </div>
     {%- else %}
     <a class="button" href="{{ crate::site::base() }}/my/invites">{{ p.t.account_verify_invites() }}</a>
     {%- endif %}

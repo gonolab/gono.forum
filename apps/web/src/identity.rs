@@ -1467,6 +1467,9 @@ impl Identity {
         } else {
             settings.invite.prefix_of(invite_code).map(str::to_owned)
         };
+        // The username lock comes before the first plain read: on MySQL the transaction's snapshot starts there, so
+        // the reservation check below sees a rename that committed while this registration waited for the lock.
+        self.lock_username_namespace(&mut transaction).await?;
         let owner_uid: Option<i64> = if invite_code.is_empty() {
             None
         } else {
@@ -1481,7 +1484,6 @@ impl Identity {
             }
             owner
         };
-        self.lock_username_namespace(&mut transaction).await?;
         self.check_username_reservation(&mut transaction, &username, None, now())
             .await?;
         if let Some(mobile) = &mobile {

@@ -329,22 +329,41 @@ pub(super) fn guidance_lines(guidance: &str) -> Vec<String> {
         .map(|line| line.trim_end().to_owned())
         .collect()
 }
-pub(super) fn gate(state: &AppState, destination: &str) -> Option<Response> {
-    let base = if state.viewer.session.is_none() {
-        "/login"
-    } else if state
-        .viewer
-        .session
-        .as_ref()
-        .is_some_and(|s| !s.member.can_contribute())
-    {
-        "/verify-email"
-    } else {
-        return None;
-    };
+fn with_return(path: &str, destination: &str) -> String {
     let mut params = url::form_urlencoded::Serializer::new(String::new());
     params.append_pair("return_to", &auth::safe_return(destination));
-    let mut response = auth::redirect(&format!("{base}?{}", params.finish()));
+    format!("{path}?{}", params.finish())
+}
+
+/// The account security section where a member who cannot take part yet meets this domain's requirement
+/// (docs/roles.md, "Participation requirement"): linking a phone number, or a Google or GitHub account. `None` sends
+/// them to the email verification page instead: while an email counts and theirs waits to be verified, and when
+/// nothing else is asked for; that page offers the same actions as the banner.
+fn missing_requirement(member: &crate::identity::Member) -> Option<&'static str> {
+    let participation = crate::login::Participation::current();
+    if participation.email && member.email_unverified() {
+        None
+    } else if participation.mobile && member.mobile.is_none() {
+        Some("/my/account#mobile")
+    } else if participation.google || participation.github {
+        Some("/my/account#external")
+    } else {
+        None
+    }
+}
+
+pub(super) fn gate(state: &AppState, destination: &str) -> Option<Response> {
+    let location = match &state.viewer.session {
+        None => with_return("/login", destination),
+        Some(session) if !session.member.can_contribute() => {
+            match missing_requirement(&session.member) {
+                Some(section) => section.to_owned(),
+                None => with_return("/verify-email", destination),
+            }
+        }
+        Some(_) => return None,
+    };
+    let mut response = auth::redirect(&location);
     auth::auxiliary_set_cookie(
         &mut response,
         &state.viewer,
@@ -1058,19 +1077,15 @@ async fn mentions(
     let Some(session) = &viewer.session else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
-    let q = query.q.trim();
+    // The same normalization as stored usernames and the member directory (`content::members::search`), so the
+    // column is compared as stored and full-width or other variants find the member.
+    let q = crate::identity::normalized_username_query(&query.q);
     if q.is_empty() || q.chars().count() > 50 {
         return Html(String::new()).into_response();
     }
-    let pattern = format!(
-        "{}%",
-        q.to_lowercase()
-            .replace('!', "!!")
-            .replace('%', "!%")
-            .replace('_', "!_")
-    );
+    let pattern = content::members::prefix_pattern(&q);
     let sql = &format!(
-        "SELECT m.uid,m.username FROM gonof_common_member m WHERE m.account_state='active' AND m.freeze=0 AND LOWER(m.username) LIKE ? ESCAPE '!' AND {} ORDER BY m.username,m.uid LIMIT 10",
+        "SELECT m.uid,m.username FROM gonof_common_member m WHERE m.account_state='active' AND m.freeze=0 AND m.username LIKE ? ESCAPE '!' AND {} ORDER BY m.username,m.uid LIMIT 10",
         content::unblocked_sql(Some(session.member.uid), "m.uid")
     );
     match crate::db::query(sql)

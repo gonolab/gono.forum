@@ -734,6 +734,78 @@ async fn registration_requires_consent_and_logs_the_policy_versions() {
     assert_eq!(latest_privacy.1.len(), 64);
 }
 
+/// On MySQL, an invite registration that waits for the username lock while a rename commits still sees the name the
+/// rename keeps reserved, rather than a snapshot taken before it (reading the invite used to start the snapshot).
+#[tokio::test]
+async fn invite_registration_sees_a_name_reserved_while_it_waited() {
+    gono_forum_web::mysql_only!();
+    let fixture = Fixture::new(false, ORIGIN).await;
+    let admin = fixture.admin().await;
+    let invite = fixture
+        .identity
+        .generate_invite(admin.member.uid, &"r".repeat(64))
+        .await
+        .unwrap();
+    fixture
+        .execute("INSERT INTO gonof_common_member(uid,username,password,email,emailstatus,adminid,regdate) VALUES(50,'keepname','x','keep@example.test',1,0,1)")
+        .await;
+    let mut rename = fixture.db.begin_write().await.unwrap();
+    db::query(
+        "SELECT svalue FROM gonof_common_settings WHERE skey='identity.username_namespace' FOR UPDATE",
+    )
+    .fetch_one(fixture.db.observe(&mut *rename))
+    .await
+    .unwrap();
+    let identity = fixture.identity.clone();
+    let code = invite.code.clone();
+    let pending = tokio::spawn(async move {
+        identity
+            .register("keepname", "newcomer@example.test", PASSWORD, &code)
+            .await
+    });
+    // Wait until the registration is waiting for the username lock in this test's database.
+    let mut waited = 0;
+    while fixture
+        .scalar("SELECT COUNT(*) FROM information_schema.processlist WHERE db=DATABASE() AND id<>CONNECTION_ID() AND info LIKE '%identity.username\\_namespace%FOR UPDATE%'")
+        .await
+        == 0
+    {
+        waited += 1;
+        assert!(
+            !pending.is_finished(),
+            "the registration ended without waiting for the lock: {:?}",
+            pending.await.unwrap().map(|grant| grant.member.username)
+        );
+        assert!(waited < 600, "the registration never waited for the lock");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    // What a rename writes: the new name, and the old one reserved for the history period.
+    let now = identity::now();
+    db::query("UPDATE gonof_common_member SET username='renamed' WHERE uid=50")
+        .execute(fixture.db.observe(&mut *rename))
+        .await
+        .unwrap();
+    db::query("INSERT INTO gonof_common_member_username_history(username,uid,dateline,expires_at) VALUES('keepname',50,?,?)")
+        .bind(now)
+        .bind(now + 90 * 86400)
+        .execute(fixture.db.observe(&mut *rename))
+        .await
+        .unwrap();
+    rename.commit().await.unwrap();
+    let result = pending.await.unwrap();
+    assert!(
+        matches!(result, Err(identity::IdentityError::Conflict(_))),
+        "the reserved name went to someone else: {:?}",
+        result.map(|grant| grant.member.username)
+    );
+    assert_eq!(
+        fixture
+            .scalar("SELECT COUNT(*) FROM gonof_common_member WHERE username='keepname'")
+            .await,
+        0
+    );
+}
+
 /// Two independent forums on one host, one at the root and one under `/bbs`, each with its own database: a browser
 /// signed in to both keeps both sessions, because each forum names its cookies after its path (and port).
 #[tokio::test]

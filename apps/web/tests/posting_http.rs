@@ -463,6 +463,77 @@ async fn forms_require_csrf_verified_unfrozen_members_and_stable_request_keys() 
     f._services.cleanup_ref().await.unwrap();
 }
 
+/// A member who cannot take part yet is sent to the step that meets this site's requirement: the email verification
+/// page while an email counts and theirs waits, otherwise linking a phone number or a third-party account. A member
+/// whose email is verified but who still has to meet another requirement finds the same actions as the banner on the
+/// verification page, not the invite page.
+#[tokio::test]
+async fn the_posting_gate_leads_to_the_missing_requirement() {
+    for (participation, email_verified, expected) in [
+        ("mobile", true, "/my/account#mobile"),
+        ("github", true, "/my/account#external"),
+        ("email,mobile", false, "/verify-email?return_to=%2Fnew"),
+    ] {
+        let f = Fixture::new().await;
+        gono_forum_web::test_support::set_setting(
+            &f.db,
+            "settings.login.participation",
+            participation,
+        )
+        .await
+        .unwrap();
+        f.execute(&format!(
+            "UPDATE gonof_common_member SET adminid=0,emailstatus={},email='member@example.test' WHERE uid=1",
+            i64::from(email_verified)
+        ))
+        .await;
+        let mut member = f.admin.clone();
+        get(&f, "/new", &mut member).await.redirect(expected);
+        if email_verified {
+            let page = get(&f, "/verify-email", &mut member).await;
+            page.status(StatusCode::OK);
+            let panel = page
+                .html
+                .split_once("panel--auth")
+                .and_then(|(_, rest)| rest.split_once("</section>"))
+                .unwrap()
+                .0;
+            assert!(
+                panel.contains(&format!("href=\"{expected}\"")),
+                "{participation}: {panel}"
+            );
+            assert!(!panel.contains("/my/invites"), "{participation}: {panel}");
+        }
+    }
+}
+
+/// The mention picker normalizes what is typed the way usernames are stored, like the member directory: full-width
+/// letters find the member too.
+#[tokio::test]
+async fn mention_search_matches_full_width_spellings() {
+    let f = Fixture::new().await;
+    f.execute("INSERT INTO gonof_common_member(uid,username,password,email,emailstatus,adminid,regdate) VALUES(40,'camellia','x','camellia@example.test',1,0,1)")
+        .await;
+    let mut admin = f.admin.clone();
+    // "camellia" in full-width Latin letters (U+FF43 and so on).
+    let full_width: String = "camellia"
+        .chars()
+        .map(|c| char::from_u32(c as u32 - 'a' as u32 + 0xff41).unwrap())
+        .collect();
+    for typed in ["cam", "CAM", full_width.as_str()] {
+        let query = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("q", typed)
+            .finish();
+        let found = get(&f, &format!("/api/mentions?{query}"), &mut admin).await;
+        found.status(StatusCode::OK);
+        assert!(
+            found.html.contains("data-username=\"camellia\""),
+            "{typed}: {}",
+            found.html
+        );
+    }
+}
+
 #[tokio::test]
 async fn activity_posts_require_the_submitted_deadline() {
     let f = Fixture::new().await;
