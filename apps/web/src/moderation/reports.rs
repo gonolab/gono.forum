@@ -180,6 +180,15 @@ pub async fn report_target(
                 .bind(target.target_id).fetch_optional(db.executor()).await?;
             if let Some(pid) = pid {
                 result.href = format!("/media/{}?pid={pid}", target.target_id);
+            } else if let Some(uid) = crate::db::query_scalar::<i64>(
+                "SELECT uid FROM gonof_common_member WHERE avatar_aid=? AND account_state='active' LIMIT 1",
+            )
+            .bind(target.target_id)
+            .fetch_optional(db.executor())
+            .await?
+            {
+                // An image used only as a current avatar (`gonof_member_avatar_attachment`) opens on the avatar route.
+                result.href = format!("/avatar/{uid}/{}", target.target_id);
             }
         }
         _ => unreachable!(),

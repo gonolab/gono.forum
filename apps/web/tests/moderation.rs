@@ -199,6 +199,61 @@ impl Fixture {
     }
 }
 
+/// A reported image that is only someone's current avatar, with no post referencing it, still links to its content
+/// on the report: the avatar route, for staff and for the reporter alike.
+#[tokio::test]
+async fn reported_avatars_link_to_the_avatar_route() {
+    let f = Fixture::new().await;
+    let db = &f.services.db;
+    let now = identity::now();
+    db::query(
+        "INSERT INTO gonof_forum_attachment(aid,uid,request_key,request_hash) VALUES(9480,3,?,?)",
+    )
+    .bind(identity::random_token())
+    .bind(identity::random_token())
+    .execute(db.executor())
+    .await
+    .unwrap();
+    db::query("INSERT INTO gonof_forum_attachment_0(aid,filename,filesize,mime_type,content_sha256,attachment,storage_profile_id,description,alt_text,dateline,updated_at,lifecycle,scan_status,scan_detail) VALUES(9480,'avatar.png',10,'image/png',?,'avatar-object','test','','',?,?,'ready','clean','')")
+        .bind("a".repeat(64))
+        .bind(now)
+        .bind(now)
+        .execute(db.executor())
+        .await
+        .unwrap();
+    db::query("UPDATE gonof_common_member SET avatar_aid=9480 WHERE uid=3")
+        .execute(db.executor())
+        .await
+        .unwrap();
+    let target = ReportTarget {
+        target_type: "attachment".into(),
+        target_id: 9480,
+    };
+    for (staff, reader) in [(true, 1), (false, 2)] {
+        let view = moderation::report_target(db, &target, staff, reader)
+            .await
+            .unwrap();
+        assert_eq!(view.href, "/avatar/3/9480", "staff: {staff}");
+    }
+    let id = moderation::submit_report(
+        db,
+        actor(2),
+        &target,
+        "offensive avatar",
+        &identity::random_token(),
+        now,
+        10,
+    )
+    .await
+    .unwrap();
+    let (status, _, page) = f
+        .call(Some(1), "GET", &format!("/manage/reports/{id}"), vec![])
+        .await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert!(page.contains(r#"href="/avatar/3/9480""#), "{page}");
+    f.services.cleanup().await.unwrap();
+}
+
 /// The daily report quota counts the reports of the last 24 hours, and reads no more of the member's reports than the
 /// quota itself: a member with a long history of reports does not have every one of them read on each submission.
 #[tokio::test]
