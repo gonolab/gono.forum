@@ -52,7 +52,7 @@ impl Subscription {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FollowCandidate {
     pub kind: Kind,
@@ -68,7 +68,65 @@ pub(crate) struct ContentMail {
     pub candidates: BTreeSet<Kind>,
     pub quote_pids: Vec<i64>,
     pub follow: Option<FollowCandidate>,
+    /// Further follows that reached the member with this publication, added when a later page of the fan-out finds
+    /// the mail already queued (a new thread in a child forum, for someone following the child forum and its parent).
+    /// Delivery sends the mail while any one of the follows still stands. Absent from mail with a single follow.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub more_follows: Vec<FollowCandidate>,
     pub email_hash: String,
+}
+
+/// At most this many follows in [`ContentMail::more_follows`]; a publication reaches a member through at most two
+/// forum follows today.
+pub(crate) const MORE_FOLLOWS: usize = 8;
+
+/// Adds this page's kinds and follow to the member's content mail queued by an earlier page of the same publication.
+/// Only a mail still waiting is changed: one being sent or finished is left as it is.
+async fn merge_content_mail(
+    db: &Database,
+    tx: &mut Tx<'_>,
+    eventid: i64,
+    kinds: &BTreeSet<Kind>,
+    follow: Option<FollowCandidate>,
+) -> anyhow::Result<()> {
+    let row = crate::db::query(
+        "SELECT status,payload FROM gonof_common_outbox WHERE eventid=? FOR UPDATE",
+    )
+    .bind(eventid)
+    .fetch_one(db.observe(&mut **tx))
+    .await?;
+    if db::text(&row, "status")? != "pending" {
+        return Ok(());
+    }
+    let Ok(mut mail) = serde_json::from_str::<ContentMail>(&db::text(&row, "payload")?) else {
+        return Ok(());
+    };
+    let mut changed = false;
+    for kind in kinds {
+        changed |= mail.candidates.insert(*kind);
+    }
+    if let Some(follow) = follow {
+        if mail.follow.is_none() {
+            mail.follow = Some(follow);
+            changed = true;
+        } else if mail.follow.as_ref() != Some(&follow)
+            && !mail.more_follows.contains(&follow)
+            && mail.more_follows.len() < MORE_FOLLOWS
+        {
+            mail.more_follows.push(follow);
+            changed = true;
+        }
+    }
+    if changed {
+        crate::db::query(
+            "UPDATE gonof_common_outbox SET payload=? WHERE eventid=? AND status='pending'",
+        )
+        .bind(serde_json::to_string(&mail)?)
+        .bind(eventid)
+        .execute(db.observe(&mut **tx))
+        .await?;
+    }
+    Ok(())
 }
 
 pub(crate) async fn reply_recipients(
@@ -585,24 +643,41 @@ pub(super) async fn deliver(
         if preferences.highest(&kinds, true).is_some()
             && let Some(email_hash) = email_hashes.get(&uid)
         {
-            let quote_pids = event
-                .quote_pids
-                .iter()
-                .copied()
-                .filter(|pid| targets.get(pid).is_some_and(|t| t.authorid == Some(uid)))
-                .collect();
-            let payload = ContentMail {
-                pid: event.pid,
-                actor_uid: event.actor_uid,
-                uid,
-                candidates: kinds,
-                quote_pids,
-                follow: follows.get(&uid).cloned(),
-                email_hash: email_hash.clone(),
-            };
-            crate::db::query("INSERT INTO gonof_common_outbox(event_key,event_type,aggregate_type,aggregate_id,payload,dateline,available_at) VALUES(?,'notification.email','member',?,?,?,?) ON DUPLICATE KEY UPDATE eventid=eventid")
-                .bind(format!("notification.email:{}:{uid}",event.pid)).bind(uid).bind(serde_json::to_string(&payload)?)
-                .bind(claim.dateline).bind(claim.dateline).execute(db.observe(&mut *tx)).await?;
+            let mail_key = format!("notification.email:{}:{uid}", event.pid);
+            // An earlier page of this publication may have queued the member's mail already: a new thread in a child
+            // forum reaches the child forum's followers first and then the parent's. That mail takes this page's kinds
+            // and follow too, otherwise undoing the first follow before delivery would drop the mail the second one
+            // still asks for. A plain read finds it (the earlier page committed it), and only that row is then locked.
+            let queued: Option<i64> = crate::db::query_scalar(
+                "SELECT eventid FROM gonof_common_outbox WHERE event_key=?",
+            )
+            .bind(&mail_key)
+            .fetch_optional(db.observe(&mut *tx))
+            .await?;
+            if let Some(eventid) = queued {
+                merge_content_mail(db, &mut tx, eventid, &kinds, follows.get(&uid).cloned())
+                    .await?;
+            } else {
+                let quote_pids = event
+                    .quote_pids
+                    .iter()
+                    .copied()
+                    .filter(|pid| targets.get(pid).is_some_and(|t| t.authorid == Some(uid)))
+                    .collect();
+                let payload = ContentMail {
+                    pid: event.pid,
+                    actor_uid: event.actor_uid,
+                    uid,
+                    candidates: kinds,
+                    quote_pids,
+                    follow: follows.get(&uid).cloned(),
+                    more_follows: Vec::new(),
+                    email_hash: email_hash.clone(),
+                };
+                crate::db::query("INSERT INTO gonof_common_outbox(event_key,event_type,aggregate_type,aggregate_id,payload,dateline,available_at) VALUES(?,'notification.email','member',?,?,?,?) ON DUPLICATE KEY UPDATE eventid=eventid")
+                    .bind(mail_key).bind(uid).bind(serde_json::to_string(&payload)?)
+                    .bind(claim.dateline).bind(claim.dateline).execute(db.observe(&mut *tx)).await?;
+            }
         }
     }
     event.direct_done = true;

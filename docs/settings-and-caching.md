@@ -164,8 +164,12 @@ updates the primary domain row in the same transaction.
 Documents save on their own rows. The navigation document locks its three rows (`DOCUMENT_LOCK_SQL`, primary key
 equality) and must point at existing boards; a policy or mail template upserts its `(kind, language)` row after the
 administrator check. Titles are at most 120 characters and bodies at most 60,000 bytes. Mail templates are not cached:
-a mail is rendered with the current template at its first delivery attempt and retries reuse the prepared file, so an
-invalid template holds back pending mail of its kind until it is fixed or restored.
+a mail is rendered with the current template at its first delivery attempt and retries reuse the prepared file
+(`mail/prepared/{eventid}.eml` in `[identity] local_directory`), so an invalid template holds back pending mail of its
+kind until it is fixed or restored. The prepared file records the event it was written for (event key, recipient
+account and queue time); one that does not match the event now holding that id is discarded and the mail rendered
+again. Event ids repeat after a database restore, so empty `mail/prepared/` when you restore the database (see "Files
+to back up" in [install.md](install.md)).
 
 ## Adding a setting
 

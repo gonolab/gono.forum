@@ -39,8 +39,13 @@ pub struct Mailer {
     global: crate::cache::GlobalCache,
 }
 
+/// The finished mail of one event, kept in `mail/prepared/{eventid}.eml` until the event is finished so that a retry
+/// sends the same bytes.
+///
+/// Fields this version does not know are ignored rather than refused, so a version rolled back to still reads the
+/// drafts a later one wrote. Versions up to 0.2.0 refused them; docs/install.md, "Upgrades", says to empty the folder
+/// when rolling back to one of those.
 #[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct PreparedMail {
     /// Put before the subject when the mail goes out over SMTP: the site name in the mail's language, such as
     /// "[Gono Forum] " (zh-CN wraps the name in full-width brackets instead). Drafts written before it existed have
@@ -51,6 +56,25 @@ struct PreparedMail {
     body: String,
     content_kind: Option<crate::notifications::preferences::Kind>,
     html: Option<String>,
+    /// The event the draft was written for: its key, recipient account and queue time. Event ids are not unique
+    /// across a database restore: a backup restored under a newer `mail/prepared/` gives the next events the ids of
+    /// drafts written for other members. A draft that does not match all three, or was written before they were
+    /// recorded, is discarded and the mail written again ([`Mailer::read_prepared`]).
+    #[serde(default)]
+    event_key: String,
+    #[serde(default)]
+    aggregate_id: i64,
+    #[serde(default)]
+    dateline: i64,
+}
+
+impl PreparedMail {
+    fn written_for(&self, mail: &ClaimedMail) -> bool {
+        !self.event_key.is_empty()
+            && self.event_key == mail.event_key
+            && self.aggregate_id == mail.aggregate_id
+            && self.dateline == mail.dateline
+    }
 }
 
 impl Mailer {
@@ -220,17 +244,29 @@ impl Mailer {
         }
     }
 
+    /// The draft of this event, if one was written for it. A draft left under this id by another event is removed,
+    /// so the mail is written again for this one and nothing of the other recipient's mail goes out. Reads the disk:
+    /// call it outside any write transaction.
     fn read_prepared(&self, mail: &ClaimedMail) -> Result<Option<PreparedMail>> {
         let destination = self.prepared_path(mail.eventid);
-        if destination.exists() {
-            ensure!(
-                fs::symlink_metadata(&destination)?.file_type().is_file(),
-                "the prepared mail is not a regular file"
-            );
-            return serde_json::from_slice(&fs::read(destination)?)
-                .context("the prepared mail is malformed")
-                .map(Some);
+        if !destination.exists() {
+            return Ok(None);
         }
+        ensure!(
+            fs::symlink_metadata(&destination)?.file_type().is_file(),
+            "the prepared mail is not a regular file"
+        );
+        let draft: PreparedMail = serde_json::from_slice(&fs::read(&destination)?)
+            .context("the prepared mail is malformed")?;
+        if draft.written_for(mail) {
+            return Ok(Some(draft));
+        }
+        tracing::warn!(
+            eventid = mail.eventid,
+            event_type = %mail.event_type,
+            "the saved draft of this mail was written for another event; writing it again"
+        );
+        fs::remove_file(&destination).context("could not remove a draft of another event")?;
         Ok(None)
     }
 
@@ -243,7 +279,25 @@ impl Mailer {
         body: String,
         content_kind: Option<crate::notifications::preferences::Kind>,
     ) -> Result<PreparedMail> {
-        if let Some(value) = self.read_prepared(mail)? {
+        let existing = self.read_prepared(mail)?;
+        self.prepare_from(existing, mail, lang, site, subject, body, content_kind)
+            .await
+    }
+
+    /// The draft to send: `existing`, read earlier with [`Self::read_prepared`], or else the mail just rendered,
+    /// written to disk first.
+    #[allow(clippy::too_many_arguments)]
+    async fn prepare_from(
+        &self,
+        existing: Option<PreparedMail>,
+        mail: &ClaimedMail,
+        lang: crate::i18n::Lang,
+        site: &str,
+        subject: String,
+        body: String,
+        content_kind: Option<crate::notifications::preferences::Kind>,
+    ) -> Result<PreparedMail> {
+        if let Some(value) = existing {
             ensure!(
                 value.content_kind == content_kind,
                 "the prepared mail has another notification kind"
@@ -259,6 +313,9 @@ impl Mailer {
             body,
             content_kind,
             html,
+            event_key: mail.event_key.clone(),
+            aggregate_id: mail.aggregate_id,
+            dateline: mail.dateline,
         };
         persist(
             &self.directory.join("prepared"),
@@ -368,6 +425,7 @@ pub(crate) fn identity_payload(to: &str, username: &str, token: &str) -> String 
 
 struct ClaimedMail {
     eventid: i64,
+    event_key: String,
     event_type: String,
     aggregate_id: i64,
     payload: String,
@@ -381,21 +439,27 @@ async fn deliver(mailer: &Mailer, now: i64) -> Result<DeliveryReport> {
     let started = std::time::Instant::now();
     let clock = || now.saturating_add(started.elapsed().as_secs() as i64);
     let mut report = DeliveryReport::default();
-    // Mail sending turned off in the admin area (`settings.email.enabled`) only stops sending: the whole batch is
-    // left unclaimed and the events stay in the queue, going out as usual once turned back on. Read from the process
-    // cache, so a save takes effect in this process immediately.
-    if !mailer.site_settings().await?.email.enabled {
-        return Ok(report);
-    }
-    // Changes take effect on the next bounded batch without restarting the application.
-    let settings = mailer.stored().await?;
+    // The transport settings: changes take effect on the next bounded batch without restarting the application.
+    // Read once the first mail is about to be claimed, so nothing is read while sending is off.
+    let mut stored = None;
     for _ in 0..BATCH_SIZE {
+        // Mail sending turned off in the admin area (`settings.email.enabled`) only stops sending: the rest of the
+        // queue is left unclaimed and goes out as usual once turned back on. Read before every claim, from the process
+        // cache, so a save takes effect in this process before the next mail, not after a batch that a slow SMTP
+        // server can stretch to minutes.
+        if !mailer.site_settings().await?.email.enabled {
+            break;
+        }
+        if stored.is_none() {
+            stored = Some(mailer.stored().await?);
+        }
+        let settings = stored.as_ref().expect("read above");
         let Some(mail) = claim(database, clock()).await? else {
             break;
         };
         report.claimed += 1;
         let outcome: Result<Delivery> =
-            async { deliver_current(mailer, &settings, &mail, &clock).await }.await;
+            async { deliver_current(mailer, settings, &mail, &clock).await }.await;
         match outcome {
             Ok(Delivery::Skipped(reason)) => {
                 abandon(mailer, &mail, reason).await?;
@@ -508,7 +572,7 @@ async fn claim(database: &Database, now: i64) -> Result<Option<ClaimedMail>> {
         // every historical sent row (with a locking read, too). `gonof_outbox_delivery` takes a range by status and
         // due time and only reads due pending rows.
         let statement = format!(
-            "SELECT eventid, event_type, aggregate_id, payload, attempts,dateline FROM gonof_common_outbox FORCE INDEX (gonof_outbox_delivery) WHERE event_type IN ({types}) AND status IN ('pending', 'processing') AND available_at <= ? AND lease_until <= ? ORDER BY eventid LIMIT 1 FOR UPDATE"
+            "SELECT eventid, event_key, event_type, aggregate_id, payload, attempts,dateline FROM gonof_common_outbox FORCE INDEX (gonof_outbox_delivery) WHERE event_type IN ({types}) AND status IN ('pending', 'processing') AND available_at <= ? AND lease_until <= ? ORDER BY eventid LIMIT 1 FOR UPDATE"
         );
         found = crate::db::query(&statement)
             .bind(now)
@@ -525,6 +589,7 @@ async fn claim(database: &Database, now: i64) -> Result<Option<ClaimedMail>> {
     };
     let mail = ClaimedMail {
         eventid: row.try_get("eventid")?,
+        event_key: db::text(&row, "event_key")?,
         event_type: db::text(&row, "event_type")?,
         aggregate_id: row.try_get("aggregate_id")?,
         payload: db::text(&row, "payload")?,

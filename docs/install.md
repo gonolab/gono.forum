@@ -193,6 +193,11 @@ belongs to the binaries of each machine and must not be shared. The database mus
 | `skins/` | Skins in the instance directory ([skins.md](skins.md), "Sources"), if you use any. Every machine of a site has its own; imported skins are in the database. |
 | The S3 bucket | The attachments themselves. |
 
+When you restore the database from a backup, empty `mail/prepared/` in `[identity] local_directory` as well. It holds
+the finished text of mail still being retried, under the id of its event, and the restored database hands those ids
+to new events. A draft that does not match its event is discarded and written again; emptying the folder also
+covers the drafts of versions up to 0.2.0, which record no event.
+
 Upgrades do not take backups (next section).
 
 ## Upgrades
@@ -247,6 +252,9 @@ when it is not set; `install --releases-url` writes it). `forum.install.sh upgra
 service account can change: give it the same `--releases-url` again. It stops with a message when the configuration
 names another source and the option is missing. How packages are built and how the upgrade and the start guard work in
 detail is in [releasing.md](releasing.md).
+
+Rolling back to 0.2.0 or earlier: empty `mail/prepared/` first. Those versions refuse the drafts later ones write,
+so the mail they belong to would fail every retry; without a draft it is written again.
 
 **Migrations run automatically when a new version starts, and nothing is backed up first.** If a new version has
 migrated the database and is then rolled back, the old version may refuse to start on the newer schema: restore the

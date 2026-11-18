@@ -4,15 +4,30 @@
 use std::path::PathBuf;
 
 use gono_forum_web::{
-    db,
+    content::{
+        self,
+        writes::{ContentWriter, NewThread, WriteConfig},
+    },
+    db::{self, Backend},
+    debug::trace::{self, QuerySource, RequestProfile},
     identity::{self, Actor},
+    interaction::social,
     mail::DeliveryReport,
     moderation::{self as gov, SanctionRequest},
+    notifications::{self, preferences},
     privacy,
     test_support::{self, TEST_SITE_URL, TestFixture},
 };
 
 const ADMIN: i64 = 8801;
+
+fn actor(uid: i64) -> Actor {
+    Actor {
+        uid,
+        credentials_version: 1,
+        api_key: None,
+    }
+}
 
 struct Fixture {
     f: TestFixture,
@@ -63,11 +78,7 @@ impl Fixture {
                 .unwrap();
         gov::issue_sanction(
             &self.f.db,
-            Actor {
-                uid: ADMIN,
-                credentials_version: 1,
-                api_key: None,
-            },
+            actor(ADMIN),
             &SanctionRequest {
                 uid,
                 kind: kind.into(),
@@ -114,6 +125,88 @@ impl Fixture {
     /// The message the local transport wrote for the event, if any.
     fn delivered(&self, eventid: i64) -> Option<String> {
         std::fs::read_to_string(self.mailbox.join(format!("{eventid}.eml"))).ok()
+    }
+
+    fn draft(&self, eventid: i64) -> PathBuf {
+        self.mailbox.join(format!("prepared/{eventid}.eml"))
+    }
+
+    /// Runs the content notification worker until the queue is empty.
+    async fn drain_notifications(&self, now: i64) {
+        for _ in 0..10 {
+            if notifications::deliver_pending(&self.f.db, now)
+                .await
+                .unwrap()
+                .claimed
+                == 0
+            {
+                return;
+            }
+        }
+        panic!("the notification queue did not drain");
+    }
+
+    /// Turns on mail for new threads in followed forums.
+    async fn mail_new_threads(&self, uid: i64) {
+        let mut prefs = preferences::get(&self.f.db, actor(uid)).await.unwrap();
+        prefs.email[4] = true;
+        preferences::save(&self.f.db, actor(uid), &prefs)
+            .await
+            .unwrap();
+    }
+
+    async fn follow_forum(&self, uid: i64, fid: i64, desired: bool) {
+        social::set_follow_forum(
+            &self.f.db,
+            actor(uid),
+            fid,
+            desired,
+            &identity::random_token(),
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn forum(&self, slug: &str) -> i64 {
+        db::query_scalar("SELECT fid FROM gonof_forum_forum WHERE slug=?")
+            .bind(slug)
+            .fetch_one(self.f.db.executor())
+            .await
+            .unwrap()
+    }
+
+    /// A new thread by the administrator; content mail only goes out about other members' posts.
+    async fn publish(&self, fid: i64, now: i64) {
+        ContentWriter::new(self.f.db.clone(), WriteConfig::default())
+            .publish_at(
+                ADMIN,
+                NewThread {
+                    visibility: Default::default(),
+                    activity: Default::default(),
+                    fid,
+                    title: "A thread for followers".into(),
+                    body: "The body of a thread followers hear about".into(),
+                    attachment_ids: vec![],
+                    request_key: identity::random_token(),
+                },
+                now,
+            )
+            .await
+            .unwrap();
+    }
+
+    /// After every update that marks an outbox event sent, turns mail sending off, as an administrator would while
+    /// a slow SMTP server is still taking the first mail of a batch.
+    async fn switch_off_after_each_sent_mail(&self) {
+        let sql = match self.f.db.backend() {
+            Backend::MySql => {
+                "CREATE TRIGGER gonof_test_mail_switch AFTER UPDATE ON gonof_common_outbox FOR EACH ROW BEGIN IF NEW.status='sent' THEN UPDATE gonof_common_settings SET svalue='false' WHERE skey='settings.email.enabled'; END IF; END"
+            }
+            Backend::Sqlite => {
+                "CREATE TRIGGER gonof_test_mail_switch AFTER UPDATE ON gonof_common_outbox FOR EACH ROW WHEN NEW.status='sent' BEGIN UPDATE gonof_common_settings SET svalue='false' WHERE skey='settings.email.enabled'; END"
+            }
+        };
+        db::raw_sql(sql).execute(&self.f.db.pool).await.unwrap();
     }
 }
 
@@ -280,5 +373,163 @@ async fn sanction_mail_times_follow_the_site_time_zone() {
         message.contains(&starts) && message.contains(&ends),
         "expected {starts} and {ends} in:\n{message}"
     );
+    f.f.cleanup().await.unwrap();
+}
+
+/// Turning mail off stops the worker before its next claim, not after the batch: a slow SMTP server could otherwise
+/// keep it sending, including mail queued after the switch was turned off.
+#[tokio::test]
+async fn turning_mail_off_stops_the_worker_before_its_next_mail() {
+    let f = Fixture::new().await;
+    let db = &f.f.db;
+    let now = identity::now();
+    // No process cache, so the worker sees the switch as soon as it changes, as in the process that saved it.
+    test_support::set_setting(db, "settings.cache.ttl_seconds", "0")
+        .await
+        .unwrap();
+    for uid in [8871, 8872, 8873] {
+        f.member(uid, true, true).await;
+        f.sanction(uid, "warning", now).await;
+    }
+    f.switch_off_after_each_sent_mail().await;
+    let report = f.deliver(now + 1).await;
+    assert_eq!((report.claimed, report.delivered), (1, 1), "{report:?}");
+    let mut statuses = Vec::new();
+    for uid in [8871, 8872, 8873] {
+        statuses.push(f.event(uid, "sanction_issued").await.status);
+    }
+    assert_eq!(statuses, ["sent", "pending", "pending"]);
+    f.f.cleanup().await.unwrap();
+}
+
+/// A database restored from an older backup reuses event ids that a newer `mail/prepared/` still holds drafts for.
+/// The draft names the event it was written for; one written for another event is discarded and the mail written
+/// again, instead of sending the earlier recipient's mail to the new one.
+#[tokio::test]
+async fn a_draft_left_by_another_event_with_the_same_id_is_written_again() {
+    let f = Fixture::new().await;
+    let db = &f.f.db;
+    let now = identity::now();
+    f.member(8851, true, true).await;
+    f.member(8852, true, true).await;
+    f.sanction(8851, "warning", now).await;
+    let first = f.event(8851, "sanction_issued").await.eventid;
+    // Sent, then the process stopped before recording it: the draft stays for the retry.
+    test_support::fail_when(
+        db,
+        "gonof_test_crash_before_ack",
+        "BEFORE UPDATE",
+        "gonof_common_outbox",
+        "NEW.status='sent'",
+        "simulated crash before ack",
+    )
+    .await
+    .unwrap();
+    f.deliver(now + 1).await;
+    test_support::drop_trigger(db, "gonof_test_crash_before_ack")
+        .await
+        .unwrap();
+    assert!(f.draft(first).exists());
+    // The restore: the event is gone, and the next one, for another member, gets its id. The delivered copy is
+    // removed as SMTP would leave none.
+    std::fs::remove_file(f.mailbox.join(format!("{first}.eml"))).unwrap();
+    db::query("DELETE FROM gonof_common_outbox WHERE eventid=?")
+        .bind(first)
+        .execute(db.executor())
+        .await
+        .unwrap();
+    f.sanction(8852, "warning", now + 2).await;
+    db::query("UPDATE gonof_common_outbox SET eventid=? WHERE aggregate_id=8852 AND event_type='sanction_issued'")
+        .bind(first)
+        .execute(db.executor())
+        .await
+        .unwrap();
+    f.deliver(now + 3).await;
+    let event = f.event(8852, "sanction_issued").await;
+    assert_eq!((event.eventid, event.status.as_str()), (first, "sent"));
+    let message = f.delivered(first).unwrap();
+    assert!(
+        message.contains("To: mail-8852@example.test") && !message.contains("mail-8851"),
+        "{message}"
+    );
+    f.f.cleanup().await.unwrap();
+}
+
+/// The draft of a content mail is read before the worker locks the member, forum and post rows: a slow mail folder
+/// must not hold up posting in that forum, or every write on SQLite. A draft that cannot be read fails the attempt
+/// before any of those rows is read.
+#[tokio::test]
+async fn content_mail_reads_its_draft_before_taking_locks() {
+    let f = Fixture::new().await;
+    let db = &f.f.db;
+    let now = identity::now();
+    content::seed_forums(db).await.unwrap();
+    let fid = f.forum("daily").await;
+    f.member(8881, true, true).await;
+    f.mail_new_threads(8881).await;
+    f.follow_forum(8881, fid, true).await;
+    f.publish(fid, now).await;
+    f.drain_notifications(now + 1).await;
+    let eventid = f.event(8881, "notification.email").await.eventid;
+    std::fs::create_dir_all(f.draft(eventid)).unwrap();
+    let profile = std::sync::Arc::new(RequestProfile::new());
+    let report = trace::scope(profile.clone(), Box::pin(f.deliver(now + 2))).await;
+    assert_eq!((report.claimed, report.failed), (1, 1), "{report:?}");
+    // SQLite records the statements without `FOR UPDATE`, so look for any read of those rows: the write transaction
+    // locks them as it reads them.
+    let locks: Vec<String> = profile
+        .snapshot()
+        .into_iter()
+        .filter(|record| {
+            record.source == QuerySource::Application
+                && ["gonof_common_member", "gonof_forum_"]
+                    .iter()
+                    .any(|table| record.sql.contains(table))
+        })
+        .map(|record| record.sql)
+        .collect();
+    assert!(
+        locks.is_empty(),
+        "locked before reading the draft: {locks:?}"
+    );
+    f.f.cleanup().await.unwrap();
+}
+
+/// A new thread in a child forum reaches a member who follows the child forum and its parent once. The mail records
+/// both follows, so undoing one before it goes out does not drop the mail the other still asks for.
+#[tokio::test]
+async fn content_mail_survives_undoing_one_of_two_overlapping_follows() {
+    let f = Fixture::new().await;
+    let db = &f.f.db;
+    let now = identity::now();
+    content::seed_forums(db).await.unwrap();
+    let (parent, child) = (f.forum("daily").await, f.forum("meta").await);
+    db::query("UPDATE gonof_forum_forum SET parent_fid=? WHERE fid=?")
+        .bind(parent)
+        .bind(child)
+        .execute(db.executor())
+        .await
+        .unwrap();
+    f.member(8891, true, true).await;
+    f.mail_new_threads(8891).await;
+    f.follow_forum(8891, child, true).await;
+    f.follow_forum(8891, parent, true).await;
+    f.publish(child, now).await;
+    f.drain_notifications(now + 1).await;
+    // The child forum's followers come first, then the parent's: one mail for the member.
+    let event = f.event(8891, "notification.email").await;
+    f.follow_forum(8891, child, false).await;
+    f.deliver(now + 2).await;
+    let event = f
+        .events(8891, "notification.email")
+        .await
+        .into_iter()
+        .find(|row| row.eventid == event.eventid)
+        .unwrap();
+    assert_eq!(
+        (event.status.as_str(), event.last_error.as_deref()),
+        ("sent", None)
+    );
+    assert!(f.delivered(event.eventid).is_some());
     f.f.cleanup().await.unwrap();
 }

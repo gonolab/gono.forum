@@ -27,15 +27,31 @@ pub(super) async fn deliver(
         || payload.quote_pids.iter().any(|pid| *pid <= 0)
         || payload.candidates.is_empty()
         || payload.email_hash.len() != 64
-        || payload.follow.as_ref().is_some_and(|follow| {
-            follow.id <= 0
-                || follow.target <= 0
-                || !matches!(follow.kind, Kind::Thread | Kind::Forum)
-        })
+        || payload.more_follows.len() > delivery::MORE_FOLLOWS
+        || payload
+            .follow
+            .iter()
+            .chain(&payload.more_follows)
+            .any(|follow| {
+                follow.id <= 0
+                    || follow.target <= 0
+                    || !matches!(follow.kind, Kind::Thread | Kind::Forum)
+            })
     {
         return Ok(Delivery::Skipped("content mail payload is malformed"));
     }
     let db = &mailer.database;
+    // The draft of an earlier attempt fixes the notification kind. It is read now, before any lock: a slow mail folder
+    // must not hold up the member, forum and post rows below, nor every other write on SQLite.
+    let draft = mailer.read_prepared(mail)?;
+    let prepared_kind = draft
+        .as_ref()
+        .map(|draft| {
+            draft
+                .content_kind
+                .context("the prepared content mail has no notification kind")
+        })
+        .transpose()?;
     let mut pids: BTreeSet<i64> = payload.quote_pids.iter().copied().collect();
     pids.insert(payload.pid);
     let discovered = delivery::discover(db, &pids).await?;
@@ -149,7 +165,12 @@ pub(super) async fn deliver(
     {
         candidates.insert(Kind::Quote);
     }
-    if let Some(follow) = &payload.follow {
+    // Any one follow that still stands keeps the mail: one publication reaches a member who follows both a child
+    // forum and its parent once, with both follows recorded.
+    for follow in payload.follow.iter().chain(&payload.more_follows) {
+        if candidates.contains(&follow.kind) {
+            continue;
+        }
         let table = match follow.kind {
             Kind::Thread if !target.first && follow.target == target.tid => {
                 Some(("gonof_home_thread_follow", "tid"))
@@ -180,14 +201,6 @@ pub(super) async fn deliver(
         }
     }
     let prefs = preferences::locked(db, &mut tx, payload.uid).await?;
-    let prepared_kind = mailer
-        .read_prepared(mail)?
-        .map(|draft| {
-            draft
-                .content_kind
-                .context("the prepared content mail has no notification kind")
-        })
-        .transpose()?;
     let Some(kind) = selected_kind(&prefs, &candidates, prepared_kind) else {
         tx.commit().await?;
         // Empty candidates (or the finalized kind not among the candidates) means the reply, quote, mention or follow
@@ -255,7 +268,7 @@ pub(super) async fn deliver(
     )
     .await?;
     let draft = mailer
-        .prepare_with_kind(mail, lang, &site, subject, body, Some(kind))
+        .prepare_from(draft, mail, lang, &site, subject, body, Some(kind))
         .await?;
     mailer.publish_prepared(settings, mail, &to, &draft).await?;
     confirm_sent(db, mail).await?;

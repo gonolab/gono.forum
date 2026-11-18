@@ -210,6 +210,9 @@ mod tests {
                 "Hello, world",
                 "https://forum.example.test/brand/email/12/source",
             )),
+            event_key: "test:42".into(),
+            aggregate_id: 1,
+            dateline: 1700000000,
         };
         let settings = MailSettings {
             from_address: "sender@example.test".into(),
