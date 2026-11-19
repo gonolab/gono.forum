@@ -551,10 +551,11 @@ async fn a_thread_page_counts_as_read_up_to_its_last_whole_floor() {
         let html = page(&app, &path, None).await;
         let data = block(&html);
         assert_eq!(data["thread"]["read_through"], expected, "{path}");
-        // The replies section carries it too, for the fragment a posted reply swaps in.
+        // The replies section carries it too, for the fragment a posted reply swaps in, with the thread's highest floor
+        // for the timeline and progress modules (docs/skins.md, "Behavior modules").
         assert!(
             html.contains(&format!(
-                "id=\"topic-replies\" aria-labelledby=\"replies-heading\" data-read-through=\"{expected}\">"
+                "id=\"topic-replies\" aria-labelledby=\"replies-heading\" data-read-through=\"{expected}\" data-last-position=\"79\">"
             )),
             "{path}"
         );

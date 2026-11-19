@@ -2,7 +2,8 @@
 // fills as the reader moves through the thread, and in the thread.outline progress blocks the floor being read out of
 // all of them, with its page marked. Without it the block is the list of the thread's pages. The bar is decoration
 // (hidden from screen readers); the block's <progress> element says the same in words. Data comes from the page data
-// block: the page's floors, and the outline record of a progress or timeline block for the thread's last floor.
+// block: the page's floors, and the outline record of a progress or timeline block of this thread for its last floor;
+// after a reply posted in place, the replies section's data-last-position. Blocks of another thread are left as lists.
 (() => {
   if (window.gonofBehaviorProgress) return;
   window.gonofBehaviorProgress = true;
@@ -30,6 +31,12 @@
     return Number.isSafeInteger(position) ? position : null;
   }
 
+  // The thread's highest floor as the replies section says it, which a reply posted in place swaps in; 0 when unknown.
+  function lastPosition() {
+    const value = Number(document.getElementById('topic-replies')?.dataset.lastPosition);
+    return Number.isSafeInteger(value) && value > 0 ? value : 0;
+  }
+
   let started = null;
   function start() {
     // Once per page: at once when this deferred script runs, and again at gonof:ready, which comes after.
@@ -40,10 +47,12 @@
     if (!enabled()) return;
     const data = pageData();
     if (data?.type !== 'thread') return;
-    // The thread's last floor: from an outline block when the page has one, else at least the replies and this page.
-    const outline = Object.values(data.blocks || {}).find(envelope => envelope?.source === 'thread.outline')?.items?.[0];
+    // The thread's last floor: from an outline block of this thread when the page has one, else at least the replies
+    // and this page.
+    const outline = Object.values(data.blocks || {})
+      .find(envelope => envelope?.source === 'thread.outline' && envelope.items?.[0]?.tid === data.tid)?.items?.[0];
     const floors = data.thread?.floors || [];
-    const last = Math.max(outline?.last_position || 0, (data.thread?.replies || 0) + 1, ...floors.map(floor => floor.position));
+    const last = Math.max(outline?.last_position || 0, lastPosition(), (data.thread?.replies || 0) + 1, ...floors.map(floor => floor.position));
     const perPage = Math.max(1, outline?.per_page || 1);
     const bar = document.createElement('div');
     bar.className = 'reading-progress';
@@ -54,6 +63,7 @@
     document.body.append(bar);
     const blocks = [];
     for (const section of document.querySelectorAll('.block--thread-outline.block--progress[data-outline-tid]:not([data-enhanced])')) {
+      if (Number(section.dataset.outlineTid) !== data.tid) continue;
       const line = document.createElement('p');
       line.className = 'outline-progress';
       const text = document.createElement('span');
@@ -100,6 +110,15 @@
   addEventListener('resize', () => { if (state && !frame) frame = requestAnimationFrame(follow); });
   document.addEventListener('gonof:ready', start);
   // A boosted navigation brings a new page into the same <body>.
-  document.addEventListener('gonof:swap', event => { if (event.detail?.target === document.body) { started = null; start(); } });
+  // A reply posted in place swaps the replies section, the page data block staying as it was: take the thread's highest
+  // floor from the section.
+  document.addEventListener('gonof:swap', event => {
+    if (event.detail?.target === document.body) { started = null; start(); return; }
+    const last = lastPosition();
+    if (!state || last <= state.last) return;
+    state.last = last;
+    for (const block of state.blocks) block.meter.max = last;
+    follow();
+  });
   if (document.readyState !== 'loading') start();
 })();

@@ -967,6 +967,8 @@ async fn replies_resolve_root_and_child_pages_with_native_and_htmx_navigation() 
     root.status(StatusCode::OK);
     assert_eq!(root.headers["HX-Push-Url"], format!("{path}#floor-2"));
     assert!(root.html.contains("id=\"floor-2\""));
+    // The swapped replies section says the thread's new highest floor (docs/skins.md, "Behavior modules").
+    assert!(root.html.contains("data-last-position=\"2\">"));
     assert!(
         root.html
             .contains("id=\"topic-reply-count\" hx-swap-oob=\"true\">1 reply</span>")
@@ -995,6 +997,7 @@ async fn replies_resolve_root_and_child_pages_with_native_and_htmx_navigation() 
         format!("{path}?sub_root={root_pid}&sub_page=1#floor-3")
     );
     assert!(child1.html.contains("id=\"floor-3\""));
+    assert!(child1.html.contains("data-last-position=\"3\">"));
     let child_pid = f
         .scalar("SELECT pid FROM gonof_forum_post WHERE position=3")
         .await;

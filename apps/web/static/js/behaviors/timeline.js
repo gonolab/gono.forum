@@ -3,7 +3,8 @@
 // around it. Without it (no JavaScript, or a skin that does not enable it) the block is a list of the thread's pages
 // with the date each begins. Data comes from the page data block: the block's outline record and the page's floors.
 // Keyboard: arrows move one floor, Page Up and Page Down one page, Home and End to the ends; Enter goes there and
-// Escape goes back to the floor being read. Scrolling follows prefers-reduced-motion.
+// Escape goes back to the floor being read. Scrolling follows prefers-reduced-motion. A block of another thread than
+// the page's (`tid` set to an id) only opens that thread's floors and does not follow the reading.
 (() => {
   if (window.gonofBehaviorTimeline) return;
   window.gonofBehaviorTimeline = true;
@@ -32,11 +33,18 @@
     return Number.isSafeInteger(position) ? position : null;
   }
 
+  // The thread's highest floor as the replies section says it, which a reply posted in place swaps in; 0 when unknown.
+  function lastPosition() {
+    const value = Number(document.getElementById('topic-replies')?.dataset.lastPosition);
+    return Number.isSafeInteger(value) && value > 0 ? value : 0;
+  }
+
   function build(section, data) {
     const outline = data.blocks?.[section.dataset.block]?.items?.[0];
     if (!outline || !(outline.last_position > 1)) return null;
     const base = data.site?.base || '';
-    const last = outline.last_position;
+    const own = outline.tid === data.tid;
+    const last = own ? Math.max(outline.last_position, lastPosition()) : outline.last_position;
     const perPage = Math.max(1, outline.per_page || 1);
     // The flat view's page of a floor, as the server pages it: the opening post and the first replies on page 1.
     const pageOf = position => Math.floor(Math.max(0, position - 2) / perPage) + 1;
@@ -100,18 +108,24 @@
     track.append(rail, handle);
     box.append(end(outline.first.position, outline.first.at, 'first'), track, end(outline.last.position, outline.last.at, 'last'), hint);
 
-    const state = { section, box, track, handle, fill, position, date, last, perPage, href, dateOf, reading: 1, preview: null };
+    const state = { section, box, track, handle, fill, position, date, own, last, perPage, href, dateOf, reading: 1, preview: null, grab: 0, pressed: null };
     // The static page list stays for readers of the markup; the scrubber replaces it on screen.
     const list = section.querySelector('.block-outline__pages');
     if (list) list.hidden = true;
     section.append(box);
     section.dataset.enhanced = 'timeline';
 
+    // Where on the handle it was taken, so it moves with the pointer instead of jumping to put its top there; a press
+    // on the rail takes the handle by its middle. Pressing the handle and letting go without moving it goes nowhere.
     track.addEventListener('pointerdown', event => {
       if (event.button !== 0) return;
       event.preventDefault();
       handle.focus({ preventScroll: true });
       track.setPointerCapture(event.pointerId);
+      const box = handle.getBoundingClientRect();
+      const onHandle = event.clientY >= box.top && event.clientY <= box.bottom;
+      state.grab = onHandle ? event.clientY - box.top : box.height / 2;
+      state.pressed = onHandle ? state.preview ?? state.reading : null;
       preview(state, fromPointer(state, event));
     });
     track.addEventListener('pointermove', event => {
@@ -120,7 +134,10 @@
     track.addEventListener('pointerup', event => {
       if (!track.hasPointerCapture(event.pointerId)) return;
       track.releasePointerCapture(event.pointerId);
-      go(state, state.preview ?? state.reading);
+      const target = state.preview ?? state.reading;
+      if (state.pressed === target) { state.preview = null; draw(state); }
+      else go(state, target);
+      state.pressed = null;
     });
     handle.addEventListener('keydown', event => {
       const current = state.preview ?? state.reading;
@@ -140,9 +157,12 @@
     return state;
   }
 
+  // The handle's top moves over the track's height less its own (behaviors.css), so that is the length a floor share is
+  // measured against.
   function fromPointer(state, event) {
     const rect = state.track.getBoundingClientRect();
-    const share = Math.min(1, Math.max(0, (event.clientY - rect.top) / Math.max(1, rect.height)));
+    const travel = Math.max(1, rect.height - state.handle.getBoundingClientRect().height);
+    const share = Math.min(1, Math.max(0, (event.clientY - state.grab - rect.top) / travel));
     return Math.round(1 + share * (state.last - 1));
   }
 
@@ -159,14 +179,15 @@
     const date = state.dateOf(position);
     state.position.textContent = t('js-timeline-short', { position, last: state.last });
     state.date.textContent = date;
+    state.handle.setAttribute('aria-valuemax', String(state.last));
     state.handle.setAttribute('aria-valuenow', String(position));
     state.handle.setAttribute('aria-valuetext', date ? t('js-timeline-value', { position, last: state.last, date }) : t('js-timeline-value-plain', { position, last: state.last }));
   }
 
-  // Goes to a floor: scrolls to it on this page, else opens its page of the flat view.
+  // Goes to a floor: scrolls to it when it is on this page of the same thread, else opens its page of the flat view.
   function go(state, position) {
     state.preview = null;
-    const floor = document.getElementById(`floor-${position}`);
+    const floor = state.own ? document.getElementById(`floor-${position}`) : null;
     if (floor) {
       floor.scrollIntoView({ block: 'start', behavior: still() ? 'auto' : 'smooth' });
       history.replaceState(history.state, '', `${location.pathname}${location.search}#floor-${position}`);
@@ -182,10 +203,22 @@
     const position = readingFloor();
     if (position === null) return;
     for (const state of timelines) {
-      if (!state.section.isConnected) continue;
+      if (!state.section.isConnected || !state.own) continue;
       state.reading = Math.min(state.last, position);
       if (state.preview === null) draw(state);
     }
+  }
+
+  // A reply posted in place swaps the replies section, the page data block staying as it was: the timelines of this
+  // thread take its highest floor from the section.
+  function extend() {
+    const last = lastPosition();
+    for (const state of timelines) {
+      if (!state.section.isConnected || !state.own || last <= state.last) continue;
+      state.last = last;
+      draw(state);
+    }
+    follow();
   }
 
   let started = null;
@@ -208,7 +241,10 @@
   addEventListener('resize', () => { if (timelines.length && !frame) frame = requestAnimationFrame(follow); });
   document.addEventListener('gonof:ready', start);
   // A boosted navigation brings a new page into the same <body>.
-  document.addEventListener('gonof:swap', event => { if (event.detail?.target === document.body) { started = null; start(); } });
+  document.addEventListener('gonof:swap', event => {
+    if (event.detail?.target === document.body) { started = null; start(); }
+    else if (timelines.length) extend();
+  });
   // Deferred scripts run once the page is parsed; one added by a boosted navigation later. Either way, start now.
   if (document.readyState !== 'loading') start();
 })();

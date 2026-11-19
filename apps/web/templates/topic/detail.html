@@ -94,9 +94,9 @@
       </div>
     </article>
 
-    {# Re-rendered alone after an HTMX reply; the reply form swaps #topic-replies (outerHTML). data-read-through is the floor this page counts as read up to, for site.js after a swap (docs/skins.md, "Unread"). #}
+    {# Re-rendered alone after an HTMX reply; the reply form swaps #topic-replies (outerHTML). data-read-through is the floor this page counts as read up to, for site.js after a swap (docs/skins.md, "Unread"); data-last-position the thread's highest floor, for the timeline and progress modules after a swap (docs/skins.md, "Behavior modules"). #}
     {%- block reply_fragment %}
-    <section class="replies" id="topic-replies" aria-labelledby="replies-heading" data-read-through="{{ read_through }}">
+    <section class="replies" id="topic-replies" aria-labelledby="replies-heading" data-read-through="{{ read_through }}" data-last-position="{{ thread.max_position }}">
       {% include "partials/highlights.html" %}
       <div class="replies-pane">
         <div class="replies-head">

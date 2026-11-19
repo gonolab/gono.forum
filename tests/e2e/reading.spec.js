@@ -240,3 +240,66 @@ test('the open phone drawer leaves the page it covers inert', async () => {
     await context.close();
   }
 });
+
+test('pressing the timeline thumb without dragging stays on the floor being read', async ({ page }) => {
+  await page.goto(`${instance.origin}/thread-${LONG}`);
+  const handle = page.locator('[data-block="outline"] .timeline__handle');
+  await expect(handle).toHaveAttribute('aria-valuemax', '79');
+  await expect(handle).toHaveAttribute('aria-valuenow', '1');
+  expect(await page.evaluate(() => scrollY)).toBe(0);
+  const box = await handle.boundingBox();
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.waitForTimeout(300);
+  await expect(handle).toHaveAttribute('aria-valuenow', '1');
+  expect(await page.evaluate(() => scrollY)).toBe(0);
+  // Dragging moves the thumb by as much as the pointer: the thumb's top to the track's end is its whole travel.
+  const track = await page.locator('[data-block="outline"] .timeline__track').boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + (track.height - box.height) / 2, { steps: 4 });
+  await expect(handle).toHaveAttribute('aria-valuenow', '40');
+  await page.mouse.move(box.x + box.width / 2, track.y + track.height + 50, { steps: 4 });
+  await expect(handle).toHaveAttribute('aria-valuenow', '79');
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+});
+
+test('a timeline of another thread opens that thread', async ({ page }) => {
+  await page.goto(`${instance.origin}/thread-${SHORT}`);
+  // This page has floors 1 to 7 too.
+  await expect(page.locator('#floor-2')).toHaveCount(1);
+  const handle = page.locator('[data-block="outline-other"] .timeline__handle');
+  await expect(handle).toHaveAttribute('aria-valuemax', '79');
+  await handle.focus();
+  await handle.press('ArrowDown');
+  await expect(handle).toHaveAttribute('aria-valuenow', '2');
+  await Promise.all([page.waitForURL(`${instance.origin}/thread-${LONG}?view=flat#floor-2`), handle.press('Enter')]);
+});
+
+test('the timeline and progress blocks take in a reply posted in place', async () => {
+  const context = await currentBrowser.newContext({ storageState: adminState });
+  const page = await context.newPage();
+  try {
+    await page.goto(`${instance.origin}/thread-${OTHER}`);
+    const handle = page.locator('[data-block="outline"] .timeline__handle');
+    const meter = page.locator('[data-block="outline-pages"] progress');
+    await expect(handle).toHaveAttribute('aria-valuemax', '7');
+    expect(await meter.evaluate((element) => element.max)).toBe(7);
+    await expect(page.locator('#topic-replies')).toHaveAttribute('data-last-position', '7');
+    await replyOn(page, OTHER, 'An eighth floor for the timeline check.');
+    await expect(page.locator('#topic-replies')).toHaveAttribute('data-last-position', '8');
+    await expect(handle).toHaveAttribute('aria-valuemax', '8');
+    await expect.poll(() => meter.evaluate((element) => element.max)).toBe(8);
+    await handle.focus();
+    await handle.press('End');
+    await expect(handle).toHaveAttribute('aria-valuenow', '8');
+    // Enter scrolls to the new floor on this page.
+    await handle.press('Enter');
+    await expect.poll(() => page.evaluate(() => location.hash)).toBe('#floor-8');
+    expect(page.url()).toContain(`/thread-${OTHER}`);
+    // The timeline of another thread keeps its own floors.
+    await expect(page.locator('[data-block="outline-other"] .timeline__handle')).toHaveAttribute('aria-valuemax', '79');
+  } finally {
+    await context.close();
+  }
+});
