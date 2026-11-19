@@ -89,7 +89,7 @@ Endpoints used by HTMX return HTML fragments, for example:
 
 | Action | Request | Returns |
 | --- | --- | --- |
-| Reply to the thread | `POST /api/thread-<id>/comments` | the new top-level reply |
+| Reply to the thread | `POST /api/thread-<id>/comments` | the new top-level reply; the reply count in the thread header and the activity card come along out of band, so a red packet claim or lottery entry made by the reply shows at once |
 | Reply to a reply | `POST /api/posts/<root pid>/sub-comments` | the new nested reply |
 | Like a reply | `POST /api/comments/<pid>/vote` | the updated reaction control |
 | Favorite a thread | `POST /api/thread-<id>/star` | the updated favorite control |

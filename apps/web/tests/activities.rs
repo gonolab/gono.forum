@@ -482,7 +482,7 @@ async fn mysql_activity_ledger_and_participation_contract() {
         },
     )
     .await;
-    let poll_card = activities::card(db, poll.tid, Some(3))
+    let poll_card = activities::card(db, poll.tid, Some(activities::CardViewer::participant(3)))
         .await
         .unwrap()
         .unwrap();
@@ -880,7 +880,7 @@ async fn mysql_activities_follow_inherited_member_visibility() {
     let bounty = topic(db, members, paid(1, 20, 1)).await;
     let answer = reply(db, 3, bounty.tid, None).await;
     assert!(
-        activities::card(db, bounty.tid, Some(4))
+        activities::card(db, bounty.tid, Some(activities::CardViewer::participant(4)))
             .await
             .unwrap()
             .is_some()
@@ -923,7 +923,7 @@ async fn mysql_activities_follow_inherited_member_visibility() {
     .await
     .unwrap();
     assert_eq!(
-        activities::card(db, poll.tid, Some(3))
+        activities::card(db, poll.tid, Some(activities::CardViewer::participant(3)))
             .await
             .unwrap()
             .unwrap()

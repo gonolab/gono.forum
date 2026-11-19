@@ -484,35 +484,34 @@ async fn vote_inner(
         crate::i18n::current().activity_error_not_poll(),
     )?;
     let serialized = serde_json::to_string(&choices)?;
+    // The key is recorded in the request ledger shared with posting, likes and accepting (docs/api.md, "Idempotency
+    // keys"): the same key and ballot replay while the key is remembered; the key of any other request is refused.
+    let hash = crate::identity::token_hash(
+        &serde_json::json!({"operation":"poll.vote","tid":tid,"choices":choices}).to_string(),
+    );
     if let Some(row) = crate::db::query(
-        "SELECT choices,request_key FROM gonof_forum_poll_vote WHERE tid=? AND uid=?",
+        "SELECT request_hash FROM gonof_forum_post_request WHERE uid=? AND request_key=?",
     )
-    .bind(tid)
     .bind(actor.uid)
+    .bind(key)
     .fetch_optional(db.observe(&mut *tx))
     .await?
     {
         valid(
-            crate::db::text(&row, "choices")? == serialized
-                && crate::db::text(&row, "request_key")? == key,
-            crate::i18n::current().activity_error_voted(),
+            crate::db::text(&row, "request_hash")? == hash,
+            crate::i18n::current().activity_error_request_reused(),
         )?;
         tx.commit().await?;
         return Ok(());
     }
-    // A key names one request (docs/api.md, "Idempotency keys"): the same key already counted in another poll is a
-    // different request, not a retry. The member's votes are found through the `uid` index.
-    let reused: Option<i64> = crate::db::query_scalar(
-        "SELECT tid FROM gonof_forum_poll_vote WHERE uid=? AND request_key=? AND tid<>? LIMIT 1",
-    )
-    .bind(actor.uid)
-    .bind(key)
-    .bind(tid)
-    .fetch_optional(db.observe(&mut *tx))
-    .await?;
     valid(
-        reused.is_none(),
-        crate::i18n::current().activity_error_request_reused(),
+        crate::db::query("SELECT uid FROM gonof_forum_poll_vote WHERE tid=? AND uid=?")
+            .bind(tid)
+            .bind(actor.uid)
+            .fetch_optional(db.observe(&mut *tx))
+            .await?
+            .is_none(),
+        crate::i18n::current().activity_error_voted(),
     )?;
     valid(
         readable_thread(&thread)?
@@ -534,6 +533,7 @@ async fn vote_inner(
         choices.iter().all(|x| available.contains(x)),
         crate::i18n::current().activity_error_vote_option(),
     )?;
+    // `request_key` keeps the key the ballot was cast with; replays are decided by the request ledger above.
     crate::db::query(
         "INSERT INTO gonof_forum_poll_vote(tid,uid,choices,request_key,dateline) VALUES(?,?,?,?,?)",
     )
@@ -557,6 +557,16 @@ async fn vote_inner(
         .bind(tid)
         .execute(db.observe(&mut *tx))
         .await?;
+    crate::identity::rules::insert_post_request(
+        db,
+        &mut tx,
+        actor.uid,
+        key,
+        &hash,
+        thread.try_get("first_pid")?,
+        now,
+    )
+    .await?;
     tx.commit().await?;
     Ok(())
 }

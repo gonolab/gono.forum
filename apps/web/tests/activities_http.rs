@@ -82,7 +82,22 @@ impl Fixture {
         fields: &[(&str, &str)],
         csrf: bool,
     ) -> Response {
+        self.request_with(method, path, token, fields, csrf, &[])
+            .await
+    }
+    async fn request_with(
+        &self,
+        method: &str,
+        path: &str,
+        token: Option<&str>,
+        fields: &[(&str, &str)],
+        csrf: bool,
+        headers: &[(&str, &str)],
+    ) -> Response {
         let mut request = Request::builder().method(method).uri(path);
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
         if let Some(token) = token {
             request = request.header(header::COOKIE, format!("gonof_session__port58833={token}"));
         }
@@ -557,5 +572,88 @@ async fn votes_reach_cached_anonymous_pages_without_bumping_cache_versions() {
         anonymous.card()
     );
     assert!(anonymous.card().contains("Alpha: 1 vote"));
+    f.services.cleanup_ref().await.unwrap();
+}
+
+/// A reply posted in the page (HTMX) swaps only the replies section; the activity card comes along out of band, so the
+/// red packet share the reply just claimed shows at once instead of the card's state before the reply.
+#[tokio::test]
+async fn an_in_page_reply_refreshes_the_activity_card_out_of_band() {
+    let f = Fixture::new().await;
+    f.post(
+        "/manage/credits/adjust",
+        &f.admin,
+        &[
+            ("uid", "1"),
+            ("amount", "100"),
+            ("reason", "red packet budget"),
+            ("request_key", &identity::random_token()),
+        ],
+    )
+    .await
+    .status(StatusCode::SEE_OTHER);
+    let deadline = chrono::DateTime::<chrono::Utc>::from_timestamp(identity::now() + 9 * 3_600, 0)
+        .unwrap()
+        .format("%Y-%m-%dT%H:%M")
+        .to_string();
+    f.post(
+        "/new",
+        &f.admin,
+        &[
+            ("fid", f.fid.as_str()),
+            ("category", "2"),
+            ("title", "Red packet in the page"),
+            ("body", "Reply to claim a share"),
+            ("request_key", &identity::random_token()),
+            ("budget", "12"),
+            ("shares", "3"),
+            ("distribution", "equal"),
+            ("deadline", deadline.as_str()),
+        ],
+    )
+    .await
+    .status(StatusCode::SEE_OTHER);
+    let tid = f.scalar("SELECT MAX(tid) FROM gonof_forum_thread").await;
+    let path = format!("/thread-{tid}");
+    let page = f.get(&path, Some(&f.member)).await;
+    assert!(page.card().contains("3 shares, 3 left."));
+    assert!(
+        page.html.contains("id=\"activity-card\""),
+        "the card on the page carries the id the fragment replaces"
+    );
+    assert!(!page.html.contains("hx-swap-oob=\"true\" hx-boost"));
+    let key = identity::random_token();
+    let reply = f
+        .request_with(
+            "POST",
+            &format!("/api/thread-{tid}/comments"),
+            Some(&f.member),
+            &[
+                ("body", "Claiming a share from the page"),
+                ("request_key", &key),
+                ("location", &path),
+            ],
+            true,
+            &[("HX-Request", "true")],
+        )
+        .await;
+    reply.status(StatusCode::OK);
+    assert!(reply.html.contains("id=\"topic-replies\""));
+    let card = reply
+        .html
+        .split("id=\"activity-card\"")
+        .nth(1)
+        .expect("the fragment carries the activity card")
+        .split("</section>")
+        .next()
+        .unwrap();
+    assert!(card.contains("hx-swap-oob=\"true\""), "{card}");
+    assert!(card.contains("3 shares, 2 left."), "{card}");
+    assert!(card.contains("You received 4"), "{card}");
+    assert_eq!(
+        reply.html.matches("id=\"activity-card\"").count(),
+        1,
+        "one card in the fragment"
+    );
     f.services.cleanup_ref().await.unwrap();
 }

@@ -331,7 +331,10 @@ async fn mysql_click_entry_review_and_early_draw_with_mixed_prizes() {
     activities::restore(db, actor(2), tid, 5, NOW + 8)
         .await
         .unwrap();
-    let card = activities::card(db, tid, Some(4)).await.unwrap().unwrap();
+    let card = activities::card(db, tid, Some(activities::CardViewer::participant(4)))
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!((card.entries, card.excluded), (6, 1));
     assert_eq!(
         card.my_excluded, "did not share",
@@ -339,19 +342,22 @@ async fn mysql_click_entry_review_and_early_draw_with_mixed_prizes() {
     );
     assert_eq!(card.requirements.len(), 2);
     assert!(card.review && card.early_draw && card.entry_mode == "click");
-    let other = activities::card(db, tid, Some(5)).await.unwrap().unwrap();
+    let other = activities::card(db, tid, Some(activities::CardViewer::participant(5)))
+        .await
+        .unwrap()
+        .unwrap();
     assert!(other.my_excluded.is_empty() && other.my_entry && !other.can_enter);
     let anonymous = activities::card(db, tid, None).await.unwrap().unwrap();
     assert!(anonymous.my_excluded.is_empty() && !anonymous.can_draw);
     assert!(
-        activities::card(db, tid, Some(9))
+        activities::card(db, tid, Some(activities::CardViewer::participant(9)))
             .await
             .unwrap()
             .unwrap()
             .can_enter
     );
     assert!(
-        activities::card(db, tid, Some(2))
+        activities::card(db, tid, Some(activities::CardViewer::participant(2)))
             .await
             .unwrap()
             .unwrap()
@@ -476,10 +482,14 @@ async fn mysql_click_entry_review_and_early_draw_with_mixed_prizes() {
         "one freeze row, and one row out and one in for each of the two point winners"
     );
 
-    let card = activities::card(db, tid, Some(winners[0]))
-        .await
-        .unwrap()
-        .unwrap();
+    let card = activities::card(
+        db,
+        tid,
+        Some(activities::CardViewer::participant(winners[0])),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(
         (card.my_prize.as_str(), card.my_prize_kind.as_str()),
         ("First prize", "code")
@@ -494,6 +504,7 @@ async fn mysql_click_entry_review_and_early_draw_with_mixed_prizes() {
         winners
             .iter()
             .copied()
+            .map(Some)
             .zip([1, 2, 2, 3])
             .collect::<Vec<_>>()
     );
@@ -1012,7 +1023,10 @@ async fn mysql_codes_stay_private_can_be_corrected_and_survive_rekey() {
 
     // The plaintext is nowhere else: logs, audit, mail queue, activity card.
     for uid in [None, Some(first), Some(2)] {
-        let card = activities::card(db, tid, uid).await.unwrap().unwrap();
+        let card = activities::card(db, tid, uid.map(activities::CardViewer::participant))
+            .await
+            .unwrap()
+            .unwrap();
         assert!(!serde_json::to_string(&card).unwrap().contains(SECRET));
     }
     let audit: Vec<String> = db::query_scalar("SELECT data FROM gonof_common_log")

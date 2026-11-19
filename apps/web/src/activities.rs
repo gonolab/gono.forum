@@ -30,7 +30,9 @@ pub use tip::{
     MAX_TIERS, RECENT_TIPPERS, TipSettings, TipSummary, Tipper, amounts_text, can_receive,
     parse_amounts, save_tip_settings, tip, tip_live, tip_summary, tipped,
 };
-pub use views::{ActivityCard, CardPrize, PollOption, Requirement, Winner, card, card_for_thread};
+pub use views::{
+    ActivityCard, CardPrize, CardViewer, PollOption, Requirement, Winner, card, card_for_thread,
+};
 pub use worker::{DueBackoff, process_due, process_due_with};
 
 use crate::db::Tx;
@@ -550,7 +552,7 @@ async fn lock_thread(db: &Database, tx: &mut Tx<'_>, tid: i64) -> Result<crate::
             .fetch_one(db.observe(&mut **tx))
             .await?;
     }
-    let row=crate::db::query(&format!("SELECT t.authorid,t.deleted_at,t.displayorder,t.visibility,t.publication_state,t.readperm,{},p.invisible AS first_invisible,p.deleted_at AS first_deleted FROM gonof_forum_thread t JOIN gonof_forum_post p ON p.first_tid=t.tid {} WHERE t.tid=? FOR UPDATE", crate::content::copies::FORUM_SCOPE_COLUMNS, crate::content::copies::FORUM_SCOPE_JOINS)).bind(tid).fetch_optional(db.observe(&mut **tx)).await?.ok_or_else(||problem(crate::i18n::current().topic_error_not_found()))?;
+    let row=crate::db::query(&format!("SELECT t.authorid,t.deleted_at,t.displayorder,t.visibility,t.publication_state,t.readperm,{},p.pid AS first_pid,p.invisible AS first_invisible,p.deleted_at AS first_deleted FROM gonof_forum_thread t JOIN gonof_forum_post p ON p.first_tid=t.tid {} WHERE t.tid=? FOR UPDATE", crate::content::copies::FORUM_SCOPE_COLUMNS, crate::content::copies::FORUM_SCOPE_JOINS)).bind(tid).fetch_optional(db.observe(&mut **tx)).await?.ok_or_else(||problem(crate::i18n::current().topic_error_not_found()))?;
     Ok(row)
 }
 /// Whether a member can read this activity thread: public or members-only, not hidden, published. The forum status and

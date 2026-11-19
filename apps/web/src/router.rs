@@ -3099,7 +3099,7 @@ async fn topic_response(
         breadcrumb,
         rows,
         highlights,
-        activity_html: match activities::card_html(state, card) {
+        activity_html: match activities::card_html(state, card, fragment) {
             Ok(v) => v,
             Err(e) => return database_error(state, e),
         },

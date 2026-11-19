@@ -221,7 +221,9 @@ Redis read for every visitor. `members.recent`, `moderators`, `site.stats` and `
 - **Moderator check**: no query. Role, frozen flag and account state come from the member row that authentication
   read; appointments come from the moderator roster (`identity::manages_forum`, see "Process caches").
 - **Activity card**: `activities::card_for_thread` reads nothing for an ordinary thread (category 0); otherwise the
-  activity row and the detail table of its kind. The bounty accept button reuses that row.
+  activity row and the detail table of its kind, then the kind's counts and the viewer's own ballot or claim, all in
+  one read-only transaction so the totals and the viewer's status come from the same moment. The bounty accept button
+  reuses that row.
 - **Reader state** (members only): `interaction::viewer_thread_state` reads favorite, follow, blocked by the thread
   author, downvote and tipped in one statement anchored on the thread's primary key, each join a primary- or
   unique-key lookup:

@@ -296,8 +296,9 @@
         {%- endif %}
       </section>
       {%- if is_fragment %}
-      {# Out-of-band copy for the count in the thread header; only in the fragment, so ids stay unique on the full page. #}
+      {# Out-of-band copies for the count in the thread header and the activity card (#activity-card, rendered with hx-swap-oob in the fragment); only in the fragment, so ids stay unique on the full page. #}
       <span class="thread-stats__count" id="topic-reply-count" hx-swap-oob="true">{{ p.t.topic_reply_count(thread.reply_count) }}</span>
+      {{ activity_html|safe }}
       {%- endif %}
     </section>
     {%- endblock %}

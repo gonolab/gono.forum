@@ -1,0 +1,285 @@
+//! Activity cards, poll ballots, check-ins and prize history: what a member is shown agrees with what the activity
+//! transactions record.
+use gono_forum_web::{
+    activities::{self, ActivitySpec},
+    content::{
+        self,
+        writes::{ContentWriter, NewReply, NewThread, Published, WriteConfig},
+    },
+    db::{self, Database},
+    identity::{self, Actor},
+    test_support::TestFixture,
+};
+
+const NOW: i64 = 1_800_000_000;
+
+fn actor(uid: i64) -> Actor {
+    Actor {
+        uid,
+        credentials_version: 1,
+        api_key: None,
+    }
+}
+
+fn writer(db: &Database) -> ContentWriter {
+    ContentWriter::new(db.clone(), WriteConfig::default())
+}
+
+async fn scalar(db: &Database, sql: &str) -> i64 {
+    db::query_scalar(sql)
+        .fetch_one(db.executor())
+        .await
+        .unwrap()
+}
+
+async fn execute(db: &Database, sql: &str) {
+    db::query(sql).execute(db.executor()).await.unwrap();
+}
+
+/// A site with boards, member 1 as administrator and members 2 to `members` as ordinary members; returns the board.
+async fn site(fixture: &TestFixture, members: i64) -> i64 {
+    let db = &fixture.db;
+    content::seed_forums(db).await.unwrap();
+    gono_forum_web::test_support::raise_posting_quotas(db)
+        .await
+        .unwrap();
+    for uid in 1..=members {
+        db::query("INSERT INTO gonof_common_member(uid,username,email,password,emailstatus,regdate,adminid) VALUES(?,?,?,'test-password',1,?,?)")
+            .bind(uid)
+            .bind(format!("card-{uid}"))
+            .bind(format!("card-{uid}@example.test"))
+            .bind(NOW - 172_800)
+            .bind(if uid == 1 { 1 } else { 0 })
+            .execute(db.executor())
+            .await
+            .unwrap();
+    }
+    scalar(db, "SELECT MIN(fid) FROM gonof_forum_forum").await
+}
+
+async fn topic(db: &Database, fid: i64, spec: ActivitySpec) -> Published {
+    writer(db)
+        .publish_at(
+            2,
+            NewThread {
+                visibility: Default::default(),
+                activity: spec,
+                fid,
+                title: "Activity card thread".into(),
+                body: "Activity card body".into(),
+                attachment_ids: vec![],
+                request_key: identity::random_token(),
+            },
+            NOW,
+        )
+        .await
+        .unwrap()
+}
+
+async fn reply_with(db: &Database, uid: i64, tid: i64, key: &str) -> Published {
+    writer(db)
+        .reply_at(
+            uid,
+            NewReply {
+                tid,
+                root_pid: None,
+                reply_to_pid: None,
+                body: "A valid activity reply".into(),
+                attachment_ids: vec![],
+                request_key: key.into(),
+            },
+            NOW + 1,
+        )
+        .await
+        .unwrap()
+}
+
+fn poll(max_choices: i64) -> ActivitySpec {
+    ActivitySpec {
+        kind: 4,
+        deadline: NOW + 3600,
+        max_choices,
+        options: vec!["Option one".into(), "Option two".into()],
+        ..Default::default()
+    }
+}
+
+/// A vote's request key lives in the request ledger shared with posting (docs/api.md, "Idempotency keys"): a key
+/// already used for a reply is not a new ballot, and once the ledger has forgotten a key, the same key casts a ballot
+/// in another poll.
+#[tokio::test]
+async fn a_vote_key_is_one_request_in_the_shared_request_ledger() {
+    let fixture = TestFixture::migrated().await.unwrap();
+    let db = &fixture.db;
+    let fid = site(&fixture, 4).await;
+    let first = topic(db, fid, poll(1)).await;
+    let second = topic(db, fid, poll(1)).await;
+
+    // The key of a reply cannot also cast a ballot.
+    let replied = identity::random_token();
+    reply_with(db, 3, first.tid, &replied).await;
+    let refused = activities::vote(db, actor(3), second.tid, vec![1], &replied, NOW + 2).await;
+    assert!(
+        refused.is_err(),
+        "a key already used for a reply is another request"
+    );
+    assert_eq!(
+        scalar(
+            db,
+            &format!(
+                "SELECT voters FROM gonof_forum_poll WHERE tid={}",
+                second.tid
+            )
+        )
+        .await,
+        0
+    );
+
+    // A ballot replays with its own key, and is recorded in the ledger against the poll's first post.
+    let key = identity::random_token();
+    activities::vote(db, actor(4), first.tid, vec![2], &key, NOW + 2)
+        .await
+        .unwrap();
+    activities::vote(db, actor(4), first.tid, vec![2], &key, NOW + 3)
+        .await
+        .unwrap();
+    assert_eq!(
+        scalar(
+            db,
+            &format!(
+                "SELECT COUNT(*) FROM gonof_forum_post_request WHERE uid=4 AND pid={}",
+                first.pid
+            )
+        )
+        .await,
+        1
+    );
+    // After the retention period the purge forgets the key: the same key is then a new request.
+    execute(db, "DELETE FROM gonof_forum_post_request WHERE uid=4").await;
+    activities::vote(db, actor(4), second.tid, vec![1], &key, NOW + 4)
+        .await
+        .unwrap();
+    assert_eq!(
+        scalar(
+            db,
+            &format!(
+                "SELECT voters FROM gonof_forum_poll WHERE tid={}",
+                second.tid
+            )
+        )
+        .await,
+        1
+    );
+    fixture.cleanup().await.unwrap();
+}
+
+/// The voter total and the option counts come from one snapshot: while ballots commit, a single-choice poll's card
+/// never shows more votes on its options than voters, or fewer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_poll_card_reads_its_totals_from_one_snapshot_while_ballots_commit() {
+    const VOTERS: i64 = 120;
+    let fixture = TestFixture::migrated().await.unwrap();
+    let db = fixture.db.clone();
+    let fid = site(&fixture, VOTERS + 2).await;
+    let poll = topic(&db, fid, poll(1)).await;
+    let tid = poll.tid;
+    let voting = {
+        let db = db.clone();
+        tokio::spawn(async move {
+            for uid in 3..VOTERS + 3 {
+                activities::vote(
+                    &db,
+                    actor(uid),
+                    tid,
+                    vec![1 + uid % 2],
+                    &identity::random_token(),
+                    NOW + 1,
+                )
+                .await
+                .unwrap();
+            }
+        })
+    };
+    let mut reads = 0;
+    let mut torn = Vec::new();
+    while !voting.is_finished() {
+        let card = activities::card(&db, tid, None).await.unwrap().unwrap();
+        let votes: i64 = card.options.iter().map(|option| option.votes).sum();
+        if votes != card.voters {
+            torn.push((card.voters, votes));
+        }
+        reads += 1;
+    }
+    voting.await.unwrap();
+    assert!(reads > 0);
+    assert!(
+        torn.is_empty(),
+        "{} of {reads} cards mixed two moments (voters, option votes): {:?}",
+        torn.len(),
+        &torn[..torn.len().min(5)]
+    );
+    let card = activities::card(&db, tid, None).await.unwrap().unwrap();
+    assert_eq!(card.voters, VOTERS);
+    fixture.cleanup().await.unwrap();
+}
+
+/// After account deletion, the stored username carries the former UID; the public winners list names such a winner
+/// "Deleted user" and gives no UID, so results of different lotteries cannot be linked to the same former member.
+#[tokio::test]
+async fn a_deleted_winner_is_listed_without_name_or_uid() {
+    let fixture = TestFixture::migrated().await.unwrap();
+    let db = &fixture.db;
+    let fid = site(&fixture, 4).await;
+    activities::adjust(
+        db,
+        actor(1),
+        2,
+        100,
+        &identity::random_token(),
+        "lottery budget",
+        NOW - 10,
+    )
+    .await
+    .unwrap();
+    let lottery = topic(
+        db,
+        fid,
+        ActivitySpec {
+            kind: 3,
+            budget: 20,
+            shares: 2,
+            deadline: NOW + 3600,
+            ..Default::default()
+        },
+    )
+    .await;
+    reply_with(db, 3, lottery.tid, &identity::random_token()).await;
+    reply_with(db, 4, lottery.tid, &identity::random_token()).await;
+    activities::process_due(db, NOW + 3601, 100).await.unwrap();
+    // What account deletion leaves on the member row: the state, and a replacement name with the former UID.
+    execute(
+        db,
+        "UPDATE gonof_common_member SET account_state='deleted',username='deleted-3-a1b2c3' WHERE uid=3",
+    )
+    .await;
+    let card = activities::card(db, lottery.tid, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(card.state, "settled");
+    let winners = serde_json::to_value(&card.winners).unwrap();
+    let winners = winners.as_array().unwrap();
+    assert_eq!(winners.len(), 2);
+    let deleted = winners
+        .iter()
+        .find(|winner| winner["username"] == "Deleted user")
+        .expect("the deleted winner is listed as a deleted user");
+    assert!(deleted["uid"].is_null(), "{deleted}");
+    assert!(
+        winners
+            .iter()
+            .any(|winner| winner["uid"] == 4 && winner["username"] == "card-4")
+    );
+    assert!(!serde_json::to_string(&card).unwrap().contains("deleted-3"));
+    fixture.cleanup().await.unwrap();
+}

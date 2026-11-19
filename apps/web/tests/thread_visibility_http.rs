@@ -894,10 +894,14 @@ async fn activity_cards_and_api_reads_need_a_member() {
         "anonymous gets no activity card for a members-only thread"
     );
     assert!(
-        activities::card(f.db(), tid, Some(READER))
-            .await
-            .unwrap()
-            .is_some()
+        activities::card(
+            f.db(),
+            tid,
+            Some(activities::CardViewer::participant(READER))
+        )
+        .await
+        .unwrap()
+        .is_some()
     );
     let member = f.get(&format!("/thread-{tid}"), Some(&f.reader)).await;
     assert!(member.body.contains("0 voters · up to"), "{}", member.body);

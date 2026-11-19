@@ -386,11 +386,15 @@ including your own part in it; a discussion thread gets `404`. Fields that do no
 | `source_url`, `source_name`, `source_author` | The news source. |
 | `entry_mode`, `requirements`, `review`, `early_draw` | The lottery's settings; `requirements` are objects with `number` and `label`. |
 | `prizes` | Lottery prizes: `number`, `name`, `winners`, `kind`, `amount`, `note`. |
-| `winners` | Lottery winners: `uid`, `username`, `amount`, `prize_no`, `prize`. |
+| `winners` | Lottery winners: `uid`, `username`, `amount`, `prize_no`, `prize`. A winner whose account was deleted has `uid` `null` and the username "Deleted user". |
 | `my_prize`, `my_prize_kind` | The prize you won, empty if none. |
 | `excluded`, `my_excluded` | How many entrants the author removed, and the reason if you were one of them. |
 | `planned_deadline`, `planned_deadline_label` | The original deadline when the lottery was drawn early, `0` otherwise. |
 | `can_enter`, `can_draw`, `can_manage`, `has_awards` | Whether you can enter, whether you can draw early, whether you are the lottery's author, and whether it has code or item prizes. |
+
+The `can_*` flags follow the [account and site rules](#account-and-site-rules) as they stand when the card is read:
+they are `false` while you do not meet the participation requirements, and `can_vote` and `can_enter` are also `false`
+while you are muted. The counts and your own status on one card are read at the same moment.
 
 **`POST /threads/{tid}/accept`** with `{"pid": 5815}` accepts a reply as the answer to your bounty and pays the whole
 budget to its author: `{"tid": 1203, "accepted_pid": 5815}`. Only the bounty's author can do this, while it is open, for

@@ -929,9 +929,13 @@ async fn activity(
     Path(tid): Path<String>,
 ) -> Result<Response, ApiError> {
     let tid = positive_id(&tid, crate::i18n::current().api_error_thread())?;
-    let card = activities::card(&state.db, tid, Some(actor.member.uid))
-        .await?
-        .ok_or_else(|| ApiError::not_found(crate::i18n::current().api_error_activity()))?;
+    let card = activities::card(
+        &state.db,
+        tid,
+        Some(activities::CardViewer::of(&actor.member)),
+    )
+    .await?
+    .ok_or_else(|| ApiError::not_found(crate::i18n::current().api_error_activity()))?;
     Ok(json_response(
         StatusCode::OK,
         serde_json::to_value(card).map_err(anyhow::Error::from)?,

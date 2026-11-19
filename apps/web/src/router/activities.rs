@@ -607,7 +607,9 @@ struct CardTemplate<'a> {
     card: service::ActivityCard,
     csrf: &'a str,
     request_key: String,
-    can_contribute: bool,
+    /// Rendered for the reply fragment: the card replaces the one on the page out of band, so a claim, an entry or
+    /// shares taken by the new reply show at once.
+    oob: bool,
     t: crate::i18n::Lang,
     /// The site's name for its points in this request's language (docs/architecture.md, "Languages").
     credit: &'a str,
@@ -634,16 +636,17 @@ pub(super) async fn load_card(
         &state.db,
         thread.id as i64,
         (thread.category, thread.withdrawn),
-        member.map(|m| m.uid),
+        member.map(service::CardViewer::of),
     )
     .await
 }
 
+/// `oob` renders the copy for the reply fragment (docs/architecture.md, "Addresses").
 pub(super) fn card_html(
     state: &AppState,
     card: Option<service::ActivityCard>,
+    oob: bool,
 ) -> anyhow::Result<String> {
-    let member = state.viewer.session.as_ref().map(|s| &s.member);
     let Some(card) = card else {
         return Ok(String::new());
     };
@@ -651,7 +654,7 @@ pub(super) fn card_html(
         card,
         csrf: &state.viewer.csrf,
         request_key: identity::random_token(),
-        can_contribute: member.is_some_and(|m| m.can_contribute()),
+        oob,
         t: crate::i18n::current(),
         credit: &state.frame.settings.site.credit_name,
     }

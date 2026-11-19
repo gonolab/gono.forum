@@ -2391,3 +2391,69 @@ async fn lottery_prizes_and_one_click_entry_through_the_api() {
         "both points prizes went unclaimed and are refunded in full"
     );
 }
+
+/// The activity card's flags only offer what the vote transaction would accept: a muted member, or one who no longer
+/// meets the participation requirements, is not offered a vote (docs/api.md, "Account and site rules").
+#[tokio::test]
+async fn activity_flags_follow_mutes_and_participation_requirements() {
+    let f = Fixture::new(&[]).await;
+    let (_, owner) = f.key(ADMIN).await;
+    let (_, secret) = f.key(MEMBER).await;
+    let deadline = (chrono::DateTime::from_timestamp(identity::now() + 86_400, 0).unwrap()
+        + chrono::Duration::hours(8))
+    .format("%Y-%m-%dT%H:%M")
+    .to_string();
+    let poll = format!(
+        r#"{{"forum":"daily","title":"Flags poll","body":"Pick one","category":4,"options":["Alpha","Beta"],"max_choices":1,"deadline":"{deadline}"}}"#
+    );
+    let (status, _, created) = f
+        .api("POST", "/api/v1/threads", Some(&owner), Some(&poll), &[])
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let path = format!("/api/v1/threads/{}/activity", created["tid"]);
+    let vote = format!("/api/v1/threads/{}/vote", created["tid"]);
+    let (_, _, card) = f.api("GET", &path, Some(&secret), None, &[]).await;
+    assert_eq!(card["can_vote"], true, "{card}");
+
+    f.execute(&format!(
+        "UPDATE gonof_common_member SET mute_until={} WHERE uid={MEMBER}",
+        identity::now() + 3600
+    ))
+    .await;
+    let (_, _, card) = f.api("GET", &path, Some(&secret), None, &[]).await;
+    assert_eq!(
+        card["can_vote"], false,
+        "a muted member cannot vote: {card}"
+    );
+    let (status, _, body) = f
+        .api(
+            "POST",
+            &vote,
+            Some(&secret),
+            Some(r#"{"choices":[1]}"#),
+            &[],
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+
+    f.execute(&format!(
+        "UPDATE gonof_common_member SET mute_until=0,emailstatus=0 WHERE uid={MEMBER}"
+    ))
+    .await;
+    let (_, _, card) = f.api("GET", &path, Some(&secret), None, &[]).await;
+    assert_eq!(
+        card["can_vote"], false,
+        "a member without a verified email cannot take part: {card}"
+    );
+    let (status, _, body) = f
+        .api(
+            "POST",
+            &vote,
+            Some(&secret),
+            Some(r#"{"choices":[1]}"#),
+            &[],
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    f.services.cleanup_ref().await.unwrap();
+}
