@@ -325,8 +325,7 @@ class Composer {
     this.insert(`\n${quote}${indent}${marker}${listed ? space : ''}${task ? '[ ] ' : ''}`, { from, to });
   }
 
-  // The posting guide switches with the selected forum. The server already renders the one for the
-  // current selection, so without scripts the selected one is still visible.
+  // The posting guide switches with the selected forum. Without scripts the page shows the guide of every forum.
   updateGuidance() {
     if (!this.forumSelect) return;
     const fid = this.forumSelect.value;

@@ -145,6 +145,45 @@ for (const instance of instances().filter((instance) => instance.content === 'fi
         await search.press('Enter');
         await expect(body).toHaveValue('[@sprout](member:42) ');
       });
+
+      test('the posting guide follows the forum select', async ({ page }) => {
+        const guides = page.locator('[data-forum-guidance]:visible');
+        await page.goto(`${instance.origin}/new/showcase`);
+        await ready(page);
+        await expect(guides).toHaveCount(1);
+        await expect(guides.locator('h2')).toHaveText(/Showcase/);
+        await page.locator('select[name="fid"]').selectOption({ label: 'Daily' });
+        await expect(guides).toHaveCount(1);
+        await expect(guides.locator('h2')).toHaveText(/Daily/);
+        await page.locator('select[name="fid"]').selectOption('');
+        await expect(guides).toHaveCount(0);
+        await expect(page.locator('[data-forum-guidance-hint]')).toBeVisible();
+      });
+    });
+
+    test.describe('without scripts', () => {
+      test.use({ javaScriptEnabled: false });
+
+      test('Enter in the title posts the thread, not the image upload', async ({ page }) => {
+        await page.goto(`${instance.origin}/new/daily`);
+        await page.locator('input[name="title"]').fill('Posted with Enter');
+        await page.locator('textarea[name="body"]').fill('A body for the thread');
+        // Only which address the form goes to matters: answer it here, so no thread is created.
+        await page.route('**/*', (route) => (route.request().method() === 'POST'
+          ? route.fulfill({ status: 204, body: '' }) : route.continue()));
+        const posted = page.waitForRequest((request) => request.method() === 'POST');
+        await page.locator('input[name="title"]').press('Enter');
+        expect(new URL((await posted).url()).pathname).toBe('/new');
+      });
+
+      test('every forum\'s posting guide shows under its name', async ({ page }) => {
+        await page.goto(`${instance.origin}/new/showcase`);
+        const titles = page.locator('[data-forum-guidance]:visible h2');
+        await expect(titles).toHaveCount(6);
+        await expect(titles.filter({ hasText: 'Daily' })).toHaveCount(1);
+        await expect(titles.filter({ hasText: 'Showcase' })).toHaveCount(1);
+        await expect(page.locator('[data-forum-guidance-hint]')).toBeHidden();
+      });
     });
   });
 }

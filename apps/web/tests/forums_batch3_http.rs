@@ -504,8 +504,9 @@ async fn posting_page_guidance_and_cached_forum_list() {
     let h = Http::new(f);
     let reader = h.login(READER).await;
 
-    // `/new`: a parent forum is directly followed by its child forums, which have an indent prefix; before a forum is
-    // chosen all guides are collapsed and only a single hint is shown.
+    // `/new`: a parent forum is directly followed by its child forums, which have an indent prefix. Nothing follows the
+    // select without scripts, so every forum's guide is on the page under its forum's name; the hint for choosing a
+    // forum is only for composer.js, which shows it while no forum is chosen.
     let (status, page) = h.page("/new", Some(&reader)).await;
     assert_eq!(status, StatusCode::OK);
     let select = section(&page, "<select id=\"editor-fid\" name=\"fid\"", "</select>");
@@ -519,25 +520,32 @@ async fn posting_page_guidance_and_cached_forum_list() {
             .unwrap_or_else(|| panic!("{label} is not where expected: {select}"));
         cursor += at;
     }
-    assert!(page.contains(&format!("<section class=\"guide-box\" data-forum-guidance=\"{ai}\" hidden><h2>Posting guide</h2><p>First line &#60;b&#62;bold&#60;/b&#62;<br><br>Third line</p></section>")), "{page}");
+    assert!(page.contains(&format!("<section class=\"guide-box\" data-forum-guidance=\"{ai}\"><h2>Posting guide: AI</h2><p>First line &#60;b&#62;bold&#60;/b&#62;<br><br>Third line</p></section>")), "{page}");
     assert!(
         !page.contains(&format!("data-forum-guidance=\"{showcase}\"")),
         "forums without guidelines are left out"
     );
-    assert!(page.contains(&format!("data-forum-guidance=\"{hosting}\" hidden")));
+    assert!(page.contains(&format!(
+        "data-forum-guidance=\"{hosting}\"><h2>Posting guide: Hosting</h2>"
+    )));
+    assert!(!page.contains("data-forum-guidance-chosen"));
     assert!(
         page.contains(
-            "<p class=\"form-note\" data-forum-guidance-hint>Choose a forum to see its posting guide</p>"
+            "<p class=\"form-note\" data-forum-guidance-hint hidden>Choose a forum to see its posting guide</p>"
         )
     );
 
-    // `/new/ai`: the selected forum's guide is shown directly and the hint is collapsed.
+    // `/new/ai`: every guide is still on the page; the chosen forum's is marked, so that a page with scripts shows only
+    // that one until composer.js starts.
     let (_, chosen) = h.page("/new/ai", Some(&reader)).await;
     assert!(chosen.contains(&format!("<option value=\"{ai}\" selected>└ AI</option>")));
     assert!(chosen.contains(&format!(
-        "data-forum-guidance=\"{ai}\"><h2>Posting guide</h2>"
+        "data-forum-guidance=\"{ai}\" data-forum-guidance-chosen><h2>Posting guide: AI</h2>"
     )));
-    assert!(chosen.contains(&format!("data-forum-guidance=\"{hosting}\" hidden")));
+    assert!(chosen.contains(&format!(
+        "data-forum-guidance=\"{hosting}\"><h2>Posting guide: Hosting</h2>"
+    )));
+    assert!(!chosen.contains(" hidden><h2>Posting guide"));
     assert!(chosen.contains("data-forum-guidance-hint hidden>"));
     // Forums the member blocked are not in the drop-down, and their guides are left out.
     h.set_filter(&reader, hosting, FilterMode::Block).await;

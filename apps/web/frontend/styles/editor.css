@@ -201,6 +201,12 @@
   background: var(--panel-alt);
 }
 
+/* Until composer.js starts and follows the forum select, a page with scripts shows only the guide of the forum the
+   server chose; without scripts every forum's guide shows. */
+html[data-js="true"] .editor:not([data-composer-ready]) [data-forum-guidance]:not([data-forum-guidance-chosen]) {
+  display: none;
+}
+
 .guide-box > h2 {
   margin: 0;
   margin-block-end: 4px;

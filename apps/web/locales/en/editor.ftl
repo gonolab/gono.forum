@@ -19,7 +19,8 @@ editor-forum = Forum
 editor-choose-forum = Choose a forum
 # After a forum's name in the forum list; the thread will be shown to members only there.
 editor-forum-members-only = {" "}(members only)
-editor-guidance = Posting guide
+# $forum is the forum's name: without scripts the page shows the guide of every forum.
+editor-guidance = Posting guide: { $forum }
 editor-guidance-hint = Choose a forum to see its posting guide
 # When editing a thread whose forum decides who sees it; $note says why.
 editor-audience-note = Who can see it: { $note }

@@ -225,9 +225,9 @@ async fn upload(Page(state): Page, headers: HeaderMap, mut multipart: Multipart)
     // None: no token read yet; Some(None): verified; Some(Some(reason)): verified but mismatched.
     let mut csrf: Option<Option<String>> = None;
     // The first refusal of the file part. A refused file is drained without writing a byte of it, and the fields after
-    // it are still read: the no-JS editor puts the file between the body and the forum, audience and activity fields,
-    // and an editor refilled without them falls back to defaults. A members-only thread refilled as "public" becomes
-    // public when the author saves again.
+    // it are still read: a form may put fields after the file (the no-JS editor puts it after its own), and an editor
+    // refilled without them falls back to defaults. A members-only thread refilled as "public" becomes public when the
+    // author saves again.
     let mut refused: Option<(StatusCode, String)> = None;
     let malformed = |message: &str| (StatusCode::BAD_REQUEST, message.to_owned());
     let result: Result<(), (StatusCode, String)> = async {

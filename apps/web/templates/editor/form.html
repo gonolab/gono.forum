@@ -57,14 +57,6 @@
     <div data-editor-preview class="prose write-preview">{{ e.preview|safe }}</div>
     <p class="write-status" data-editor-status role="status"></p>
     <div class="editor__attachments" data-attachments>{% for upload in attachments %}{% include "editor/attachment.html" %}{% endfor %}</div>
-    {#- composer.js hides .upload-plain (by class) and uploads by drop, paste or the toolbar instead. #}
-    <div class="upload-plain">
-      <div class="field">
-        <label class="field__label" for="editor-file">{{ p.t.editor_add_image() }}</label>
-        <input type="file" id="editor-file" name="file" accept="image/jpeg,image/png,image/webp,image/gif">
-      </div>
-      <button class="button button--secondary" type="submit" formaction="{{ crate::site::base() }}/api/media" formenctype="multipart/form-data" formnovalidate name="upload" value="1">{{ p.t.editor_upload_image() }}</button>
-    </div>
   </div>
   {%- if new_topic %}
   <div class="field">
@@ -78,13 +70,15 @@
     </select>
   </div>
   {%- if crate::router::posting::guided(forums) %}
-  {#- Only the chosen forum's guide is shown; composer.js follows the select. #}
+  {#- Without scripts every forum's guide shows, each under its forum's name, since nothing follows the select. With
+      them composer.js shows only the chosen forum's guide, or the hint while none is chosen; until it starts, the
+      stylesheet shows only the guide of the forum chosen here (data-forum-guidance-chosen). #}
   {%- for forum in forums %}
   {%- if !forum.guidance.is_empty() %}
-  <section class="guide-box" data-forum-guidance="{{ forum.fid }}"{% if forum.fid != e.fid %} hidden{% endif %}><h2>{{ p.t.editor_guidance() }}</h2><p>{% for line in forum.guidance %}{% if !loop.first %}<br>{% endif %}{{ line }}{% endfor %}</p></section>
+  <section class="guide-box" data-forum-guidance="{{ forum.fid }}"{% if forum.fid == e.fid %} data-forum-guidance-chosen{% endif %}><h2>{{ p.t.editor_guidance(forum.name.as_str()) }}</h2><p>{% for line in forum.guidance %}{% if !loop.first %}<br>{% endif %}{{ line }}{% endfor %}</p></section>
   {%- endif %}
   {%- endfor %}
-  <p class="form-note" data-forum-guidance-hint{% if e.fid != 0 %} hidden{% endif %}>{{ p.t.editor_guidance_hint() }}</p>
+  <p class="form-note" data-forum-guidance-hint hidden>{{ p.t.editor_guidance_hint() }}</p>
   {%- endif %}
   {%- endif %}
   {%- if new_topic || e.edit_thread %}
@@ -195,5 +189,14 @@
     <button class="button" type="submit">{% if e.edit_pid > 0 %}{{ p.t.editor_save() }}{% else if e.tid == 0 %}{{ p.t.editor_submit_thread() }}{% else %}{{ p.t.editor_submit_reply() }}{% endif %}</button>
     {#- composer.js finds this button by the exact formaction and turns it into the in-place preview toggle. #}
     <button class="button button--secondary" type="submit" formaction="{{ crate::site::base() }}/api/preview" formnovalidate>{{ p.t.editor_preview() }}</button>
+  </div>
+  {#- composer.js hides .upload-plain (by class) and uploads by drop, paste or the toolbar instead. It comes after the
+      form actions: Enter in a field submits the form with its first submit button, which must be the post button. #}
+  <div class="upload-plain">
+    <div class="field">
+      <label class="field__label" for="editor-file">{{ p.t.editor_add_image() }}</label>
+      <input type="file" id="editor-file" name="file" accept="image/jpeg,image/png,image/webp,image/gif">
+    </div>
+    <button class="button button--secondary" type="submit" formaction="{{ crate::site::base() }}/api/media" formenctype="multipart/form-data" formnovalidate name="upload" value="1">{{ p.t.editor_upload_image() }}</button>
   </div>
 </form>
