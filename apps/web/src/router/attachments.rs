@@ -3,8 +3,8 @@
 //!
 //! Rules: only attachments that passed the check and are not referenced can be moved to the trash; the trash keeps them
 //! for `[media].trash_seconds` (30 days by default), during which they can be restored or deleted permanently; there is
-//! no total space limit, usage is only displayed. The three actions affect only the member's own attachments and work
-//! as usual in read-only mode.
+//! no total space limit, usage is only displayed. The three actions affect only the member's own attachments, work
+//! as usual in read-only mode and do not need the participation requirement (docs/roles.md).
 use axum::{extract::Path as AxumPath, routing::post};
 
 use super::extract::{CsrfForm, Page as PageState, csrf_forms};
@@ -156,12 +156,13 @@ fn row(item: LibraryItem, view: LibraryView, now: i64) -> Row {
             _ => t.media_state_expiring().to_owned(),
         },
     };
-    // A referenced attachment can only be read through the post's address; an unreferenced one is read as "owner
-    // preview".
-    let href = ready.then(|| match item.first_pid {
-        Some(pid) => format!("/media/{}?pid={pid}", upload.aid),
-        None => format!("/media/{}", upload.aid),
-    });
+    // A referenced attachment can only be read through the address of a post the member can read; an unreferenced
+    // one is read as "owner preview". When no referencing post is readable any more there is no preview.
+    let href = match (ready, item.first_pid) {
+        (true, Some(pid)) => Some(format!("/media/{}?pid={pid}", upload.aid)),
+        (true, None) if item.posts == 0 => Some(format!("/media/{}", upload.aid)),
+        _ => None,
+    };
     let blocked = if view == LibraryView::Kept && in_use {
         t.media_blocked()
     } else {
@@ -349,11 +350,11 @@ async fn act(
         LibraryView::Kept
     };
     // "Delete permanently" in the trash and deleting an attachment that failed the check in the attachment
-    // list are both the existing attachment cancellation: cleaned up immediately.
+    // list are both purged immediately, like a cancelled upload.
     let result = match action {
         Action::Trash => state.media.trash_actor(actor, aid).await,
         Action::Restore => state.media.restore_actor(actor, aid).await,
-        Action::Delete => state.media.cancel_actor(actor, aid).await,
+        Action::Delete => state.media.delete_actor(actor, aid).await,
     };
     let mut page = form.page.max(1);
     match result {

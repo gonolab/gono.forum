@@ -569,6 +569,165 @@ async fn attachments_move_through_the_trash_and_expire() {
     f.services.cleanup().await.unwrap();
 }
 
+/// A trash page opened before the attachment was restored cannot delete it any more: deletion is decided by the
+/// attachment's current state, not by the form that was submitted.
+#[tokio::test]
+async fn a_stale_trash_page_cannot_delete_a_restored_attachment() {
+    let f = Fixture::new().await;
+    let aid = f.upload(&f.author, "restored.png", 13).await;
+    let trashed = f.library_action(&f.author, aid, "trash", "").await;
+    assert_eq!(trashed.status, StatusCode::SEE_OTHER, "{}", trashed.body);
+    // One tab restores it; the other still shows the trash with its delete button.
+    let restored = f.library_action(&f.author, aid, "restore", "trash").await;
+    assert_eq!(restored.status, StatusCode::SEE_OTHER, "{}", restored.body);
+    let stale = f.library_action(&f.author, aid, "delete", "trash").await;
+    assert_eq!(stale.status, StatusCode::CONFLICT, "{}", stale.body);
+    assert!(
+        stale.body.contains("no longer in the trash"),
+        "{}",
+        stale.body
+    );
+    f.media.process_pending(identity::now()).await.unwrap();
+    assert_eq!(f.lifecycle(aid).await, "ready");
+    // Once in the trash again it can be deleted, and a repeated submission is harmless.
+    f.library_action(&f.author, aid, "trash", "").await;
+    let deleted = f.library_action(&f.author, aid, "delete", "trash").await;
+    assert_eq!(deleted.status, StatusCode::SEE_OTHER, "{}", deleted.body);
+    let again = f.library_action(&f.author, aid, "delete", "trash").await;
+    assert_eq!(again.status, StatusCode::SEE_OTHER, "{}", again.body);
+    assert_eq!(f.lifecycle(aid).await, "purging");
+    f.services.cleanup().await.unwrap();
+}
+
+/// A member who stops meeting the participation requirement still manages the files already uploaded: moving to
+/// the trash, restoring (before the trash period runs out) and deleting check only that the account is theirs.
+#[tokio::test]
+async fn members_who_no_longer_qualify_still_manage_their_attachments() {
+    let f = Fixture::new().await;
+    let kept = f.upload(&f.author, "kept.png", 14).await;
+    let binned = f.upload(&f.author, "binned.png", 15).await;
+    assert_eq!(
+        f.library_action(&f.author, binned, "trash", "")
+            .await
+            .status,
+        StatusCode::SEE_OTHER
+    );
+    // The administrator raises the requirement to a bound phone number, which the author does not have.
+    f.execute(
+        "UPDATE gonof_common_settings SET svalue='mobile' WHERE skey='settings.login.participation'",
+    )
+    .await;
+    let page = f.get("/my/attachments/trash", Some(&f.author)).await;
+    assert_eq!(page.status, StatusCode::OK, "{}", page.body);
+    assert!(
+        page.body
+            .contains(&format!("data-attachment-row=\"{binned}\""))
+    );
+    let restored = f
+        .library_action(&f.author, binned, "restore", "trash")
+        .await;
+    assert_eq!(restored.status, StatusCode::SEE_OTHER, "{}", restored.body);
+    let trashed = f.library_action(&f.author, kept, "trash", "").await;
+    assert_eq!(trashed.status, StatusCode::SEE_OTHER, "{}", trashed.body);
+    let deleted = f.library_action(&f.author, kept, "delete", "trash").await;
+    assert_eq!(deleted.status, StatusCode::SEE_OTHER, "{}", deleted.body);
+    assert_eq!(f.lifecycle(kept).await, "purging");
+    assert_eq!(
+        f.optional(&format!(
+            "SELECT trashed_at FROM gonof_forum_attachment_0 WHERE aid={binned}"
+        ))
+        .await,
+        None
+    );
+    f.services.cleanup().await.unwrap();
+}
+
+/// The library previews an image and links to it through the first post the member can read, not the lowest pid:
+/// a post in a board that was disabled later no longer counts while another post still shows the image.
+#[tokio::test]
+async fn the_library_uses_the_first_readable_post_of_an_image() {
+    let f = Fixture::new().await;
+    let aid = f.upload(&f.author, "shared.png", 16).await;
+    let first = f
+        .publish(
+            &f.author,
+            "CENTERFIRST5104 First post with the image",
+            &format!("![image](attachment:{aid})"),
+            "public",
+        )
+        .await;
+    assert_eq!(first.status, StatusCode::SEE_OTHER, "{}", first.body);
+    let other_fid: i64 = db::query_scalar("SELECT fid FROM gonof_forum_forum WHERE visibility='public' AND status=1 AND parent_fid IS NULL AND fid<>? ORDER BY fid LIMIT 1")
+        .bind(f.fid)
+        .fetch_one(f.db().executor())
+        .await
+        .unwrap();
+    let second = f
+        .post(
+            "/new",
+            &f.author,
+            &[
+                ("request_key", identity::random_token()),
+                ("fid", other_fid.to_string()),
+                (
+                    "title",
+                    "CENTERSECOND5105 Second post with the image".into(),
+                ),
+                ("body", format!("![image](attachment:{aid})")),
+                ("category", "0".into()),
+                ("visibility", "public".into()),
+                ("attachment_ids", String::new()),
+            ],
+        )
+        .await;
+    assert_eq!(second.status, StatusCode::SEE_OTHER, "{}", second.body);
+    let pid = |title: &'static str| {
+        let db = f.db().clone();
+        async move {
+            db::query_scalar::<i64>("SELECT p.pid FROM gonof_forum_post p JOIN gonof_forum_thread t ON t.tid=p.tid WHERE t.subject=? AND p.first=1")
+                .bind(title)
+                .fetch_one(db.executor())
+                .await
+                .unwrap()
+        }
+    };
+    let first_pid = pid("CENTERFIRST5104 First post with the image").await;
+    let second_pid = pid("CENTERSECOND5105 Second post with the image").await;
+    assert!(first_pid < second_pid);
+    let page = f.get("/my/attachments", Some(&f.author)).await.body;
+    assert!(
+        page.contains(&format!("/media/{aid}?pid={first_pid}")),
+        "{page}"
+    );
+    // The first post's board is disabled; the second post still shows the image.
+    f.execute(&format!(
+        "UPDATE gonof_forum_forum SET status=0 WHERE fid={}",
+        f.fid
+    ))
+    .await;
+    let page = f.get("/my/attachments", Some(&f.author)).await.body;
+    assert!(page.contains("In use: 2 posts"), "{page}");
+    assert!(
+        page.contains(&format!("/media/{aid}?pid={second_pid}")),
+        "{page}"
+    );
+    assert!(page.contains(&format!("/posts/{second_pid}")), "{page}");
+    assert!(!page.contains(&format!("pid={first_pid}")), "{page}");
+    let preview = f
+        .get(&format!("/media/{aid}?pid={second_pid}"), Some(&f.author))
+        .await;
+    assert_eq!(preview.status, StatusCode::OK);
+    // With no readable post left there is no preview or post link at all.
+    f.execute(&format!(
+        "UPDATE gonof_forum_forum SET status=0 WHERE fid={other_fid}"
+    ))
+    .await;
+    let page = f.get("/my/attachments", Some(&f.author)).await.body;
+    assert!(!page.contains(&format!("/media/{aid}")), "{page}");
+    assert!(!page.contains(&format!("/posts/{first_pid}")), "{page}");
+    f.services.cleanup().await.unwrap();
+}
+
 /// Profile statistics, recent activity and last online: respect thread visibility and personal space privacy.
 #[tokio::test]
 async fn member_space_stats_activity_and_presence_follow_visibility() {

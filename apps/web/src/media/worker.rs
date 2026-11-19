@@ -253,11 +253,9 @@ impl Media {
     /// Runs one claimed job to its settlement.
     async fn run_claim(&self, claim: &Claim, now: i64, report: &mut MediaReport) -> Result<()> {
         if claim.kind == "media.purge" {
-            match Box::pin(self.purge_claim(claim)).await {
-                Ok(true) => {
-                    self.schedule_reconciliation(claim, now).await?;
-                    report.purged += 1;
-                }
+            match Box::pin(self.purge_claim(claim, now)).await {
+                // The first purge rescheduled its re-check in the transaction that marked it purged.
+                Ok(true) => report.purged += 1,
                 outcome => self.settle(claim, outcome.map(drop), now, report).await?,
             }
             return Ok(());
@@ -450,8 +448,14 @@ impl Media {
     }
 
     /// After a purge completes, reschedules the same purge event once to re-check, when due, that the objects are
-    /// really deleted (see `purge_claim`).
-    async fn schedule_reconciliation(&self, claim: &Claim, now: i64) -> Result<()> {
+    /// really deleted (see `purge_claim`). Runs in the transaction that marks the attachment purged: a process that
+    /// stopped in between would leave a purged attachment whose event a retry settles without the re-check.
+    async fn schedule_reconciliation(
+        &self,
+        tx: &mut Tx<'_>,
+        claim: &Claim,
+        now: i64,
+    ) -> Result<()> {
         let at = identity::now()
             .max(now)
             .saturating_add(self.lease_seconds())
@@ -460,7 +464,7 @@ impl Media {
             .bind(at)
             .bind(claim.eventid)
             .bind(&claim.lease)
-            .execute(self.db.executor())
+            .execute(self.db.observe(&mut **tx))
             .await?;
         Ok(())
     }
@@ -809,15 +813,41 @@ impl Media {
     }
 
     pub async fn cancel_actor(&self, actor: identity::Actor, aid: i64) -> Result<()> {
-        let uid = actor.uid;
         // Cancelling one's own attachment that is not referenced yet only affects oneself, so it works as usual in
         // read-only mode.
         let mut tx = self.db.begin_write().await?;
         self.member_actor_locked(&mut tx, actor, false).await?;
-        let row=crate::db::query("SELECT a.uid,d.lifecycle FROM gonof_forum_attachment a JOIN gonof_forum_attachment_0 d ON d.aid=a.aid WHERE a.aid=? FOR UPDATE")
+        self.purge_own(tx, actor.uid, aid, false).await
+    }
+
+    /// Sends the member's own unreferenced attachment to purge, in `tx`, which has rechecked the member. With
+    /// `library` (deleting from "My attachments"), only an attachment in the trash or one that failed the check
+    /// qualifies, judged under the attachment row lock: a page opened before the attachment was restored cannot
+    /// delete it any more. One already being purged counts as deleted.
+    pub(super) async fn purge_own(
+        &self,
+        mut tx: Tx<'_>,
+        uid: i64,
+        aid: i64,
+        library: bool,
+    ) -> Result<()> {
+        let row=crate::db::query("SELECT a.uid,d.lifecycle,d.trashed_at FROM gonof_forum_attachment a JOIN gonof_forum_attachment_0 d ON d.aid=a.aid WHERE a.aid=? FOR UPDATE")
             .bind(aid).fetch_optional(self.db.observe(&mut *tx)).await?.ok_or(MediaError::NotFound)?;
         if row.try_get::<i64, _>("uid")? != uid {
             return Err(MediaError::NotFound);
+        }
+        if library {
+            let lifecycle = db::text(&row, "lifecycle")?;
+            if matches!(lifecycle.as_str(), "purging" | "purged") {
+                tx.commit().await?;
+                return Ok(());
+            }
+            let trashed = row.try_get::<Option<i64>, _>("trashed_at")?.is_some();
+            if !(lifecycle == "rejected" || (lifecycle == "ready" && trashed)) {
+                return Err(MediaError::Conflict(
+                    crate::i18n::current().media_error_delete_kept().into(),
+                ));
+            }
         }
         let references = self.attachment_reference_count(&mut tx, aid).await?;
         if references > 0 {
@@ -897,9 +927,9 @@ impl Media {
         self.process_pending(now).await
     }
 
-    /// Purges the attachment objects. Returns true when the first purge completes, so the caller reschedules one
-    /// re-check; returns false for a re-check or when there is nothing to do.
-    async fn purge_claim(&self, claim: &Claim) -> Result<bool> {
+    /// Purges the attachment objects. Returns true when the first purge completes, having rescheduled the event for
+    /// one re-check in the same transaction; returns false for a re-check or when there is nothing to do.
+    async fn purge_claim(&self, claim: &Claim, now: i64) -> Result<bool> {
         let mut tx = self.db.begin_write().await?;
         let row=crate::db::query("SELECT attachment,storage_profile_id,lifecycle FROM gonof_forum_attachment_0 WHERE aid=? FOR UPDATE")
             .bind(claim.aid).fetch_one(self.db.observe(&mut *tx)).await?;
@@ -964,6 +994,9 @@ impl Media {
         if self.claim_is_current(&mut tx, claim).await? {
             purged = crate::db::query("UPDATE gonof_forum_attachment_0 SET lifecycle='purged',updated_at=GREATEST(dateline,?) WHERE aid=? AND lifecycle='purging'")
                 .bind(identity::now()).bind(claim.aid).execute(self.db.observe(&mut *tx)).await?.rows_affected() == 1;
+            if purged {
+                self.schedule_reconciliation(&mut tx, claim, now).await?;
+            }
         }
         tx.commit().await?;
         Ok(purged)
@@ -1763,6 +1796,46 @@ mod tests {
         let at = round(1);
         fixture.media.process_pending(at).await.unwrap();
         assert_eq!(lifecycle(&fixture, aid).await, "rejected");
+        fixture._services.cleanup_ref().await.unwrap();
+    }
+
+    // A process that stops right after the purge commits still leaves the re-check scheduled: marking the attachment
+    // purged and rescheduling its event are one transaction, so an object a late upload writes back is still removed.
+    #[tokio::test]
+    async fn a_purge_interrupted_after_it_commits_still_reconciles() {
+        let fixture = Fixture::new(MediaConfig::default()).await;
+        let server = FakeS3::new(fixture.db.clone()).await;
+        fixture.configure(&server.endpoint).await;
+        let aid = fixture
+            .upload(&identity::random_token(), "photo.png", &png())
+            .await
+            .unwrap()
+            .aid;
+        fixture
+            .media
+            .process_pending(identity::now())
+            .await
+            .unwrap();
+        let objects = server.state.objects.lock().unwrap().clone();
+        assert!(!objects.is_empty());
+        fixture.media.cancel(fixture.uid, aid).await.unwrap();
+        let now = identity::now();
+        let claim = fixture
+            .media
+            .claim(now, &mut Default::default())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(claim.kind, "media.purge");
+        assert!(fixture.media.purge_claim(&claim, now).await.unwrap());
+        assert_eq!(lifecycle(&fixture, aid).await, "purged");
+        // The process stops here, and a late upload writes the objects back.
+        server.state.objects.lock().unwrap().extend(objects);
+        fixture.media.cleanup(now + 7200).await.unwrap();
+        assert!(
+            server.state.objects.lock().unwrap().is_empty(),
+            "the re-check removes the late objects"
+        );
         fixture._services.cleanup_ref().await.unwrap();
     }
 

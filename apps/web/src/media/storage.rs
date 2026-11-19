@@ -595,6 +595,37 @@ impl Media {
         }
     }
 
+    /// The first post referencing this attachment, by pid, that this visitor can read: the post "My attachments"
+    /// previews the image through and links to. The lowest pid may sit in a disabled board or be hidden while another
+    /// post still shows the image. Walks the references in primary key order a page at a time.
+    pub(super) async fn first_readable_post(
+        &self,
+        aid: i64,
+        viewer: Option<MediaViewer>,
+    ) -> Result<Option<i64>> {
+        const PAGE: i64 = 20;
+        let mut after = 0_i64;
+        loop {
+            let rows = crate::db::query(&format!(
+                "SELECT r.pid,{POST_ACCESS_COLUMNS} FROM gonof_forum_attachment_reference r JOIN gonof_forum_post p ON p.pid=r.pid {POST_ACCESS_JOINS} WHERE r.aid=? AND r.pid>? ORDER BY r.pid LIMIT ?"
+            ))
+            .bind(aid)
+            .bind(after)
+            .bind(PAGE)
+            .fetch_all(self.db.executor())
+            .await?;
+            for row in &rows {
+                after = row.try_get("pid")?;
+                if self.post_row_allowed(row, viewer).await? {
+                    return Ok(Some(after));
+                }
+            }
+            if i64::try_from(rows.len()).unwrap_or(0) < PAGE {
+                return Ok(None);
+            }
+        }
+    }
+
     /// Whether the post itself is visible to this visitor, ignoring attachment references: the editor judges once per
     /// post for multiple attachments on the same post (`editor_uploads`).
     pub(super) async fn post_allowed(&self, pid: i64, viewer: Option<MediaViewer>) -> Result<bool> {

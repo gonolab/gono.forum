@@ -76,6 +76,7 @@ media-error-image-trashed = 图片在回收站里，请先恢复
 media-error-trash-ready = 只有检查通过的附件可以放进回收站
 media-error-trash-in-use = 附件仍被帖子、头像、品牌图或版块图标使用，先编辑帖子移除后再删除
 media-error-trash-expired = 附件已超过回收站保留期，不能恢复
+media-error-delete-kept = 附件已不在回收站里，没有删除。请先放进回收站
 media-error-animation-size = 动画处理后超过 { $mib } MiB 上限
 media-check-crashed = 文件检查进程异常退出
 media-check-no-result = 文件检查进程没有写出结果

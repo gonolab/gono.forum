@@ -4,6 +4,10 @@
 //! was moved to the trash, and the expiry time is written in the usual `purge_after`, so the regular cleanup task
 //! purges it on expiry through the `(lifecycle, purge_after)` index. Deleting, restoring, binding and cleanup all lock
 //! the attachment row by primary key first and then re-check, so they are serialized.
+//!
+//! Moving to the trash, restoring and deleting check only that the member still owns the account
+//! ([`Media::owner_locked`]), not the participation requirement: a member who stops meeting it keeps managing the
+//! files already uploaded, including restoring one before its trash period runs out.
 use super::*;
 
 /// Rows per page for both lists.
@@ -69,7 +73,9 @@ impl Usage {
 /// One entry in the list, with where it is used.
 pub struct LibraryItem {
     pub upload: Upload,
-    /// Number of posts referencing it and the earliest of them, used to link to "edit this post first, then delete".
+    /// Number of posts referencing it, and the first of them the member can read, through which the image is
+    /// previewed and which the row links to ("edit this post first, then delete"). `None` with posts means none of
+    /// them is readable any more.
     pub posts: i64,
     pub first_pid: Option<i64>,
     /// It is the member's current avatar.
@@ -168,20 +174,22 @@ impl Media {
         if !uploads.is_empty() {
             let placeholders = vec!["?"; uploads.len()].join(",");
             let sql = format!(
-                "SELECT aid, COUNT(*) AS posts, MIN(pid) AS first_pid FROM gonof_forum_attachment_reference WHERE aid IN ({placeholders}) GROUP BY aid"
+                "SELECT aid, COUNT(*) AS posts FROM gonof_forum_attachment_reference WHERE aid IN ({placeholders}) GROUP BY aid"
             );
             let mut query = crate::db::query(&sql);
             for upload in &uploads {
                 query = query.bind(upload.aid);
             }
-            for row in query.fetch_all(self.db.executor()).await? {
-                posts.insert(
-                    row.try_get::<i64, _>("aid")?,
-                    (
-                        row.try_get::<i64, _>("posts")?,
-                        row.try_get::<i64, _>("first_pid")?,
-                    ),
-                );
+            let counts = query.fetch_all(self.db.executor()).await?;
+            let viewer = if counts.is_empty() {
+                None
+            } else {
+                self.verified_viewer(actor).await?
+            };
+            for row in counts {
+                let aid = row.try_get::<i64, _>("aid")?;
+                let first = self.first_readable_post(aid, viewer).await?;
+                posts.insert(aid, (row.try_get::<i64, _>("posts")?, first));
             }
         }
         let avatar: Option<i64> =
@@ -193,10 +201,10 @@ impl Media {
         let items = uploads
             .into_iter()
             .map(|upload| {
-                let (count, first) = posts.get(&upload.aid).copied().unwrap_or((0, 0));
+                let (count, first) = posts.get(&upload.aid).copied().unwrap_or((0, None));
                 LibraryItem {
                     posts: count,
-                    first_pid: (count > 0).then_some(first),
+                    first_pid: first,
                     avatar: avatar == Some(upload.aid),
                     upload,
                 }
@@ -215,7 +223,7 @@ impl Media {
     /// (consistent with cancelling an attachment).
     pub async fn trash_actor(&self, actor: identity::Actor, aid: i64) -> Result<()> {
         let mut tx = self.db.begin_write().await?;
-        self.member_actor_locked(&mut tx, actor, false).await?;
+        self.owner_locked(&mut tx, actor).await?;
         let row = crate::db::query("SELECT a.uid,d.lifecycle,d.scan_status,d.trashed_at FROM gonof_forum_attachment a JOIN gonof_forum_attachment_0 d ON d.aid=a.aid WHERE a.aid=? FOR UPDATE")
             .bind(aid)
             .fetch_optional(self.db.observe(&mut *tx))
@@ -268,7 +276,7 @@ impl Media {
     /// ran, cannot be restored.
     pub async fn restore_actor(&self, actor: identity::Actor, aid: i64) -> Result<()> {
         let mut tx = self.db.begin_write().await?;
-        self.member_actor_locked(&mut tx, actor, false).await?;
+        self.owner_locked(&mut tx, actor).await?;
         let row = crate::db::query("SELECT a.uid,d.lifecycle,d.purge_after,d.trashed_at FROM gonof_forum_attachment a JOIN gonof_forum_attachment_0 d ON d.aid=a.aid WHERE a.aid=? FOR UPDATE")
             .bind(aid)
             .fetch_optional(self.db.observe(&mut *tx))
@@ -309,5 +317,14 @@ impl Media {
         .await?;
         tx.commit().await?;
         Ok(())
+    }
+
+    /// Deletes permanently from "My attachments": an attachment in the trash, or one that failed the check. Purged
+    /// right away like a cancelled upload; anything else, such as an attachment restored since the page was opened,
+    /// is refused.
+    pub async fn delete_actor(&self, actor: identity::Actor, aid: i64) -> Result<()> {
+        let mut tx = self.db.begin_write().await?;
+        self.owner_locked(&mut tx, actor).await?;
+        self.purge_own(tx, actor.uid, aid, true).await
     }
 }

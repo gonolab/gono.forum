@@ -100,6 +100,7 @@ media-error-image-trashed = The image is in the trash. Restore it first
 media-error-trash-ready = Only attachments that passed the check can go to the trash
 media-error-trash-in-use = The attachment is still used by a post, avatar, brand image or forum icon. Edit the post to remove it before deleting
 media-error-trash-expired = The attachment is past the trash retention period and cannot be restored
+media-error-delete-kept = The attachment is no longer in the trash, so it was not deleted. Move it to the trash first
 media-error-animation-size = After processing, the animation is over the { $mib } MiB limit
 # Why an attachment did not pass the check, stored with the attachment in the site language when the check ends.
 media-check-crashed = The file check process exited abnormally

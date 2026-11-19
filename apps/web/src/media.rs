@@ -1100,6 +1100,23 @@ impl Media {
         Ok(mute_until)
     }
 
+    /// Rechecks under a lock that the actor still owns the account (same credentials version, not frozen, account
+    /// active), without the participation requirement: for managing one's own files in "My attachments".
+    async fn owner_locked(&self, tx: &mut Tx<'_>, actor: identity::Actor) -> Result<()> {
+        let row = crate::db::query("SELECT `freeze`,credentials_version,account_state FROM gonof_common_member WHERE uid=? FOR UPDATE")
+            .bind(actor.uid)
+            .fetch_optional(self.db.observe(&mut **tx))
+            .await?
+            .ok_or(MediaError::Forbidden)?;
+        if row.try_get::<i64, _>("credentials_version")? != actor.credentials_version
+            || row.try_get::<i64, _>("freeze")? != 0
+            || db::text(&row, "account_state")? != "active"
+        {
+            return Err(MediaError::Forbidden);
+        }
+        Ok(())
+    }
+
     /// Returns the credentials version and the mute end time.
     async fn member_locked(&self, tx: &mut Tx<'_>, uid: i64, admin: bool) -> Result<(i64, i64)> {
         let row = crate::db::query("SELECT emailstatus,mobile,adminid,`freeze`,credentials_version,account_state,mute_until FROM gonof_common_member WHERE uid=? FOR UPDATE")

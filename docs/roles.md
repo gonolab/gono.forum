@@ -33,7 +33,9 @@ is active and not frozen may take part. A row in `gonof_common_site_domain` with
 it on that domain, and an empty string there likewise requires nothing. Members who meet none of them can sign in and
 read what members can read; a banner under the header says what is missing, and the posting and editing pages send
 them where to meet it: the email verification page while an email counts and theirs is unverified, otherwise the
-phone number or linked accounts part of account security. Administrators are exempt.
+phone number or linked accounts part of account security. Administrators are exempt. Managing the images one has
+already uploaded at `/my/attachments` (moving them to the trash, restoring them, deleting them permanently) is not
+gated, so a member who stops meeting the requirement can still restore a file before its trash period runs out.
 
 An email counts as verified once a link mailed to it is used: the verification link, or a password reset link.
 While an account's email is unverified, it cannot link a Google or GitHub account, add a phone number or turn on
