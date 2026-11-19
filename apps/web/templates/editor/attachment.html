@@ -1,8 +1,11 @@
 {#- One attachment and its check state. Also the whole response to POST /api/media and the polling GET
     /api/media/{aid}, rendered without `p`: composer.js parses the single root ([data-attachment-id][data-state] on
-    the same element) and reads [data-media-message] plus [data-media-detail] as the status text. -#}
+    the same element) and reads [data-media-message] plus [data-media-detail] as the status text. data-check-paused
+    marks a check whose retries ran out (`scan_detail` "paused", read here in this request's language): it waits for an
+    administrator to schedule it again, so the editor stops polling it and offers no Retry. -#}
 {%- let t = crate::i18n::current() -%}
-<div class="upload-item" data-attachment-id="{{ upload.aid }}" data-state="{{ upload.lifecycle }}"{% if let Some(pid) = upload.bound_pid %} data-bound-pid="{{ pid }}"{% endif %} data-scan-status="{{ upload.scan_status }}" data-filename="{{ upload.filename }}" data-insert-markdown="{{ upload.markdown() }}">
+{%- let paused = upload.lifecycle == "pending" && upload.scan_detail.as_str() == t.media_check_paused() -%}
+<div class="upload-item" data-attachment-id="{{ upload.aid }}" data-state="{{ upload.lifecycle }}"{% if let Some(pid) = upload.bound_pid %} data-bound-pid="{{ pid }}"{% endif %} data-scan-status="{{ upload.scan_status }}"{% if paused %} data-check-paused{% endif %} data-filename="{{ upload.filename }}" data-insert-markdown="{{ upload.markdown() }}">
   <span class="upload-item__name" translate="no">{{ upload.filename }}</span>
   <span class="upload-item__status" data-upload-status data-media-message>{% if upload.lifecycle == "ready" %}{{ t.editor_upload_ready() }}{% else if upload.lifecycle == "pending" %}{{ t.editor_upload_pending() }}{% else if upload.lifecycle == "processing" %}{{ t.editor_upload_processing() }}{% else if upload.lifecycle == "rejected" %}{{ t.editor_upload_rejected() }}{% else if upload.lifecycle == "purging" %}{{ t.editor_upload_purging() }}{% else %}{{ t.editor_upload_purged() }}{% endif %}</span>
   {%- if upload.lifecycle == "ready" %}

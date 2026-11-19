@@ -896,6 +896,51 @@ async fn a_failed_save_asks_for_a_moderation_reason_only_as_the_edit_page_does()
     f._services.cleanup_ref().await.unwrap();
 }
 
+/// A check whose retries ran out leaves the attachment `pending` with the detail "paused" until an administrator
+/// schedules it again. The status the editor polls marks it (`data-check-paused`) beside the explanation, so the editor
+/// stops polling and offers no Retry; a check that will retry by itself is not marked.
+#[tokio::test]
+async fn the_attachment_status_marks_a_paused_check() {
+    let f = Fixture::new().await;
+    let mut admin = f.admin.clone();
+    // The rows an upload leaves once its check stopped retrying (media/worker.rs, `finish_claim`).
+    let uid = f
+        .scalar("SELECT uid FROM gonof_common_member WHERE username='admin'")
+        .await;
+    f.execute(&format!(
+        "INSERT INTO gonof_forum_attachment(uid,request_key,request_hash) VALUES({uid},'{}','{}')",
+        identity::random_token(),
+        identity::random_token()
+    ))
+    .await;
+    let aid = f
+        .scalar("SELECT MAX(aid) FROM gonof_forum_attachment")
+        .await;
+    f.execute(&format!(
+        "INSERT INTO gonof_forum_attachment_0(aid,filename,filesize,mime_type,content_sha256,attachment,storage_profile_id,description,alt_text,dateline,updated_at,lifecycle,scan_status,scan_detail) VALUES({aid},'paused.png',10,'image/png','{}','paused','test','','',1,1,'pending','error','paused')",
+        identity::random_token()
+    ))
+    .await;
+    let status = format!("/api/media/{aid}");
+    let paused = get(&f, &status, &mut admin).await;
+    paused.status(StatusCode::OK);
+    assert!(paused.html.contains("data-check-paused"), "{}", paused.html);
+    assert!(
+        paused
+            .html
+            .contains("paused until an administrator schedules a retry")
+    );
+    f.execute(&format!(
+        "UPDATE gonof_forum_attachment_0 SET scan_detail='retrying' WHERE aid={aid}"
+    ))
+    .await;
+    let retrying = get(&f, &status, &mut admin).await;
+    retrying.status(StatusCode::OK);
+    assert!(retrying.html.contains("it will retry automatically"));
+    assert!(!retrying.html.contains("data-check-paused"));
+    f._services.cleanup_ref().await.unwrap();
+}
+
 #[tokio::test]
 async fn replies_resolve_root_and_child_pages_with_native_and_htmx_navigation() {
     let f = Fixture::new().await;

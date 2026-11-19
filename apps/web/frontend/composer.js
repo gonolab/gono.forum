@@ -695,7 +695,7 @@ class Composer {
       if (entry.cancelled || this.destroyed) return;
       if (xhr.status < 200 || xhr.status >= 300) return failed(responseMessage(xhr.responseText, t('js-editor-upload-failed', { status: String(xhr.status) })));
       if (!this.consumeStatus(entry, xhr.responseText)) return failed(t('js-editor-upload-unreadable'));
-      if (entry.state === 'processing' || entry.state === 'pending') this.poll(entry);
+      if ((entry.state === 'processing' || entry.state === 'pending') && !entry.paused) this.poll(entry);
     };
     xhr.send(data);
   }
@@ -704,6 +704,7 @@ class Composer {
     const node = doc.querySelector('[data-attachment-id][data-state]');
     if (!node || !/^\d+$/.test(node.dataset.attachmentId)) return false;
     entry.aid = node.dataset.attachmentId; entry.state = node.dataset.state; entry.scanStatus = node.dataset.scanStatus;
+    entry.paused = node.hasAttribute('data-check-paused');
     entry.bound = Number(node.dataset.boundPid) > 0;
     const cancel = entry.row.querySelector('[data-editor-action="cancel-attachment"]');
     if (cancel && entry.bound) { cancel.textContent = t('js-editor-attachment-remove'); cancel.setAttribute('aria-label', t('js-editor-attachment-remove')); }
@@ -724,11 +725,13 @@ class Composer {
         entry.insert.hidden = false;
       }
     }
-    entry.retry.hidden = !['processing', 'pending'].includes(entry.state);
+    entry.retry.hidden = entry.paused || !['processing', 'pending'].includes(entry.state);
     this.scheduleSave(); return true;
   }
   // Inspection progress is polled at a gradually slower pace: every 2 seconds for the first 30 seconds, every 5
-  // seconds up to 2 minutes, then every 10 seconds, stopping after 5 minutes to wait for a manual retry.
+  // seconds up to 2 minutes, then every 10 seconds, stopping after 5 minutes to wait for a manual retry. A check whose
+  // retries ran out (data-check-paused) is not polled again: only an administrator can schedule it, so the row keeps
+  // the server's explanation and offers no Retry; removing the image lets the post go out without it.
   async poll(entry, started = Date.now()) {
     if (entry.cancelled || this.destroyed) return;
     entry.pollAbort?.abort(); clearTimeout(entry.timer);
@@ -739,11 +742,11 @@ class Composer {
       const html = await response.text();
       if (this.destroyed || entry.cancelled || controller.signal.aborted || !entry.row.isConnected) return;
       if (!response.ok || !this.consumeStatus(entry, html)) throw new Error('status');
-      if (['pending', 'processing'].includes(entry.state)) {
+      if (['pending', 'processing'].includes(entry.state) && !entry.paused) {
         const elapsed = Date.now() - started;
         const delay = elapsed < 30000 ? 2000 : elapsed < 120000 ? 5000 : 10000;
         if (elapsed + delay <= 300000) entry.timer = setTimeout(() => this.poll(entry, started), delay);
-        else { entry.message.textContent = t('js-editor-check-pending'); entry.retry.hidden = false; }
+        else { entry.message.textContent += ` ${t('js-editor-check-pending')}`; entry.retry.hidden = false; }
       }
     } catch (error) {
       if (error.name !== 'AbortError') { entry.message.textContent = t('js-editor-check-error'); entry.retry.hidden = false; }

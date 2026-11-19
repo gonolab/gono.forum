@@ -161,6 +161,44 @@ for (const instance of instances().filter((instance) => instance.content === 'fi
       });
     });
 
+    test.describe('attachments', () => {
+      test('a paused check is no longer polled, keeps its explanation and offers no Retry', async ({ page }) => {
+        // The status the server sends for a check whose retries ran out (editor/attachment.html) and for one that
+        // retries by itself.
+        const row = (aid, extra, detail) => `<div class="upload-item" data-attachment-id="${aid}" data-state="pending" data-scan-status="error"${extra} data-filename="${aid}.png" data-insert-markdown=""><span class="upload-item__status" data-upload-status data-media-message>Waiting for the file check…</span><p class="upload-item__detail" data-media-detail>${detail}</p></div>`;
+        const answers = {
+          777: row(777, ' data-check-paused', 'The check or storage failed several times; paused until an administrator schedules a retry'),
+          778: row(778, '', 'The check or storage is temporarily unavailable; it will retry automatically'),
+        };
+        const polls = { 777: 0, 778: 0 };
+        await page.route(/\/api\/media\/(777|778)$/, async (route) => {
+          const aid = route.request().url().split('/').pop();
+          polls[aid] += 1;
+          await route.fulfill({ contentType: 'text/html', body: answers[aid] });
+        });
+        await page.goto(`${instance.origin}/new`);
+        await ready(page);
+        // A draft holding both images, as if the author had uploaded them earlier.
+        await page.evaluate(() => {
+          const form = document.querySelector('form[data-composer]');
+          const key = `gonof:${encodeURIComponent('/')}:draft:${encodeURIComponent(form.dataset.uid)}:${encodeURIComponent(form.dataset.draft)}`;
+          const attachments = ['777', '778'].map((aid) => ({ aid, name: `${aid}.png`, state: 'processing', markdown: '', bound: false, inserted: false, marker: null }));
+          localStorage.setItem(key, JSON.stringify({ timestamp: Date.now(), body: '', title: '', fid: '', attachments, request_key: '' }));
+        });
+        await page.reload();
+        await ready(page);
+        const paused = page.locator('[data-attachments] [data-attachment-id="777"]');
+        const retrying = page.locator('[data-attachments] [data-attachment-id="778"]');
+        await expect(paused).toContainText('paused until an administrator schedules a retry');
+        await expect(paused.locator('[data-editor-action="retry-attachment"]')).toBeHidden();
+        await expect(paused.locator('[data-editor-action="cancel-attachment"]')).toBeVisible();
+        // The other image is polled again after two seconds; the paused one is not.
+        await expect.poll(() => polls[778], { timeout: 6000 }).toBeGreaterThan(1);
+        expect(polls[777]).toBe(1);
+        await expect(retrying).toContainText('it will retry automatically');
+      });
+    });
+
     test.describe('replies', () => {
       test('a reply that succeeds after an error goes back to the whole thread page', async ({ page }) => {
         const thread = `${instance.origin}/thread-105`;
