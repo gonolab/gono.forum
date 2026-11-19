@@ -435,3 +435,184 @@ async fn bulk_api_keys_are_saved_before_the_old_ones_are_revoked() {
     assert_eq!(active().await, [identity::token_hash(&saved[0])]);
     fixture.cleanup().await.unwrap();
 }
+
+async fn member_count(fixture: &TestFixture) -> i64 {
+    db::query_scalar("SELECT COUNT(*) FROM gonof_common_member")
+        .fetch_one(fixture.db.executor())
+        .await
+        .unwrap()
+}
+
+/// uid=1 is the only account the profile import makes an administrator, and the finished setup keeps the
+/// administrator wizard closed: a list without uid=1 is refused before the member table is emptied.
+#[tokio::test]
+async fn profile_import_refuses_a_list_without_the_administrator() {
+    let fixture = TestFixture::migrated().await.unwrap();
+    db::query("INSERT INTO gonof_common_member(uid,username,email,emailstatus,password,adminid) VALUES(1,'site-owner','owner@example.test',1,'synthetic',1)")
+        .execute(fixture.db.executor())
+        .await
+        .unwrap();
+    let manifest = fixture.root.join("profiles.json");
+    std::fs::write(
+        &manifest,
+        r#"{"roles":[{"uid":2,"username":"member-two","bio":""},{"uid":3,"username":"member-three","bio":""}]}"#,
+    )
+    .unwrap();
+    let name = fixture.db.pool.database_name().unwrap();
+    let error = profiles::import_member_profiles(&fixture.db, &manifest, &name)
+        .await
+        .err()
+        .expect("a list without uid=1 is refused");
+    assert!(error.to_string().contains("uid=1"), "{error}");
+    let admins: Vec<String> =
+        db::query_scalar("SELECT username FROM gonof_common_member WHERE adminid=1")
+            .fetch_all(fixture.db.executor())
+            .await
+            .unwrap();
+    assert_eq!(admins, ["site-owner"], "the administrator is still there");
+    assert_eq!(member_count(&fixture).await, 1);
+    fixture.cleanup().await.unwrap();
+}
+
+/// Imported usernames are stored the way sign-in looks them up (lowercase after NFKC), and names that differ only
+/// in case are the same name: the administrator still signs in with the name as the list writes it.
+#[tokio::test]
+async fn imported_usernames_are_stored_the_way_sign_in_looks_them_up() {
+    const PASSWORD: &str = "Profile-owner-password-1";
+    let fixture = TestFixture::migrated().await.unwrap();
+    let identity = identity::Identity::new(
+        fixture.db.clone(),
+        fixture.config.identity.clone(),
+        fixture.root.clone(),
+        gono_forum_web::test_support::detached_global(),
+    );
+    let owner = identity
+        .setup_admin("Nora", Some("nora@example.test"), PASSWORD)
+        .await
+        .unwrap();
+    assert_eq!(owner, 1);
+    let name = fixture.db.pool.database_name().unwrap();
+    let manifest = fixture.root.join("profiles.json");
+
+    std::fs::write(
+        &manifest,
+        r#"{"roles":[{"uid":1,"username":"Nora","bio":""},{"uid":2,"username":"nora","bio":""}]}"#,
+    )
+    .unwrap();
+    let error = profiles::import_member_profiles(&fixture.db, &manifest, &name)
+        .await
+        .err()
+        .expect("names that differ only in case are duplicates");
+    assert!(error.to_string().contains("duplicate username"), "{error}");
+    assert_eq!(member_count(&fixture).await, 1);
+
+    std::fs::write(
+        &manifest,
+        r#"{"roles":[{"uid":1,"username":"Nora","bio":""},{"uid":2,"username":"Ｆｅｌｉｘ","bio":""}]}"#,
+    )
+    .unwrap();
+    profiles::import_member_profiles(&fixture.db, &manifest, &name)
+        .await
+        .unwrap();
+    let names: Vec<String> =
+        db::query_scalar("SELECT username FROM gonof_common_member ORDER BY uid")
+            .fetch_all(fixture.db.executor())
+            .await
+            .unwrap();
+    assert_eq!(names, ["nora", "felix"]);
+    assert!(
+        identity.login("Nora", PASSWORD).await.is_ok(),
+        "the administrator signs in by username after the import"
+    );
+    fixture.cleanup().await.unwrap();
+}
+
+/// enable-interactions patches only synthetic authors: a stale uid that now belongs to a member who signs in by phone,
+/// or to a member with another name, keeps its password and gets no placeholder e-mail.
+#[tokio::test]
+async fn enabling_interactions_leaves_accounts_that_are_not_synthetic_authors_alone() {
+    let fixture = TestFixture::migrated().await.unwrap();
+    for sql in [
+        "INSERT INTO gonof_common_member(uid,username,mobile,password) VALUES(9401,'phone-member','+8613800000001','synthetic-phone-hash')",
+        "INSERT INTO gonof_common_member(uid,username) VALUES(9402,'renamed-since')",
+        "INSERT INTO gonof_common_member(uid,username) VALUES(9403,'synthetic')",
+    ] {
+        db::query(sql).execute(fixture.db.executor()).await.unwrap();
+    }
+    let list = fixture.root.join("members.json");
+    std::fs::write(
+        &list,
+        r#"{"roles":[{"uid":9401,"username":"phone-member","bio":""},{"uid":9402,"username":"listed-name","bio":""},{"uid":9403,"username":"Synthetic","bio":""}]}"#,
+    )
+    .unwrap();
+    let updated = profiles::enable_interactions(&fixture.db, &list)
+        .await
+        .unwrap();
+    assert_eq!(updated, 1);
+    let rows: Vec<(i64, Option<String>, i64, Option<String>)> =
+        db::query("SELECT uid,email,emailstatus,password FROM gonof_common_member ORDER BY uid")
+            .fetch_all(fixture.db.executor())
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| {
+                (
+                    row.try_get("uid").unwrap(),
+                    row.try_get("email").unwrap(),
+                    row.try_get("emailstatus").unwrap(),
+                    row.try_get("password").unwrap(),
+                )
+            })
+            .collect();
+    assert_eq!(
+        rows[0],
+        (9401, None, 0, Some("synthetic-phone-hash".to_owned())),
+        "the phone member keeps its password"
+    );
+    assert_eq!(rows[1], (9402, None, 0, None), "another name is left alone");
+    assert_eq!(rows[2].1.as_deref(), Some("member9403@gonof.test"));
+    assert_eq!(rows[2].2, 1);
+    assert!(rows[2].3.is_some());
+    fixture.cleanup().await.unwrap();
+}
+
+/// set-password is a maintenance command for any site (docs/install.md): it follows the site's minimum password
+/// length, like the web pages, in both directions.
+#[tokio::test]
+async fn the_cli_password_follows_the_site_minimum_length() {
+    let fixture = TestFixture::migrated().await.unwrap();
+    let database = &fixture.db;
+    db::query("INSERT INTO gonof_common_member(uid,username,password,email,emailstatus) VALUES(9501,'cli-length','synthetic','cli-length@example.test',1)")
+        .execute(database.executor())
+        .await
+        .unwrap();
+    gono_forum_web::test_support::set_setting(
+        database,
+        "settings.account.password_min_length",
+        "20",
+    )
+    .await
+    .unwrap();
+    let error = profiles::set_password(database, 9501, "Twelve-chars")
+        .await
+        .expect_err("a password shorter than the site minimum is refused");
+    assert!(error.to_string().contains("20-128"), "{error}");
+    profiles::set_password(database, 9501, "Twenty-characters-ok")
+        .await
+        .unwrap();
+    gono_forum_web::test_support::set_setting(
+        database,
+        "settings.account.password_min_length",
+        "8",
+    )
+    .await
+    .unwrap();
+    profiles::set_password(database, 9501, "Eight-ch")
+        .await
+        .unwrap();
+    let error = profiles::set_password(database, 9501, &"x".repeat(129))
+        .await
+        .expect_err("the upper limit still applies");
+    assert!(error.to_string().contains("8-128"), "{error}");
+    fixture.cleanup().await.unwrap();
+}

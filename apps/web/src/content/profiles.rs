@@ -128,13 +128,22 @@ pub fn sync_parent(path: &Path) -> Result<()> {
         .with_context(|| format!("cannot sync the directory {}", parent.display()))
 }
 
-/// Sets the password of a uid to plaintext chosen by the caller (only for setting an administrator password by hand on
-/// a local test database).
+/// Sets the password of a uid to plaintext chosen by the caller: `gono-forum-cli set-password`, a maintenance command
+/// for any site (docs/install.md, "Command-line tool"). The password follows the same length rules as a password set on
+/// the web pages: the site's minimum (`settings.account.password_min_length`) up to
+/// [`crate::identity::PASSWORD_MAX_CHARS`].
 pub async fn set_password(db: &Database, uid: i64, password: &str) -> Result<()> {
-    ensure!(
-        password.chars().count() >= 12 && password.chars().count() <= 128,
-        "the password must be 12-128 characters"
-    );
+    let min_length = crate::runtime::read(db)
+        .await
+        .context("failed to read site settings")?
+        .account
+        .password_min_length;
+    crate::identity::validate_password(password, min_length).map_err(|_| {
+        anyhow::anyhow!(
+            "the password must be {min_length}-{} characters (the site's minimum length, settings.account.password_min_length, and the upper limit)",
+            crate::identity::PASSWORD_MAX_CHARS
+        )
+    })?;
     let hash = hash_password(password)?;
     let mut transaction = db.begin_write().await?;
     // Two cases are refused: setting a password on a deleted or deleting account, and setting one on a regular
@@ -275,28 +284,38 @@ pub async fn import_member_profiles(
 
     let mut seen_uids = std::collections::HashSet::new();
     let mut seen_usernames = std::collections::HashSet::new();
+    // Usernames in stored form, the form sign-in looks up (trimmed, NFKC, lowercase), in list order.
+    let mut usernames = Vec::with_capacity(fixture.roles.len());
     for entry in &fixture.roles {
         ensure!(
             entry.uid > 0,
             "the profile list has an invalid uid: {}",
             entry.uid
         );
-        let username = entry.username.trim();
-        ensure!(
-            !username.is_empty(),
-            "the profile list has an empty username (uid={})",
-            entry.uid
-        );
+        let username = crate::identity::normalize_username(&entry.username).map_err(|error| {
+            anyhow::anyhow!(
+                "the profile list has an invalid username {:?} (uid={}): {error}",
+                entry.username,
+                entry.uid
+            )
+        })?;
         ensure!(
             seen_uids.insert(entry.uid),
             "duplicate uid in the profile list: {}",
             entry.uid
         );
         ensure!(
-            seen_usernames.insert(username.to_owned()),
-            "duplicate username in the profile list: {username}"
+            seen_usernames.insert(username.clone()),
+            "duplicate username in the profile list (names are compared in stored form, lowercase): {username}"
         );
+        usernames.push(username);
     }
+    // uid=1 is the only account the import makes an administrator, and the finished setup keeps the administrator
+    // wizard closed: a list without it would leave the site with no administrator at all.
+    ensure!(
+        seen_uids.contains(&1),
+        "the profile list has no uid=1; it becomes the administrator, and without it the site would have none"
+    );
 
     // One placeholder digest per account (the extra one is discarded when uid=1 keeps its old digest), computed before
     // the transaction opens.
@@ -360,7 +379,7 @@ pub async fn import_member_profiles(
     }
 
     let sql = "INSERT INTO gonof_common_member (uid, username, bio, adminid, regdate, email, emailstatus, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-    for entry in &fixture.roles {
+    for (entry, username) in fixture.roles.iter().zip(&usernames) {
         let adminid: i64 = if entry.uid == 1 { 1 } else { 0 };
         // The credential rules require a non-empty password digest before an e-mail address/verified state is allowed;
         // uid=1 reuses its old credentials from before the reset, and every other account gets a placeholder e-mail
@@ -388,8 +407,7 @@ pub async fn import_member_profiles(
             )?
         };
         // The member value rules: username length and leading/trailing whitespace, and the credential combination.
-        // The username is only trimmed, not passed through normalize_username.
-        check_username(entry.username.trim())?;
+        check_username(username)?;
         Credentials {
             password: password.as_deref(),
             email: email.as_deref(),
@@ -401,7 +419,7 @@ pub async fn import_member_profiles(
         .check()?;
         crate::db::query(sql)
             .bind(entry.uid)
-            .bind(entry.username.trim())
+            .bind(username)
             .bind(&entry.bio)
             .bind(adminid)
             .bind(regdate)
@@ -447,8 +465,10 @@ pub async fn import_member_profiles(
 
 /// Patch: for accounts already imported whose e-mail address is unverified (other than uid=1), fills in a placeholder
 /// e-mail address, verified state and an unusable password digest, meeting the like/favorite/reply endpoints' threshold
-/// of "e-mail verified or administrator". Accounts that already have an e-mail address are skipped, not overwritten.
-/// Returns the number of accounts actually updated.
+/// of "e-mail verified or administrator". Only synthetic authors are patched: the account must still carry the list's
+/// username (in stored form) and have no e-mail address, mobile number or password, so a stale uid that now belongs to
+/// someone else, or a member who signs in by phone, is skipped, not overwritten. Returns the number of accounts
+/// actually updated.
 pub async fn enable_interactions(db: &Database, path: &Path) -> Result<usize> {
     let members = read_uid_username_pairs(path)?;
     let hashes = unusable_password_hashes(members.len()).await?;
@@ -456,9 +476,14 @@ pub async fn enable_interactions(db: &Database, path: &Path) -> Result<usize> {
     // Only regular accounts are patched: deleted accounts also have an empty e-mail address, and the condition keeps
     // them out.
     let sql = "UPDATE gonof_common_member SET email = ?, emailstatus = 1, password = ?
-               WHERE uid = ? AND uid <> 1 AND email IS NULL AND account_state = ?";
+               WHERE uid = ? AND username = ? AND uid <> 1 AND email IS NULL AND mobile IS NULL AND password IS NULL
+                 AND account_state = ?";
     let mut updated = 0usize;
-    for ((uid, _username), password) in members.into_iter().zip(hashes) {
+    for ((uid, username), password) in members.into_iter().zip(hashes) {
+        // A name that cannot be stored matches no account.
+        let Ok(username) = crate::identity::normalize_username(&username) else {
+            continue;
+        };
         let email = format!("member{uid}@gonof.test");
         Credentials {
             password: Some(&password),
@@ -473,6 +498,7 @@ pub async fn enable_interactions(db: &Database, path: &Path) -> Result<usize> {
             .bind(&email)
             .bind(&password)
             .bind(uid)
+            .bind(&username)
             .bind(AccountState::Active.value())
             .execute(db.observe(&mut *transaction))
             .await?;

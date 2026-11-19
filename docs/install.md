@@ -315,7 +315,7 @@ Without arguments it lists its commands. The ones a site operator is most likely
 | Command | Use |
 | --- | --- |
 | `set-site-url <url>` | Change the forum address when the admin area is unreachable (`""` clears it). |
-| `set-password <uid>` | Set a member's password from standard input. |
+| `set-password <uid>` | Set a member's password from standard input, with the length rules of the web pages (the site's minimum length at Security › Account security, up to 128 characters). |
 | `reset-two-factor <uid> --reason=<text>` | Turn off a member's two-step verification after checking their identity; signs them out everywhere and notifies them. |
 | `rekey-two-factor` | Re-encrypt authenticator secrets and redemption codes after rotating the two-factor key. |
 | `migrate` | Run migrations (also creates a new SQLite file). The service does this by itself at start. |

@@ -667,8 +667,8 @@ pub(crate) fn normalize_email(value: &str) -> Result<String> {
 pub const PASSWORD_MAX_CHARS: usize = 128;
 
 /// Validates new passwords only: raising the lower limit does not lock out existing passwords, and login and every
-/// "current password" check only enforce the upper limit.
-fn validate_password(password: &str, min_length: i64) -> Result<()> {
+/// "current password" check only enforce the upper limit. `gono-forum-cli set-password` uses it too.
+pub(crate) fn validate_password(password: &str, min_length: i64) -> Result<()> {
     let min = usize::try_from(min_length).unwrap_or(PASSWORD_MAX_CHARS);
     if !(min..=PASSWORD_MAX_CHARS).contains(&password.chars().count()) || password.len() > 512 {
         return Err(IdentityError::Validation(
