@@ -462,11 +462,13 @@ async fn review_inner(
     Ok(())
 }
 
-/// Early draw by the author: equivalent to step 0 of a deadline draw (lock the list, generate the seed, mark
-/// `drawing`); drawing and payout are left to the background job (one round every 5 seconds). `deadline` becomes the
-/// draw time + 1, so entries in the same second that commit before this transaction still qualify; the original
-/// deadline is kept in `planned_deadline`. Returns `true` if this call started the draw, `false` if it was already
-/// under way.
+/// Early draw by the author: step 0 of a deadline draw (lock the list, generate the seed, mark `drawing`) and step 1
+/// (fix the eligible entrants and the winner list, assign codes and other prize slots) in one transaction; paying
+/// credits is left to the background job (one round every 5 seconds), and a lottery with no credits to pay is settled
+/// here. `deadline` becomes the draw time + 1, so entries and replies in the same second that commit before this
+/// transaction still qualify, and since the list is fixed here, a reply posted after it in that second does not; the
+/// original deadline is kept in `planned_deadline`. Returns `true` if this call started the draw, `false` if it was
+/// already under way.
 pub async fn draw_now(db: &Database, actor: Actor, tid: i64, now: i64) -> Result<bool> {
     draw_inner(db, actor, tid, Some(now)).await
 }
@@ -475,7 +477,8 @@ pub async fn draw_now_live(db: &Database, actor: Actor, tid: i64) -> Result<bool
 }
 async fn draw_inner(db: &Database, actor: Actor, tid: i64, timestamp: Option<i64>) -> Result<bool> {
     valid(tid > 0, crate::i18n::current().activity_error_no_lottery())?;
-    let mut tx = db.begin_write().await?;
+    // READ COMMITTED: the eligibility read below sees every entry and reply committed before the thread lock.
+    let mut tx = db.begin_content_write().await?;
     guard_write(db, &mut tx).await?;
     lock_members(db, &mut tx, &[actor.uid]).await?;
     actor_locked(db, &mut tx, actor, false).await?;
@@ -522,6 +525,28 @@ async fn draw_inner(db: &Database, actor: Actor, tid: i64, timestamp: Option<i64
         .bind(now)
         .execute(db.observe(&mut *tx))
         .await?;
+    let seed: String = crate::db::query_scalar(
+        "SELECT seed FROM gonof_forum_activity_draw WHERE tid=? FOR UPDATE",
+    )
+    .bind(tid)
+    .fetch_one(db.observe(&mut *tx))
+    .await?;
+    let row = crate::db::query(
+        "SELECT a.remaining,l.shares FROM gonof_forum_activity a JOIN gonof_forum_lottery l ON l.tid=a.tid WHERE a.tid=?",
+    )
+    .bind(tid)
+    .fetch_one(db.observe(&mut *tx))
+    .await?;
+    let lot = super::worker::Lot {
+        tid,
+        owner: lottery.owner,
+        deadline: now + 1,
+        remaining: row.try_get("remaining")?,
+        shares: row.try_get("shares")?,
+        click: lottery.entry_mode == "click",
+        seed,
+    };
+    super::worker::decide(db, &mut tx, &lot, now).await?;
     audit(
         db,
         &mut tx,

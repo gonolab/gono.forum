@@ -33,7 +33,7 @@ pub use tip::{
 pub use views::{
     ActivityCard, CardPrize, CardViewer, PollOption, Requirement, Winner, card, card_for_thread,
 };
-pub use worker::{DueBackoff, process_due, process_due_with};
+pub use worker::{DueBackoff, DueReport, PAYOUT_BATCHES_PER_PASS, process_due, process_due_with};
 
 use crate::db::Tx;
 use crate::{db::Database, identity::Actor};

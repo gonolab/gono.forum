@@ -425,7 +425,13 @@ async fn mysql_click_entry_review_and_early_draw_with_mixed_prizes() {
         )
         .contains("The draw has started")
     );
-    assert_eq!(activities::process_due(db, NOW + 11, 20).await.unwrap(), 1);
+    assert_eq!(
+        activities::process_due(db, NOW + 11, 20)
+            .await
+            .unwrap()
+            .settled,
+        1
+    );
 
     let (eligible, winners) = w.winners(tid).await;
     assert_eq!(
@@ -603,7 +609,10 @@ async fn mysql_vacant_prizes_refund_and_cancelling_before_the_draw_refunds_every
     assert!(!board.can_replace);
 
     assert_eq!(
-        activities::process_due(db, NOW + 3600, 20).await.unwrap(),
+        activities::process_due(db, NOW + 3600, 20)
+            .await
+            .unwrap()
+            .settled,
         1
     );
     let (_, winners) = w.winners(vacant.tid).await;
@@ -699,7 +708,8 @@ async fn mysql_withdrawing_after_the_list_is_decided_still_pays_everyone() {
     assert_eq!(
         activities::process_due_with(db, NOW + 3600, 20, &backoff)
             .await
-            .unwrap(),
+            .unwrap()
+            .settled,
         0
     );
     let (_, winners) = w.winners(tid).await;
@@ -728,7 +738,8 @@ async fn mysql_withdrawing_after_the_list_is_decided_still_pays_everyone() {
     assert_eq!(
         activities::process_due_with(db, NOW + 3601 + 600, 20, &backoff)
             .await
-            .unwrap(),
+            .unwrap()
+            .settled,
         1
     );
     assert_eq!(w.activity(tid).await.0, "settled");
@@ -842,7 +853,11 @@ async fn mysql_entries_reviews_and_draws_race_without_changing_the_decided_list(
         activities::process_due(db, later, 20),
         activities::process_due(db, later, 20)
     );
-    assert_eq!(a.unwrap() + b.unwrap(), 1, "settled only once");
+    assert_eq!(
+        a.unwrap().settled + b.unwrap().settled,
+        1,
+        "settled only once"
+    );
     let (eligible, winners) = w.winners(tid).await;
     let signups: Vec<i64> = db::query_scalar(&format!("SELECT s.uid FROM gonof_forum_lottery_signup s WHERE s.tid={tid} AND NOT EXISTS(SELECT 1 FROM gonof_forum_lottery_exclusion x WHERE x.tid=s.tid AND x.uid=s.uid) ORDER BY s.uid"))
         .fetch_all(db.executor()).await.unwrap();
@@ -950,7 +965,10 @@ async fn mysql_codes_stay_private_can_be_corrected_and_survive_rekey() {
         w.reply(uid, tid).await;
     }
     assert_eq!(
-        activities::process_due(db, NOW + 3600, 20).await.unwrap(),
+        activities::process_due(db, NOW + 3600, 20)
+            .await
+            .unwrap()
+            .settled,
         1
     );
     let (_, winners) = w.winners(tid).await;
@@ -1164,6 +1182,108 @@ async fn mysql_review_page_is_for_the_author_and_admins() {
                 .unwrap_err()
         )
         .contains("cannot be drawn early")
+    );
+    w.fixture.cleanup().await.unwrap();
+}
+
+/// An early draw fixes who is eligible in its own transaction (#93): an entrant who had withdrawn every reply when the
+/// draw began stays out even after replying again in the same second, before the background job pays the winners.
+#[tokio::test]
+async fn a_reply_after_an_early_draw_does_not_make_an_entrant_eligible() {
+    let w = World::new(5).await;
+    let db = w.db();
+    let mut spec = lottery("reply", vec![prize("Coins", 3, "credit", 10, &[])]);
+    spec.early_draw = true;
+    let tid = w.publish(spec).await.tid;
+    let withdrawn = w.reply(3, tid).await;
+    w.reply(4, tid).await;
+    let editor = ContentEditor::new(db.clone(), Default::default(), 86400 * 30);
+    let post = editor
+        .editable_at(actor(3), withdrawn.pid, NOW + 2)
+        .await
+        .unwrap();
+    editor
+        .change_at(
+            actor(3),
+            ChangeRequest {
+                pid: withdrawn.pid,
+                expected_post_version: post.version,
+                expected_thread_version: post.thread_version,
+                request_key: identity::random_token(),
+                reason: String::new(),
+                action: ContentAction::Withdraw,
+            },
+            NOW + 2,
+        )
+        .await
+        .unwrap();
+    assert!(
+        activities::draw_now(db, actor(2), tid, NOW + 5)
+            .await
+            .unwrap()
+    );
+    assert_eq!(w.winners(tid).await, (vec![4], vec![4]));
+    // Member 3 replies again in the second of the draw, before the payout.
+    writer(db, &w.ring)
+        .reply_at(
+            3,
+            NewReply {
+                tid,
+                root_pid: None,
+                reply_to_pid: None,
+                body: "Back again".into(),
+                attachment_ids: vec![],
+                request_key: identity::random_token(),
+            },
+            NOW + 5,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        activities::process_due(db, NOW + 10, 20)
+            .await
+            .unwrap()
+            .settled,
+        1
+    );
+    assert_eq!(w.winners(tid).await, (vec![4], vec![4]));
+    assert_eq!(w.activity(tid).await.0, "settled");
+    assert_eq!(w.available(3).await, 0);
+    w.fixture.cleanup().await.unwrap();
+}
+
+/// An early draw of a lottery without credit prizes settles it at once: nothing is left for the background job.
+#[tokio::test]
+async fn an_early_draw_without_credits_settles_the_lottery() {
+    let w = World::new(5).await;
+    let db = w.db();
+    let mut spec = lottery("click", vec![prize("Code", 1, "code", 0, &["EARLY-1"])]);
+    spec.early_draw = true;
+    let tid = w.publish(spec).await.tid;
+    activities::enter(db, actor(3), tid, &[], NOW + 1)
+        .await
+        .unwrap();
+    assert!(
+        activities::draw_now(db, actor(2), tid, NOW + 2)
+            .await
+            .unwrap()
+    );
+    assert_eq!(w.activity(tid).await.0, "settled");
+    assert_eq!(w.winners(tid).await, (vec![3], vec![3]));
+    assert_eq!(
+        scalar(
+            db,
+            &format!("SELECT uid FROM gonof_forum_lottery_award WHERE tid={tid}")
+        )
+        .await,
+        3
+    );
+    assert_eq!(
+        activities::process_due(db, NOW + 10, 20)
+            .await
+            .unwrap()
+            .settled,
+        0
     );
     w.fixture.cleanup().await.unwrap();
 }

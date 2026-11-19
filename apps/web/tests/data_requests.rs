@@ -2306,9 +2306,22 @@ async fn lottery_entries_block_closure_and_exports_never_carry_codes() {
     activities::draw_now(&f.db, f.user.member.actor(), mine, now + 3)
         .await
         .unwrap();
+    // Code prizes pay no credits, so each early draw fixed its list and settled the lottery itself.
+    for tid in [theirs, mine] {
+        assert_eq!(
+            f.scalar(&format!(
+                "SELECT COUNT(*) FROM gonof_forum_activity WHERE tid={tid} AND state='settled'"
+            ))
+            .await,
+            1
+        );
+    }
     assert_eq!(
-        activities::process_due(&f.db, now + 5, 20).await.unwrap(),
-        2
+        activities::process_due(&f.db, now + 5, 20)
+            .await
+            .unwrap()
+            .settled,
+        0
     );
     let id = privacy::submit(&f.db, &f.access(), f.request("export", "retain"), now + 6)
         .await

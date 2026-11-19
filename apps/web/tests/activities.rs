@@ -983,10 +983,18 @@ async fn mysql_a_failing_settlement_neither_blocks_the_batch_nor_retries_every_r
         format!("SELECT COUNT(*) FROM gonof_forum_activity WHERE tid={tid} AND state='open'")
     };
     let backoff = activities::DueBackoff::default();
-    let settled = activities::process_due_with(db, NOW + 3701, 100, &backoff)
+    let report = activities::process_due_with(db, NOW + 3701, 100, &backoff)
         .await
         .expect("one failing item must not fail the whole batch");
-    assert_eq!(settled, 1);
+    // The failure is reported, so a caller can tell it from an empty queue (#35).
+    assert_eq!(
+        report,
+        activities::DueReport {
+            settled: 1,
+            paying: 0,
+            failed: 1
+        }
+    );
     assert_eq!(scalar(db, &state(stuck.tid)).await, 1);
     assert_eq!(
         scalar(db, &state(later.tid)).await,
@@ -1090,7 +1098,8 @@ async fn mysql_large_lottery_pays_in_batches_and_resumes_after_a_failure() {
         other.commit().await.unwrap();
     }
     assert_eq!(
-        settled, 0,
+        (settled.settled, settled.failed),
+        (0, 1),
         "the second batch failed, so this round is not fully settled"
     );
     let state =
@@ -1131,7 +1140,7 @@ async fn mysql_large_lottery_pays_in_batches_and_resumes_after_a_failure() {
     let settled = activities::process_due_with(db, NOW + 3601 + 600, 100, &backoff)
         .await
         .unwrap();
-    assert_eq!(settled, 1);
+    assert_eq!(settled.settled, 1);
     assert_eq!(
         scalar(db, &format!("SELECT COUNT(*) FROM gonof_forum_activity WHERE tid={tid} AND state='settled' AND remaining=0")).await,
         1
@@ -1422,5 +1431,219 @@ async fn credit_rules_hold_in_code_after_the_triggers_are_gone() {
     .await;
     let reconciliation = activities::reconcile_credits(db).await.unwrap();
     assert_eq!(reconciliation.negative_ledger.len(), 1);
+    fixture.cleanup().await.unwrap();
+}
+
+/// A lottery with many winners pays at most `PAYOUT_BATCHES_PER_PASS` batches per settlement pass (#163): an activity
+/// due after it is settled in the same pass instead of waiting for every batch, and the next pass resumes the payout.
+#[tokio::test]
+async fn a_large_lottery_pays_a_few_batches_per_pass() {
+    let fixture = TestFixture::migrated().await.unwrap();
+    let db = &fixture.db;
+    content::seed_forums(db).await.unwrap();
+    gono_forum_web::test_support::raise_posting_quotas(db)
+        .await
+        .unwrap();
+    let per_pass = (activities::PAYOUT_BATCHES_PER_PASS * 100) as i64;
+    let entrants = per_pass + 110;
+    let members: Vec<String> = (1..=3)
+        .chain(10..10 + entrants)
+        .map(|uid| {
+            format!(
+                "({uid},'batch-{uid}','batch-{uid}@example.test','test-password',1,{},{})",
+                NOW - 172800,
+                i64::from(uid == 1)
+            )
+        })
+        .collect();
+    execute(
+        db,
+        &format!(
+            "INSERT INTO gonof_common_member(uid,username,email,password,emailstatus,regdate,adminid) VALUES {}",
+            members.join(",")
+        ),
+    )
+    .await;
+    activities::adjust(
+        db,
+        actor(1),
+        2,
+        entrants + 10,
+        &identity::random_token(),
+        "test activity budget",
+        NOW,
+    )
+    .await
+    .unwrap();
+    let fid = scalar(db, "SELECT MIN(fid) FROM gonof_forum_forum").await;
+    let coins = |winners: i64| activities::PrizeSpec {
+        name: "Coins".into(),
+        winners,
+        kind: "credit".into(),
+        amount: 1,
+        note: String::new(),
+        codes: vec![],
+    };
+    let click = |winners: i64| ActivitySpec {
+        kind: 3,
+        deadline: NOW + 3600,
+        entry_mode: "click".into(),
+        prizes: vec![coins(winners)],
+        ..Default::default()
+    };
+    let large = topic(db, fid, click(entrants)).await.tid;
+    let small = topic(db, fid, click(1)).await.tid;
+    let signups: Vec<String> = (10..10 + entrants)
+        .map(|uid| format!("({large},{uid},{})", NOW + 1))
+        .collect();
+    execute(
+        db,
+        &format!(
+            "INSERT INTO gonof_forum_lottery_signup(tid,uid,dateline) VALUES {}",
+            signups.join(",")
+        ),
+    )
+    .await;
+    activities::enter(db, actor(3), small, &[], NOW + 1)
+        .await
+        .unwrap();
+    let state = |tid: i64| {
+        format!("SELECT COUNT(*) FROM gonof_forum_activity WHERE tid={tid} AND state='settled'")
+    };
+    let paid =
+        format!("SELECT COUNT(*) FROM gonof_forum_lottery_signup WHERE tid={large} AND amount>0");
+    let first = activities::process_due(db, NOW + 3601, 20).await.unwrap();
+    assert_eq!(
+        first,
+        activities::DueReport {
+            settled: 1,
+            paying: 1,
+            failed: 0
+        }
+    );
+    assert_eq!(scalar(db, &paid).await, per_pass);
+    assert_eq!(scalar(db, &state(large)).await, 0);
+    assert_eq!(
+        scalar(db, &state(small)).await,
+        1,
+        "the activity due after the large lottery did not wait for all of its batches"
+    );
+    let second = activities::process_due(db, NOW + 3606, 20).await.unwrap();
+    assert_eq!(
+        second,
+        activities::DueReport {
+            settled: 1,
+            paying: 0,
+            failed: 0
+        }
+    );
+    assert_eq!(scalar(db, &paid).await, entrants);
+    assert_eq!(scalar(db, &state(large)).await, 1);
+    assert_eq!(
+        scalar(
+            db,
+            "SELECT frozen FROM gonof_common_credit_account WHERE uid=2"
+        )
+        .await,
+        0
+    );
+    fixture.cleanup().await.unwrap();
+}
+
+/// `settle-due` tells a failed campaign from an empty queue (#35): it exits non-zero, its report counts the failure,
+/// and the warning with the reason reaches standard error (the command logs through tracing).
+#[tokio::test]
+async fn settle_due_exits_non_zero_and_logs_when_a_campaign_fails() {
+    let fixture = TestFixture::migrated().await.unwrap();
+    let db = &fixture.db;
+    content::seed_forums(db).await.unwrap();
+    gono_forum_web::test_support::raise_posting_quotas(db)
+        .await
+        .unwrap();
+    let now = identity::now();
+    for uid in 1..=3 {
+        db::query("INSERT INTO gonof_common_member(uid,username,email,password,emailstatus,regdate,adminid) VALUES(?,?,?,'test-password',1,?,?)").bind(uid).bind(format!("cli-{uid}")).bind(format!("cli-{uid}@example.test")).bind(now - 172800).bind(i64::from(uid == 1)).execute(db.executor()).await.unwrap();
+    }
+    activities::adjust(
+        db,
+        actor(1),
+        2,
+        100,
+        &identity::random_token(),
+        "test activity budget",
+        now - 7300,
+    )
+    .await
+    .unwrap();
+    let fid = scalar(db, "SELECT MIN(fid) FROM gonof_forum_forum").await;
+    let bounty = writer(db)
+        .publish_at(
+            2,
+            NewThread {
+                visibility: Default::default(),
+                activity: ActivitySpec {
+                    deadline: now - 3600,
+                    ..paid(1, 10, 1)
+                },
+                fid,
+                title: "Due bounty".into(),
+                body: "Due bounty body".into(),
+                attachment_ids: vec![],
+                request_key: identity::random_token(),
+            },
+            now - 7200,
+        )
+        .await
+        .unwrap()
+        .tid;
+    gono_forum_web::test_support::fail_when(
+        db,
+        "fail_cli_settlement",
+        "BEFORE UPDATE",
+        "gonof_forum_activity",
+        &format!("NEW.tid={bounty} AND NEW.state<>OLD.state"),
+        "cli settlement contract failure",
+    )
+    .await
+    .unwrap();
+    let config = fixture.root.join("settle-due.toml");
+    std::fs::write(&config, "[redis]\nenabled = false\n").unwrap();
+    let run = || {
+        std::process::Command::new(env!("CARGO_BIN_EXE_gono-forum-cli"))
+            .args(["settle-due", "10"])
+            .env("GONOF_CONFIG", &config)
+            .env("GONOF_DATABASE_URL", &fixture.config.database.url)
+            .env("GONOF_AUTH_COOKIE_KEY", "11".repeat(32))
+            .env("GONOF_TWO_FACTOR_KEY", "22".repeat(32))
+            .env_remove("GONOF_AUTH_COOKIE_PREVIOUS_KEYS")
+            .env_remove("GONOF_TWO_FACTOR_PREVIOUS_KEYS")
+            .env_remove("RUST_LOG")
+            .output()
+            .unwrap()
+    };
+    let failed = run();
+    let stdout = String::from_utf8_lossy(&failed.stdout);
+    let stderr = String::from_utf8_lossy(&failed.stderr);
+    assert!(!failed.status.success(), "{stdout}\n{stderr}");
+    assert!(
+        stdout.contains("Settled 0 due campaigns") && stdout.contains("1 failed"),
+        "{stdout}"
+    );
+    assert!(
+        stderr.contains("settling a due activity failed")
+            && stderr.contains("cli settlement contract failure"),
+        "{stderr}"
+    );
+    gono_forum_web::test_support::drop_trigger(db, "fail_cli_settlement")
+        .await
+        .unwrap();
+    let settled = run();
+    let stdout = String::from_utf8_lossy(&settled.stdout);
+    assert!(
+        settled.status.success(),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&settled.stderr)
+    );
+    assert!(stdout.contains("Settled 1 due campaigns"), "{stdout}");
     fixture.cleanup().await.unwrap();
 }

@@ -54,22 +54,31 @@ fn connection_failure(error: &anyhow::Error) -> bool {
     })
 }
 
+/// What one settlement pass did. `failed` items were logged and backed off; `paying` lotteries paid
+/// [`PAYOUT_BATCHES_PER_PASS`] batches of winners and continue in the next pass.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DueReport {
+    pub settled: usize,
+    pub paying: usize,
+    pub failed: usize,
+}
+
 /// Caller must pass the mandatory Redis health gate before every batch. Monetary
 /// idempotency and resumability are SQL-backed even if Redis fails after commit.
-pub async fn process_due(db: &Database, now: i64, limit: i64) -> Result<usize> {
+pub async fn process_due(db: &Database, now: i64, limit: i64) -> Result<DueReport> {
     process_due_with(db, now, limit, &DueBackoff::default()).await
 }
 
 /// Same as `process_due`, with failure backoff kept across batches in `backoff`.
 ///
-/// A failing item is only logged and backed off, and the loop moves on: the list is sorted by deadline, and with
-/// `?` an item that kept failing would always come first and block every due settlement.
+/// A failing item is only logged, counted in the report and backed off, and the loop moves on: the list is sorted by
+/// deadline, and with `?` an item that kept failing would always come first and block every due settlement.
 pub async fn process_due_with(
     db: &Database,
     now: i64,
     limit: i64,
     backoff: &DueBackoff,
-) -> Result<usize> {
+) -> Result<DueReport> {
     let waiting = backoff.waiting(now);
     let mut sql = String::from(
         "SELECT tid FROM gonof_forum_activity WHERE ((state='open' AND deadline>0 AND deadline<=?) OR state='drawing')",
@@ -88,9 +97,9 @@ pub async fn process_due_with(
         .bind(limit.clamp(1, 100))
         .fetch_all(db.executor())
         .await?;
-    let mut completed = 0;
+    let mut report = DueReport::default();
     if tids.is_empty() {
-        return Ok(completed);
+        return Ok(report);
     }
     // Settlement is background work: the ledger reasons it writes are in the site language
     // (docs/architecture.md, "Languages").
@@ -105,12 +114,17 @@ pub async fn process_due_with(
     for tid in tids {
         match crate::site::scope(site.clone(), retry_transaction(|| settle_one(db, tid, now))).await
         {
-            Ok(settled) => {
+            Ok(outcome) => {
                 backoff.clear(tid);
-                completed += usize::from(settled);
+                match outcome {
+                    Settled::Done(true) => report.settled += 1,
+                    Settled::Done(false) => {}
+                    Settled::Paying => report.paying += 1,
+                }
             }
             Err(error) if connection_failure(&error) => return Err(error),
             Err(error) => {
+                report.failed += 1;
                 let delay = backoff.fail(tid, now);
                 tracing::warn!(
                     tid,
@@ -121,10 +135,19 @@ pub async fn process_due_with(
             }
         }
     }
-    Ok(completed)
+    Ok(report)
 }
 
-async fn settle_one(db: &Database, tid: i64, now: i64) -> Result<bool> {
+/// What settling one activity did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Settled {
+    /// Finished (`true` when this call settled it).
+    Done(bool),
+    /// A lottery whose winners are still being paid: it comes up again in the next pass.
+    Paying,
+}
+
+async fn settle_one(db: &Database, tid: i64, now: i64) -> Result<Settled> {
     // Close lottery enrollment before discovering the full set of account locks.
     // No balance changes occur in this phase. A crash leaves a resumable drawing.
     let mut phase = db.begin_write().await?;
@@ -166,7 +189,7 @@ async fn settle_one(db: &Database, tid: i64, now: i64) -> Result<bool> {
     let state: String = crate::db::text(&a, "state")?;
     if !["open", "drawing"].contains(&state.as_str()) || a.try_get::<i64, _>("deadline")? > now {
         tx.commit().await?;
-        return Ok(false);
+        return Ok(Settled::Done(false));
     }
     valid(
         a.try_get::<i64, _>("owner_uid")? == owner,
@@ -189,7 +212,7 @@ async fn settle_one(db: &Database, tid: i64, now: i64) -> Result<bool> {
             .await?;
     }
     tx.commit().await?;
-    Ok(true)
+    Ok(Settled::Done(true))
 }
 
 /// Refunds all unpaid budget to the author; the activity is recorded as expired or cancelled depending on whether
@@ -224,6 +247,11 @@ async fn close_unpaid(
 
 /// At most this many winners are paid per payout transaction.
 pub(super) const DRAW_BATCH: usize = 100;
+
+/// At most this many payout transactions per lottery in one settlement pass: a lottery with up to 10,000 winners
+/// (100 batches) is paid over several passes, so refunds of other due activities and the expiry of timed sanctions,
+/// which share the background round, wait for at most 5 batches instead of the whole lottery.
+pub const PAYOUT_BATCHES_PER_PASS: usize = 5;
 
 /// One prize: number, type, slots and credits per person (> 0 only for credit prizes).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -296,7 +324,7 @@ pub(super) async fn prizes_locked(db: &Database, tx: &mut Tx<'_>, tid: i64) -> R
 }
 
 /// Result of a draw: already finished, or the winner list is fixed and credits are waiting to be paid in batches.
-enum Draw {
+pub(super) enum Draw {
     Finished(bool),
     Decided {
         payouts: Vec<(i64, i64)>,
@@ -309,11 +337,12 @@ enum Draw {
 /// One transaction that locked every entrant (with no limit on their number) and paid them one by one would hold the
 /// forum row and thread row the whole time, so settling is split:
 ///
-/// 1. Draw: lock only the author, forum, thread and activity rows, use a consistent read to find the eligible
-///    entrants and fix the winner list, write it into the draw record, and in the same transaction assign the
-///    redemption codes and other prize slots to the winners. Balances are not touched. Entry was already closed in
-///    step 0; a freeze or account deletion of an entrant running concurrently counts as happening after the draw,
-///    with the same result as a freeze after the draw had committed.
+/// 1. Draw ([`decide`]): lock only the author, forum, thread and activity rows, use a consistent read to find the
+///    eligible entrants and fix the winner list, write it into the draw record, and in the same transaction assign
+///    the redemption codes and other prize slots to the winners. Balances are not touched. Entry was already closed
+///    in step 0; a freeze or account deletion of an entrant running concurrently counts as happening after the draw,
+///    with the same result as a freeze after the draw had committed. An early draw does steps 0 and 1 in the
+///    author's own transaction (`lottery::draw_now`), so this pass finds the list already fixed.
 /// 2. Payout: credit winners, in list order, at most [`DRAW_BATCH`] people per batch, one transaction per batch:
 ///    lock the author and this batch of winners, then the content and activity rows, transfer one by one and reduce
 ///    the activity's `remaining` alongside. After any batch commits, the author's frozen credits equal the sum of
@@ -326,16 +355,20 @@ enum Draw {
 ///
 /// Once written, the list never changes: if the thread is later hidden or withdrawn, the list is still paid out in
 /// full (`terminate` does not cancel it).
-async fn settle_lottery(db: &Database, tid: i64, owner: i64, now: i64) -> Result<bool> {
+///
+/// One pass pays at most [`PAYOUT_BATCHES_PER_PASS`] batches and then leaves the lottery `drawing`, so the next pass
+/// resumes it after the other due activities had their turn.
+async fn settle_lottery(db: &Database, tid: i64, owner: i64, now: i64) -> Result<Settled> {
     let (payouts, table) = match draw_lottery(db, tid, owner, now).await? {
-        Draw::Finished(settled) => return Ok(settled),
+        Draw::Finished(settled) => return Ok(Settled::Done(settled)),
         Draw::Decided { payouts, table } => (payouts, table),
     };
-    loop {
+    for _ in 0..PAYOUT_BATCHES_PER_PASS {
         if let Some(settled) = pay_winners(db, tid, owner, &payouts, table, now).await? {
-            return Ok(settled);
+            return Ok(Settled::Done(settled));
         }
     }
+    Ok(Settled::Paying)
 }
 
 /// Reply entry: at draw time the entrant must have a valid reply in this thread made before the deadline.
@@ -369,95 +402,137 @@ async fn draw_lottery(db: &Database, tid: i64, owner: i64, now: i64) -> Result<D
         .bind(tid)
         .fetch_one(db.observe(&mut *tx))
         .await?;
-        let prizes = prizes_locked(db, &mut tx, tid).await?;
         let decided: Vec<i64> = serde_json::from_str(&crate::db::text(&draw, "winners")?)?;
-        let fresh = decided.is_empty();
-        if fresh && !readable {
-            close_unpaid(db, &mut tx, tid, owner, remaining, readable, now).await?;
-            tx.commit().await?;
-            return Ok(Draw::Finished(true));
-        }
-        let winners = if fresh {
-            // Consistent read: the entrants' member rows are not locked. This transaction is READ COMMITTED, so each
-            // statement sees the latest commit: entering and removing both require the activity to still be open, so
-            // they must have committed before step 0 and are always visible here; the thread row lock queues later
-            // moderation writes behind this transaction.
-            let eligible: Vec<i64> = if click {
-                crate::db::query_scalar(CLICK_ELIGIBLE)
-                    .bind(tid)
-                    .bind(owner)
-                    .bind(deadline)
-                    .fetch_all(db.observe(&mut *tx))
-                    .await?
-            } else {
-                crate::db::query_scalar(REPLY_ELIGIBLE)
-                    .bind(tid)
-                    .bind(owner)
-                    .bind(deadline)
-                    .bind(deadline)
-                    .fetch_all(db.observe(&mut *tx))
-                    .await?
-            };
-            let shares: i64 = a.try_get("shares")?;
-            let seed = crate::db::text(&draw, "seed")?;
-            let winners = select_winners(&eligible, shares as usize, &seed);
-            crate::db::query(
-                "UPDATE gonof_forum_activity_draw SET eligible=?,winners=?,dateline=? WHERE tid=?",
-            )
-            .bind(serde_json::to_string(&eligible)?)
-            .bind(serde_json::to_string(&winners)?)
-            .bind(now)
-            .bind(tid)
-            .execute(db.observe(&mut *tx))
-            .await?;
-            winners
-        } else {
-            decided
-        };
-        let allocations = allocate(&winners, &prizes);
-        let payouts = payouts(&allocations);
-        if fresh {
-            // Credits for the newly fixed list must not exceed the frozen budget; on resume, `paid_count` checks
-            // progress.
-            let paid = payouts
-                .iter()
-                .try_fold(0_i64, |sum, (_, amount)| sum.checked_add(*amount))
-                .ok_or_else(|| problem("activity budget out of range"))?;
-            valid(paid <= remaining, "activity budget inconsistent")?;
-            // Redemption codes and other prize slots are assigned in the same transaction that writes the list.
-            for allocation in allocations.iter().filter(|a| a.kind != "credit") {
-                let assigned = crate::db::query("UPDATE gonof_forum_lottery_award SET uid=?,assigned_at=? WHERE tid=? AND prize_no=? AND slot_no=? AND uid IS NULL")
-                    .bind(allocation.uid)
-                    .bind(now)
-                    .bind(tid)
-                    .bind(allocation.prize)
-                    .bind(allocation.slot)
-                    .execute(db.observe(&mut *tx))
-                    .await?;
-                valid(assigned.rows_affected() == 1, "prize slots inconsistent")?;
+        if decided.is_empty() {
+            if !readable {
+                close_unpaid(db, &mut tx, tid, owner, remaining, readable, now).await?;
+                tx.commit().await?;
+                return Ok(Draw::Finished(true));
             }
+            let lot = Lot {
+                tid,
+                owner,
+                deadline,
+                remaining,
+                shares: a.try_get("shares")?,
+                click,
+                seed: crate::db::text(&draw, "seed")?,
+            };
+            let result = decide(db, &mut tx, &lot, now).await?;
+            tx.commit().await?;
+            return Ok(result);
         }
+        let prizes = prizes_locked(db, &mut tx, tid).await?;
+        let payouts = payouts(&allocate(&decided, &prizes));
         if !payouts.is_empty() {
             tx.commit().await?;
             return Ok(Draw::Decided { payouts, table });
         }
-        // No credits to pay (nobody eligible, or all winners got redemption codes or other prizes): refund the whole
-        // budget and mark the activity as settled.
-        ledger::refund(db, &mut tx, owner, tid, remaining, now).await?;
-        crate::db::query(
-            "UPDATE gonof_forum_activity SET state=?,remaining=0,settled_at=? WHERE tid=?",
-        )
-        .bind(super::invariants::State::Settled.value())
-        .bind(now)
-        .bind(tid)
-        .execute(db.observe(&mut *tx))
-        .await?;
+        settle_without_credits(db, &mut tx, tid, owner, remaining, now).await?;
         tx.commit().await?;
         return Ok(Draw::Finished(true));
     }
     close_unpaid(db, &mut tx, tid, owner, remaining, readable, now).await?;
     tx.commit().await?;
     Ok(Draw::Finished(true))
+}
+
+/// A lottery whose draw has started (`drawing`, with its draw record and seed) and whose winner list is not fixed yet.
+pub(super) struct Lot {
+    pub tid: i64,
+    pub owner: i64,
+    /// Entries and replies must be older than this.
+    pub deadline: i64,
+    pub remaining: i64,
+    pub shares: i64,
+    pub click: bool,
+    pub seed: String,
+}
+
+/// Fixes a lottery's winner list (step 1 of [`settle_lottery`]): reads the eligible entrants, draws the winners with
+/// the record's seed, writes both into the draw record and assigns redemption codes and other prize slots. When no
+/// credits are to be paid it also refunds the budget and marks the activity settled. The caller holds the author,
+/// thread, activity and draw record locks in a READ COMMITTED transaction (`begin_content_write`): the eligibility
+/// read is a consistent read that sees every commit before the thread lock was taken, and entering, removing and
+/// moderating the thread's replies queue behind that lock. An early draw calls this in its own transaction, so a reply
+/// posted after it cannot change who is eligible.
+pub(super) async fn decide(db: &Database, tx: &mut Tx<'_>, lot: &Lot, now: i64) -> Result<Draw> {
+    let tid = lot.tid;
+    let prizes = prizes_locked(db, tx, tid).await?;
+    let eligible: Vec<i64> = if lot.click {
+        crate::db::query_scalar(CLICK_ELIGIBLE)
+            .bind(tid)
+            .bind(lot.owner)
+            .bind(lot.deadline)
+            .fetch_all(db.observe(&mut **tx))
+            .await?
+    } else {
+        crate::db::query_scalar(REPLY_ELIGIBLE)
+            .bind(tid)
+            .bind(lot.owner)
+            .bind(lot.deadline)
+            .bind(lot.deadline)
+            .fetch_all(db.observe(&mut **tx))
+            .await?
+    };
+    let winners = select_winners(&eligible, usize::try_from(lot.shares)?, &lot.seed);
+    crate::db::query(
+        "UPDATE gonof_forum_activity_draw SET eligible=?,winners=?,dateline=? WHERE tid=?",
+    )
+    .bind(serde_json::to_string(&eligible)?)
+    .bind(serde_json::to_string(&winners)?)
+    .bind(now)
+    .bind(tid)
+    .execute(db.observe(&mut **tx))
+    .await?;
+    let allocations = allocate(&winners, &prizes);
+    let payouts = payouts(&allocations);
+    // Credits for the newly fixed list must not exceed the frozen budget; on resume, `paid_count` checks progress.
+    let paid = payouts
+        .iter()
+        .try_fold(0_i64, |sum, (_, amount)| sum.checked_add(*amount))
+        .ok_or_else(|| problem("activity budget out of range"))?;
+    valid(paid <= lot.remaining, "activity budget inconsistent")?;
+    // Redemption codes and other prize slots are assigned in the same transaction that writes the list.
+    for allocation in allocations.iter().filter(|a| a.kind != "credit") {
+        let assigned = crate::db::query("UPDATE gonof_forum_lottery_award SET uid=?,assigned_at=? WHERE tid=? AND prize_no=? AND slot_no=? AND uid IS NULL")
+            .bind(allocation.uid)
+            .bind(now)
+            .bind(tid)
+            .bind(allocation.prize)
+            .bind(allocation.slot)
+            .execute(db.observe(&mut **tx))
+            .await?;
+        valid(assigned.rows_affected() == 1, "prize slots inconsistent")?;
+    }
+    if !payouts.is_empty() {
+        let table = super::lottery::entry_table(if lot.click { "click" } else { "reply" });
+        return Ok(Draw::Decided { payouts, table });
+    }
+    settle_without_credits(db, tx, tid, lot.owner, lot.remaining, now).await?;
+    Ok(Draw::Finished(true))
+}
+
+/// No credits to pay (nobody eligible, or all winners got redemption codes or other prizes): refunds the whole budget
+/// and marks the activity as settled.
+async fn settle_without_credits(
+    db: &Database,
+    tx: &mut Tx<'_>,
+    tid: i64,
+    owner: i64,
+    remaining: i64,
+    now: i64,
+) -> Result<()> {
+    ledger::refund(db, tx, owner, tid, remaining, now).await?;
+    crate::db::query(
+        "UPDATE gonof_forum_activity SET state=?,remaining=0,settled_at=? WHERE tid=?",
+    )
+    .bind(super::invariants::State::Settled.value())
+    .bind(now)
+    .bind(tid)
+    .execute(db.observe(&mut **tx))
+    .await?;
+    Ok(())
 }
 
 /// Pays one batch of credits. `Some(settled by this call)` means the activity is finished; `None` means another

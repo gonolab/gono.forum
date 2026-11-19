@@ -350,8 +350,16 @@ async fn lottery_forms_enter_review_draw_and_reveal_codes_only_to_the_winner() {
             .html
             .contains("the author drew early.")
     );
+    // The draw fixed the list in the author's request; with no credits won, it also settled the lottery, so the
+    // background job finds nothing to do.
     let later = identity::now() + 5;
-    assert_eq!(activities::process_due(db, later, 20).await.unwrap(), 1);
+    assert_eq!(
+        activities::process_due(db, later, 20)
+            .await
+            .unwrap()
+            .settled,
+        0
+    );
 
     // The only eligible member, no. 3, wins the first prize (a redemption code); the credits prize goes unclaimed and
     // is returned to the author.

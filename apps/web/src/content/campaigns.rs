@@ -269,8 +269,9 @@ async fn created_deadline(db: &Database, uid: i64, request_key: &str) -> Result<
 }
 
 /// Settles due lotteries, bounties and red packets (lottery draws and so on); `limit` is the maximum number of
-/// activities handled per run.
-pub async fn settle_due(db: &Database, limit: i64) -> Result<usize> {
+/// activities handled per run. The report says how many were settled, how many lotteries are still paying their
+/// winners and how many failed (each failure is logged as a warning).
+pub async fn settle_due(db: &Database, limit: i64) -> Result<activities::DueReport> {
     activities::process_due(db, now(), limit).await
 }
 
