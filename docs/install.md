@@ -266,6 +266,16 @@ so the mail they belong to would fail every retry; without a draft it is written
 migrated the database and is then rolled back, the old version may refuse to start on the newer schema: restore the
 database from your backup. Back up before every upgrade.
 
+**Upgrading from 0.2.0 or earlier builds two indexes on the Outbox table** (`gonof_common_outbox`, migration 0010; see
+[queries.md](queries.md), "Outbox claims"). On MySQL they are built in place: reads and writes of the table go on
+while they are built. The build does wait for transactions already open on the table, and later statements on the
+table wait behind it, so do not start the upgrade while such a transaction is open (a `mysqldump --single-transaction`
+still running, for instance). The new version answers once the build is done. On an SSD, 3 million rows (1.1 GB) took
+2.9 seconds on MySQL 8.4.11 and 4.6 seconds on 5.7.44. `forum.install.sh upgrade` waits 30 seconds for an answer
+and otherwise switches back to the old binaries, which refuse the migrated database. So check the size first
+(`SELECT COUNT(*) FROM gonof_common_outbox`). From about 15 million rows on, upgrade from the admin area, which waits
+for migrations.
+
 **Upgrades are not guaranteed during the alpha.** At the first release candidate the database migrations will be
 folded into a new baseline, and a site installed from a 0.1.x or 0.2.x release may not upgrade past that point and
 would have to be set up again (README, "Status").

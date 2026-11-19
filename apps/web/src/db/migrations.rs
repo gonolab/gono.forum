@@ -57,6 +57,7 @@ const SOURCES: &[Source] = sources! {
     7 => "0007_post_request_version.sql", "the post version an edit request wrote";
     8 => "0008_notification_retention.sql", "site notification retention settings";
     9 => "0009_rank_member.sql", "per-member leaderboard totals";
+    10 => "0010_outbox_indexes.sql", "outbox claim and aggregate indexes";
 };
 
 /// The latest migration version. Tests read it when asserting "migrated to the latest", so adding a migration does not
