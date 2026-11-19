@@ -46,7 +46,8 @@ pub(super) fn applies(path: &str) -> bool {
         || crate::urls::sensitive_page(path))
 }
 
-/// The `<link>` address on the member's own pages; empty when no style was ever saved or this page does not apply it.
+/// The `<link>` address on the member's own pages; empty when the member has no style (never saved, or cleared) or
+/// this page does not apply it.
 pub(super) fn href(state: &AppState, path: &str) -> String {
     let Some(session) = &state.viewer.session else {
         return String::new();

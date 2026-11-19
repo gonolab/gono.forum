@@ -73,8 +73,8 @@ pub struct Reading {
     pub title_new_tab: bool,
     pub avatar_circle: bool,
     pub version: i64,
-    /// Version of the personal style; 0 means never saved. The page frame only takes the version; the style source
-    /// is read only by `/my/style` and the stylesheet.
+    /// Version of the personal style for its stylesheet address; 0 when there is none (never saved, or cleared).
+    /// The page frame only takes the version; the style source is read only by `/my/style` and the stylesheet.
     pub css_version: i64,
     /// The member's choices; all `None` for anonymous visitors.
     pub chosen: Choices,
@@ -173,8 +173,9 @@ fn shape_text(circle: bool) -> &'static str {
 }
 
 /// Does not select `custom_css`: the style source can be up to 16 KiB, and only `/my/style` and the stylesheet need
-/// it.
-const SELECT: &str = "SELECT list_sort,thread_view,title_latest,title_new_tab,version,avatar_shape,custom_css_version FROM gonof_home_reading_preference WHERE uid=?";
+/// it. Whether there is one is enough for the page frame: a cleared style keeps its version (the stylesheet address
+/// must not repeat) but pages no longer link it.
+const SELECT: &str = "SELECT list_sort,thread_view,title_latest,title_new_tab,version,avatar_shape,custom_css_version,custom_css IS NOT NULL AS has_custom_css FROM gonof_home_reading_preference WHERE uid=?";
 
 /// The raw choices of the member row. NULL follows the site; a bad value in the database (hand-edited) is also
 /// treated as following the site, so one dirty row cannot turn a list page into a 500 — this is a member preference,
@@ -203,11 +204,12 @@ fn decode(row: Option<db::DbRow>) -> anyhow::Result<(Choices, i64, i64)> {
         title_new_tab: flag("title_new_tab")?,
         avatar_circle: text("avatar_shape")?.and_then(|v| Reading::parse_avatar_shape(&v)),
     };
-    Ok((
-        chosen,
-        row.try_get("version")?,
-        row.try_get("custom_css_version")?,
-    ))
+    let css_version = if row.try_get::<i64, _>("has_custom_css")? != 0 {
+        row.try_get("custom_css_version")?
+    } else {
+        0
+    };
+    Ok((chosen, row.try_get("version")?, css_version))
 }
 
 pub(crate) async fn load_choices(db: &Database, uid: i64) -> anyhow::Result<(Choices, i64, i64)> {

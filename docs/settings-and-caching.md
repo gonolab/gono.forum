@@ -309,10 +309,10 @@ callers read the database.
 - **Anonymous only.** Lists, sidebars, pins, floors and rendered bodies are cached for anonymous visitors only;
   members' views depend on their own blocks and permissions.
 - **Member frame.** One key per uid holds the raw choices (board hides and blocks, reading choices, the custom style
-  version); site defaults and the board tree are merged in per request. Its lifetime is `settings.cache.ttl_seconds`
-  capped at 300 seconds (0: not cached). Saving reading preferences, the custom style or board filters deletes the key
-  after commit, and the account deletion worker deletes it before finishing; a failed delete returns a 503 that says
-  the change was saved.
+  version, 0 while there is no style); site defaults and the board tree are merged in per request. Its lifetime is
+  `settings.cache.ttl_seconds` capped at 300 seconds (0: not cached). Saving reading preferences, the custom style or
+  board filters deletes the key after commit, and the account deletion worker deletes it before finishing; a failed
+  delete returns a 503 that says the change was saved.
 - **Times.** Times shown from cached floors and sidebar cards are formatted again for each request, as list rows are,
   so relative times ("5 minutes ago") do not lag by a cache lifetime.
 - **Bad values and stampedes.** A value that no longer decodes (an old format after a deploy) is a miss and is

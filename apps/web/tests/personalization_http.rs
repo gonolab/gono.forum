@@ -420,6 +420,27 @@ async fn custom_css_is_validated_saved_served_only_to_its_owner_and_reset() {
     );
     let empty = get(&f.app, "/my/style.css?u=9801&v=2", &mut owner).await;
     assert_eq!((empty.status, empty.body.as_str()), (StatusCode::OK, ""));
+    // With nothing to apply, pages link no stylesheet (a browser without the empty copy would fetch it for nothing);
+    // saving again links the next version.
+    for path in ["/", "/my/reading"] {
+        let reply = get(&f.app, path, &mut owner).await;
+        assert!(!reply.body.contains(LINK), "{path} after the reset");
+    }
+    let again = send(
+        &f.app,
+        "POST",
+        "/my/style",
+        &mut owner,
+        &[("version", "2"), ("css", css)],
+        &[],
+    )
+    .await;
+    assert_eq!(again.status, StatusCode::SEE_OTHER, "{}", again.body);
+    let home = get(&f.app, "/", &mut owner).await;
+    assert!(
+        home.body
+            .contains("href=\"/my/style.css?u=9801&#38;v=3\" data-custom-style>")
+    );
     f.services.cleanup_ref().await.unwrap();
 }
 

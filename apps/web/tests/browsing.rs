@@ -75,6 +75,9 @@ async fn rejects_invalid_routes_pages_and_query_parameters() {
         "/thread-103-3",
         "/thread-103?sub_root=999",
         "/thread-103?sub_root=103002&sub_page=3",
+        // Nested reply pages whose offset does not fit: past the page count like any other, not a database error.
+        "/thread-103?sub_root=103002&sub_page=18446744073709551615",
+        "/thread-103?sub_root=103002&sub_page=1000000000000000000",
     ] {
         assert_eq!(
             support::fetch(&app, path, false).await.0,

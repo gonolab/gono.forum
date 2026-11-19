@@ -1084,17 +1084,16 @@ pub async fn load_replies(
             let root = i64::try_from(post.pid)?;
             match sub_root.filter(|pid| *pid == post.pid && sub_page > 1) {
                 Some(_) => {
-                    let start = i64::try_from(
-                        (sub_page - 1)
-                            .checked_mul(paging.sub_replies)
-                            .context("nested reply page out of range")?,
-                    )?
-                    .checked_add(1)
-                    .context("nested reply page out of range")?;
-                    let end = start
-                        .checked_add(per_page)
-                        .context("nested reply page out of range")?;
-                    turned = Some((root, start, end));
+                    // A page whose first position cannot even be written holds no nested reply: nothing is read for
+                    // it, and the thread page's page count check answers 404 instead of a database error.
+                    let range = (sub_page - 1)
+                        .checked_mul(paging.sub_replies)
+                        .and_then(|skipped| i64::try_from(skipped).ok())
+                        .and_then(|skipped| skipped.checked_add(1))
+                        .and_then(|start| Some((start, start.checked_add(per_page)?)));
+                    if let Some((start, end)) = range {
+                        turned = Some((root, start, end));
+                    }
                 }
                 None => first_pages.push(root),
             }

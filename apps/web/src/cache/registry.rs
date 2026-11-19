@@ -381,7 +381,7 @@ pub const MEMBER_FRAME: Entry = Entry {
     lifetime: Lifetime::Member,
     per_member: true,
     slots: &[],
-    redis_tag: Some("frame-member-v1"),
+    redis_tag: Some("frame-member-v2"),
 };
 
 // ---- In-process image bytes (checked against the binding) ----
