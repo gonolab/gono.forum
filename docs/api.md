@@ -154,8 +154,10 @@ Idempotency-Key: weekly-digest-12
   entering a lottery ignore it: they already happen at most once per day, and once per thread.
 - Repeating a request with the same key and the same content returns the original result without doing anything
   again: the same `tid` and `pid`, with `200` instead of `201` for new threads and replies. This holds even when the
-  thread's activity has ended since, as long as the key is remembered. If two such requests arrive
-  at the same time, only one is written; one gets `201`, the other `200`.
+  thread's activity has ended since, as long as the key is remembered. It also holds for a new thread whose board has
+  since changed its slug or been hidden from you (send the `forum` you sent the first time), and after the site's time
+  zone has changed: a `deadline` sent as text counts as that text, not as the moment it was read as. If two such
+  requests arrive at the same time, only one is written; one gets `201`, the other `200`.
 - Reusing a key for a different request gets `409 conflict` (`422 activity_rejected` for accepting and voting). Use a
   new key for every new action.
 - Keys belong to the member, not to the token, and are remembered for the site's request key retention period (30 days

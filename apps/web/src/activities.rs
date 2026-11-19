@@ -135,6 +135,11 @@ pub struct PrizeSpec {
 }
 
 impl ActivitySpec {
+    /// Bounties, red packets, lotteries and polls have a deadline; other kinds drop it when normalized.
+    pub fn keeps_deadline(&self) -> bool {
+        (1..=4).contains(&self.kind)
+    }
+
     /// Normalizes by kind: keeps only the fields the kind really uses and sets the rest to defaults.
     /// The idempotency digest and the stored row both use the normalized values, so extra or missing unrelated fields
     /// from the client never affect the retry check.
@@ -143,7 +148,7 @@ impl ActivitySpec {
             kind: self.kind,
             ..Self::default()
         };
-        if (1..=4).contains(&self.kind) {
+        if spec.keeps_deadline() {
             spec.deadline = self.deadline;
         }
         if (1..=3).contains(&self.kind) {

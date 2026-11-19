@@ -23,7 +23,9 @@ use crate::{
     content::{
         self,
         edits::{ContentEditor, EditRequest},
-        writes::{ContentWriteError, ContentWriter, NewReply, NewThread, ThreadVisibility},
+        writes::{
+            ContentWriteError, ContentWriter, NewReply, NewThread, Published, ThreadVisibility,
+        },
     },
     db,
     identity::{self, ApiKey, IdentityError, Member},
@@ -735,15 +737,45 @@ impl ThreadInput {
 /// member copy of the process forum cache (docs/settings-and-caching.md, "The process cache"), the same source as the
 /// web posting page's dropdown. This is only a pre-check outside the transaction: after locking the forum path, the
 /// publish transaction still rechecks readability against the database.
-async fn resolve_forum(state: &AppState, forum: &ForumRef) -> Result<i64, ApiError> {
+///
+/// A retry of a thread that was already published looks its key up before anything else in the transaction, and only
+/// replays (or refuses a different request); it needs no board it can find now. So when the reference finds no board,
+/// a key already recorded supplies one: a forum ID as sent (the number the original digest has), and for a slug —
+/// renamed or taken away since — the board of the post the record points to.
+async fn resolve_forum(
+    state: &AppState,
+    actor: &ApiActor,
+    headers: &HeaderMap,
+    key: &str,
+    forum: &ForumRef,
+) -> Result<i64, ApiError> {
     let ttl = state.global.settings(&state.db).await?.settings.cache_ttl();
     let forums = state.global.forums(&state.db, true, ttl).await?;
     let found = match forum {
         ForumRef::Id(fid) => forums.iter().find(|f| f.fid == *fid),
         ForumRef::Slug(slug) => forums.iter().find(|f| f.slug == slug.trim()),
     };
-    found
-        .map(|f| f.fid)
+    if let Some(found) = found {
+        return Ok(found.fid);
+    }
+    // Without the header the key is random and has no record.
+    let recorded = if headers.contains_key(IDEMPOTENCY_HEADER) {
+        db::query_scalar::<i64>(
+            "SELECT p.fid FROM gonof_forum_post_request r JOIN gonof_forum_post p ON p.pid = r.pid
+             WHERE r.uid = ? AND r.request_key = ?",
+        )
+        .bind(actor.member.uid)
+        .bind(key)
+        .fetch_optional(state.db.executor())
+        .await?
+    } else {
+        None
+    };
+    recorded
+        .map(|recorded| match forum {
+            ForumRef::Id(fid) => *fid,
+            ForumRef::Slug(_) => recorded,
+        })
         .ok_or_else(|| ApiError::not_found(crate::i18n::current().api_error_forum()))
 }
 
@@ -753,14 +785,18 @@ async fn create_thread(
     headers: HeaderMap,
     ApiJson(input): ApiJson<ThreadInput>,
 ) -> Result<Response, ApiError> {
-    let fid = resolve_forum(&state, &input.forum).await?;
+    let key = request_key(&headers)?;
+    let fid = resolve_forum(&state, &actor, &headers, &key, &input.forum).await?;
     let visibility = thread_visibility(input.visibility.as_deref())?.unwrap_or_default();
     let attachment_ids = attachments(&input.body)?;
-    let key = request_key(&headers)?;
     // Category and activity fields are validated outside the transaction first, giving per-field validation messages;
     // the publish transaction validates once more against the time after locking (an invalid category rolls back the
     // whole publish), and freezes the budget.
     let activity = input.activity();
+    let deadline_text = match &input.deadline {
+        Some(DeadlineInput::Text(text)) => Some(text.clone()),
+        _ => None,
+    };
     let credit = state
         .global
         .settings(&state.db)
@@ -786,18 +822,11 @@ async fn create_thread(
         visibility,
     };
     let published = match checked {
-        Ok(()) => {
-            writer(&state, &actor)
-                .publish_actor(actor.actor(), thread)
-                .await?
-        }
+        Ok(()) => publish(&state, &actor, thread, deadline_text.as_deref()).await?,
         // A retry of a publication that succeeded replays with its original result even after its activity has
         // ended (docs/api.md, "Idempotency keys"): the transaction looks the key up before anything else. A new
         // request fails inside the transaction as well, and gets the message of this check.
-        Err(invalid) => match writer(&state, &actor)
-            .publish_actor(actor.actor(), thread)
-            .await
-        {
+        Err(invalid) => match publish(&state, &actor, thread, deadline_text.as_deref()).await {
             Ok(published) => published,
             Err(_) => return Err(invalid),
         },
@@ -819,6 +848,25 @@ async fn create_thread(
             "url": url,
         }),
     ))
+}
+
+/// A deadline sent as text is a local time in the site's time zone; the publish transaction keeps that text, not the
+/// moment it was read as, in the request digest (`ContentWriter::publish_actor_typed`).
+async fn publish(
+    state: &AppState,
+    actor: &ApiActor,
+    thread: NewThread,
+    deadline_text: Option<&str>,
+) -> Result<Published, ContentWriteError> {
+    let writer = writer(state, actor);
+    match deadline_text {
+        Some(text) => {
+            writer
+                .publish_actor_typed(actor.actor(), thread, text)
+                .await
+        }
+        None => writer.publish_actor(actor.actor(), thread).await,
+    }
 }
 
 #[derive(Deserialize)]

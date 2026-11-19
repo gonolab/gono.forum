@@ -963,6 +963,131 @@ async fn authors_edit_their_threads_and_replies_with_version_checks() {
     f.services.cleanup_ref().await.unwrap();
 }
 
+/// A retry of a published thread replays even when the board's slug or the site's time zone changed since: the
+/// transaction finds the request by its key, so the API takes the board from the record when the slug finds none, and a
+/// deadline typed as a local time enters the digest as the text sent, not as the moment it was read as.
+#[tokio::test]
+async fn publication_retries_replay_after_the_slug_or_the_time_zone_changes() {
+    let f = Fixture::new(&[("settings.posting.daily_threads", "20")]).await;
+    let (_, secret) = f.key(MEMBER).await;
+    let thread = r#"{"forum":"daily","title":"Before the rename","body":"Body"}"#;
+    let key = [("idempotency-key", "renamed-board")];
+    let (status, _, created) = f
+        .api("POST", "/api/v1/threads", Some(&secret), Some(thread), &key)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    f.execute("UPDATE gonof_forum_forum SET slug='daily-renamed' WHERE slug='daily'")
+        .await;
+    f.services.global.clear_local();
+    let (status, _, replayed) = f
+        .api("POST", "/api/v1/threads", Some(&secret), Some(thread), &key)
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "a retry with the old slug replays: {replayed}"
+    );
+    assert_eq!(
+        (&replayed["tid"], &replayed["pid"]),
+        (&created["tid"], &created["pid"])
+    );
+    let other = r#"{"forum":"daily","title":"Another title","body":"Body"}"#;
+    let (status, _, conflict) = f
+        .api("POST", "/api/v1/threads", Some(&secret), Some(other), &key)
+        .await;
+    assert_eq!(
+        (status, conflict["code"].as_str()),
+        (StatusCode::CONFLICT, Some("conflict")),
+        "another request under the recorded key is still a conflict: {conflict}"
+    );
+    let (status, _, missing) = f
+        .api(
+            "POST",
+            "/api/v1/threads",
+            Some(&secret),
+            Some(thread),
+            &[("idempotency-key", "renamed-board-new")],
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "a new request with the old slug finds no board: {missing}"
+    );
+
+    // Deadlines typed as site time (UTC+8 in the fixture), one day ahead on a whole minute.
+    let at = (identity::now() + 86_400) / 60 * 60;
+    let typed = (chrono::DateTime::from_timestamp(at, 0).unwrap() + chrono::Duration::hours(8))
+        .format("%Y-%m-%dT%H:%M")
+        .to_string();
+    let poll = |deadline: &str| {
+        format!(
+            r#"{{"forum":"daily-renamed","title":"Poll","body":"Pick one","category":4,"options":["Alpha","Beta"],"deadline":{deadline}}}"#
+        )
+    };
+    // Records written before kept the moment in the digest, the same as a deadline sent in seconds: a retry with the
+    // text that reads as that moment still replays against them.
+    let by_moment = poll(&at.to_string());
+    let by_text = poll(&format!("\"{typed}\""));
+    let moment_key = [("idempotency-key", "poll-by-moment")];
+    let (status, _, created) = f
+        .api(
+            "POST",
+            "/api/v1/threads",
+            Some(&secret),
+            Some(&by_moment),
+            &moment_key,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let (status, _, replayed) = f
+        .api(
+            "POST",
+            "/api/v1/threads",
+            Some(&secret),
+            Some(&by_text),
+            &moment_key,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{replayed}");
+    assert_eq!(replayed["tid"], created["tid"]);
+
+    let text_key = [("idempotency-key", "poll-by-text")];
+    let (status, _, created) = f
+        .api(
+            "POST",
+            "/api/v1/threads",
+            Some(&secret),
+            Some(&by_text),
+            &text_key,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    gono_forum_web::test_support::set_setting(&f.db, "settings.time.offset_minutes", "0")
+        .await
+        .unwrap();
+    f.services.global.clear_local();
+    let (status, _, replayed) = f
+        .api(
+            "POST",
+            "/api/v1/threads",
+            Some(&secret),
+            Some(&by_text),
+            &text_key,
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the same text replays after the time zone changed: {replayed}"
+    );
+    assert_eq!(
+        (&replayed["tid"], &replayed["pid"]),
+        (&created["tid"], &created["pid"])
+    );
+    f.services.cleanup_ref().await.unwrap();
+}
+
 /// A retry of a thread whose activity has ended since still replays with the original result while its key is
 /// remembered; a new request with the same ended deadline is refused.
 #[tokio::test]

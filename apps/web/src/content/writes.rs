@@ -229,8 +229,28 @@ impl ContentWriter {
         actor: identity::Actor,
         request: NewThread,
     ) -> Result<Published> {
-        self.publish_retry(actor.uid, Some(actor), request, identity::now())
+        self.publish_retry(actor.uid, Some(actor), request, None, identity::now())
             .await
+    }
+
+    /// Like [`Self::publish_actor`], for an activity deadline the member typed as a local time: `deadline_text` is that
+    /// text as the client sent it, and `request.activity.deadline` the moment it was read as. The request digest keeps
+    /// the text instead of the moment, so a retry after the site's time zone has changed (and the same text now reads as
+    /// another moment) still replays.
+    pub async fn publish_actor_typed(
+        &self,
+        actor: identity::Actor,
+        request: NewThread,
+        deadline_text: &str,
+    ) -> Result<Published> {
+        self.publish_retry(
+            actor.uid,
+            Some(actor),
+            request,
+            Some(deadline_text),
+            identity::now(),
+        )
+        .await
     }
 
     pub async fn reply_actor(
@@ -257,7 +277,8 @@ impl ContentWriter {
         request: NewThread,
         timestamp: i64,
     ) -> Result<Published> {
-        self.publish_retry(uid, None, request, timestamp).await
+        self.publish_retry(uid, None, request, None, timestamp)
+            .await
     }
 
     async fn publish_retry(
@@ -265,11 +286,12 @@ impl ContentWriter {
         uid: i64,
         credentials: Option<identity::Actor>,
         request: NewThread,
+        deadline_text: Option<&str>,
         timestamp: i64,
     ) -> Result<Published> {
         for attempt in 0..3 {
             let result = self
-                .publish_inner(uid, credentials, request.clone(), timestamp)
+                .publish_inner(uid, credentials, request.clone(), deadline_text, timestamp)
                 .await;
             match &result {
                 Err(error) if attempt < 2 && error.retryable() => {
@@ -286,6 +308,7 @@ impl ContentWriter {
         uid: i64,
         credentials: Option<identity::Actor>,
         mut request: NewThread,
+        deadline_text: Option<&str>,
         timestamp: i64,
     ) -> Result<Published> {
         self.config.validate()?;
@@ -306,21 +329,38 @@ impl ContentWriter {
         request.activity = request.activity.normalized();
         // The digest keeps the old format's empty tags array, so existing tag-less requests can still replay after
         // the upgrade.
-        let hash = identity::token_hash(
-            &serde_json::json!({
+        let digest = |activity: &crate::activities::ActivitySpec, deadline_text: Option<&str>| {
+            let mut value = serde_json::json!({
                 "operation": "thread", "fid": request.fid, "title": request.title,
-                "body": request.body, "attachments": request.attachment_ids, "activity": request.activity,
+                "body": request.body, "attachments": request.attachment_ids, "activity": activity,
                 "tags": [], "visibility": request.visibility,
-            })
-            .to_string(),
-        );
+            });
+            if let Some(text) = deadline_text {
+                value["deadline_text"] = serde_json::Value::from(text);
+            }
+            identity::token_hash(&value.to_string())
+        };
+        let moment = digest(&request.activity, None);
+        // A deadline typed as a local time enters the digest as the text the client sent, not as the moment it was
+        // read as: once the site's time zone changes, the same text reads as another moment. Records written before
+        // this kept the moment, so a retry still replays against that digest too.
+        let hash = match deadline_text.filter(|_| request.activity.keeps_deadline()) {
+            Some(text) => digest(
+                &crate::activities::ActivitySpec {
+                    deadline: 0,
+                    ..request.activity.clone()
+                },
+                Some(text),
+            ),
+            None => moment.clone(),
+        };
         let mut tx = self.db.begin_content_write().await?;
         let settings = crate::runtime::guard_write(&self.db, &mut tx, false)
             .await
             .map_err(crate::organization::identity_error)?;
         let author = self.author_locked(&mut tx, uid, credentials).await?;
         if let Some(published) = self
-            .replay(&mut tx, uid, &request.request_key, &hash)
+            .replay(&mut tx, uid, &request.request_key, &[&hash, &moment])
             .await?
         {
             tx.commit().await?;
@@ -541,7 +581,7 @@ impl ContentWriter {
         crate::activities::lock_members(&self.db, &mut tx, &[uid, owner]).await?;
         let author = self.author_locked(&mut tx, uid, credentials).await?;
         if let Some(published) = self
-            .replay(&mut tx, uid, &request.request_key, &hash)
+            .replay(&mut tx, uid, &request.request_key, &[&hash])
             .await?
         {
             tx.commit().await?;
@@ -806,12 +846,14 @@ impl ContentWriter {
         })
     }
 
+    /// The original result of a request already recorded under this key; `hashes` are the digests the recorded one may
+    /// equal (the current format first, then any older format that records kept).
     async fn replay(
         &self,
         tx: &mut Tx<'_>,
         uid: i64,
         key: &str,
-        hash: &str,
+        hashes: &[&str],
     ) -> Result<Option<Published>> {
         // The account row already serializes all requests of this account. Do not FOR UPDATE a request that does not
         // exist, otherwise MySQL's gap locks would deadlock with the forum lock when different accounts insert new
@@ -826,7 +868,8 @@ impl ContentWriter {
         else {
             return Ok(None);
         };
-        if db::text(&row, "request_hash")? != hash {
+        let recorded = db::text(&row, "request_hash")?;
+        if !hashes.contains(&recorded.as_str()) {
             return Err(ContentWriteError::Conflict(
                 crate::i18n::current().editor_error_request_reused(),
             ));

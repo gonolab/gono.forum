@@ -681,8 +681,10 @@ async fn submit(
         Vec::new()
     };
     let result = if e.tid == 0 {
+        // The deadline is typed as a site-time text: the request digest keeps that text, so a resubmission after the
+        // time zone changed still replays.
         writer
-            .publish_actor(
+            .publish_actor_typed(
                 session.member.actor(),
                 NewThread {
                     activity: crate::activities::ActivitySpec {
@@ -725,6 +727,7 @@ async fn submit(
                     request_key: e.request_key.clone(),
                     visibility,
                 },
+                &e.deadline,
             )
             .await
     } else {
