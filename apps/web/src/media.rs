@@ -62,6 +62,7 @@ fn check_text(stored: &str) -> String {
 mod tests;
 mod thumbnail;
 mod worker;
+pub(crate) use worker::retried_payload;
 pub use worker::worker_entry;
 
 use crate::{
@@ -472,6 +473,9 @@ pub struct MediaReport {
 #[derive(Serialize, Deserialize)]
 struct ProcessEvent {
     source: String,
+    /// How many inspections of this job gave no verdict (`media/worker.rs`, `INSPECTION_ATTEMPTS`).
+    #[serde(default)]
+    no_verdict: i64,
 }
 
 impl Media {

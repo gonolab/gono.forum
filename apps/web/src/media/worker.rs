@@ -15,9 +15,13 @@ struct Claim {
 const BATCH_SIZE: usize = 8;
 
 /// When the inspection subprocess gives no verdict (timeout, killed by a signal, abnormal exit, unreadable result),
-/// the claim attempt at which the file is judged as failed. Earlier attempts back off and retry as environment
-/// failures: a process under heavy load or killed by OOM should not get a legitimate file rejected permanently;
-/// but a file that hangs every time cannot be retried forever either.
+/// the inspection at which the file is judged as failed. Earlier ones back off and retry as environment failures: a
+/// process under heavy load or killed by OOM should not get a legitimate file rejected permanently; but a file that
+/// hangs every time cannot be retried forever either.
+///
+/// Only inspections without a verdict count, in the job's payload (`ProcessEvent::no_verdict`): claims that failed
+/// for other reasons (storage, the output disk) do not use up the file's allowance, and an administrator's retry
+/// starts it over ([`retried_payload`]).
 const INSPECTION_ATTEMPTS: i64 = 3;
 
 /// Maximum number of keys in one `event_key IN (…)` during the quarantine sweep.
@@ -68,13 +72,29 @@ enum Inspected {
     Passed(inspect::Inspection),
     /// Finished normally with a verdict: failed.
     Failed,
+    /// Finished normally, but writing the output failed: the disk's fault, retried like a storage failure.
+    Unavailable,
     /// No verdict was given.
     Abnormal(&'static str),
 }
 
+/// What the inspection subprocess writes as its result (see [`read_inspection`]): the inspection, `{"error":…}` for
+/// a verdict against the file, or `{"unavailable":…}` when the output could not be written.
+fn verdict(result: anyhow::Result<inspect::Inspection>) -> anyhow::Result<serde_json::Value> {
+    Ok(match result {
+        Ok(result) => serde_json::to_value(result)?,
+        Err(error) if error.downcast_ref::<inspect::OutputError>().is_some() => {
+            serde_json::json!({"unavailable":"the processed output could not be written"})
+        }
+        Err(_) => {
+            serde_json::json!({"error":"the file failed the format, structure or resource check"})
+        }
+    })
+}
+
 /// Determines the outcome from the subprocess exit status and the result file. When inspection fails the subprocess
 /// still exits with 0 and writes `{"error":…}`; a non-zero exit, being killed by a signal or an incomplete result
-/// file are not verdicts on the file.
+/// file are not verdicts on the file, and neither is `{"unavailable":…}`.
 fn read_inspection(exited_cleanly: bool, result: Option<&[u8]>) -> Inspected {
     if !exited_cleanly {
         return Inspected::Abnormal(crate::i18n::current().media_check_crashed());
@@ -85,6 +105,9 @@ fn read_inspection(exited_cleanly: bool, result: Option<&[u8]>) -> Inspected {
     let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) else {
         return Inspected::Abnormal(crate::i18n::current().media_check_incomplete());
     };
+    if value.get("unavailable").is_some() {
+        return Inspected::Unavailable;
+    }
     if value.get("error").is_some() {
         return Inspected::Failed;
     }
@@ -94,10 +117,10 @@ fn read_inspection(exited_cleanly: bool, result: Option<&[u8]>) -> Inspected {
     }
 }
 
-/// An inspection without a verdict is retried as a temporary failure the first few times and rejected only at
-/// attempt `INSPECTION_ATTEMPTS`.
-fn inconclusive(attempts: i64, message: &str) -> MediaError {
-    if attempts >= INSPECTION_ATTEMPTS {
+/// An inspection without a verdict is retried as a temporary failure the first few times and rejected only at the
+/// `INSPECTION_ATTEMPTS`th such inspection (`count` includes this one).
+fn inconclusive(count: i64, message: &str) -> MediaError {
+    if count >= INSPECTION_ATTEMPTS {
         MediaError::Validation(message.into())
     } else {
         MediaError::Unavailable(format!("{message}; will retry automatically"))
@@ -123,13 +146,7 @@ pub fn worker_entry() -> anyhow::Result<bool> {
         &config,
     );
     let path = Path::new(&args[3]).with_extension("json");
-    let value = match result {
-        Ok(result) => serde_json::to_value(result)?,
-        Err(_) => {
-            serde_json::json!({"error":"the file failed the format, structure or resource check"})
-        }
-    };
-    std::fs::write(path, serde_json::to_vec(&value)?)?;
+    std::fs::write(path, serde_json::to_vec(&verdict(result)?)?)?;
     Ok(true)
 }
 
@@ -516,9 +533,19 @@ impl Media {
                     crate::i18n::current().media_check_failed().into(),
                 ));
             }
+            Ok(Inspected::Unavailable) => {
+                discard_output(&output).await;
+                return Err(MediaError::Unavailable(
+                    "writing the processed image failed; will retry automatically".into(),
+                ));
+            }
             Ok(Inspected::Abnormal(message)) => {
                 discard_output(&output).await;
-                return Err(inconclusive(claim.attempts, message));
+                let count = payload.no_verdict.saturating_add(1);
+                if count < INSPECTION_ATTEMPTS {
+                    self.record_no_verdict(claim, count).await?;
+                }
+                return Err(inconclusive(count, message));
             }
             Err(error) => {
                 discard_output(&output).await;
@@ -532,6 +559,24 @@ impl Media {
             attachment: db::text(&row, "attachment")?,
             storage_profile_id: db::text(&row, "storage_profile_id")?,
         }))
+    }
+
+    /// Writes how many inspections of this job have given no verdict into its payload, under the lease fence; the
+    /// other payload fields (the source file, the original size the daily quota reads) stay as they are.
+    async fn record_no_verdict(&self, claim: &Claim, count: i64) -> Result<()> {
+        let mut payload: serde_json::Value =
+            serde_json::from_str(&claim.payload).context("invalid media job payload")?;
+        let fields = payload
+            .as_object_mut()
+            .context("invalid media job payload")?;
+        fields.insert("no_verdict".into(), count.into());
+        crate::db::query("UPDATE gonof_common_outbox SET payload=? WHERE eventid=? AND lease_token=? AND status='processing'")
+            .bind(payload.to_string())
+            .bind(claim.eventid)
+            .bind(&claim.lease)
+            .execute(self.db.executor())
+            .await?;
+        Ok(())
     }
 
     /// Second half of a processing job: upload the processed result and mark the attachment ready under the lease
@@ -737,6 +782,8 @@ impl Media {
         Ok(read_inspection(status.success(), result.as_deref()))
     }
 
+    /// In tests the inspection runs in this process, through the same result the subprocess would write.
+    /// [`tests::NO_VERDICT`] makes the next inspections time out instead.
     #[cfg(test)]
     async fn inspect_process(
         &self,
@@ -744,12 +791,16 @@ impl Media {
         output: &Path,
         filename: &str,
     ) -> Result<Inspected> {
-        Ok(
-            match inspect::inspect(source, output, filename, &self.config) {
-                Ok(inspection) => Inspected::Passed(inspection),
-                Err(_) => Inspected::Failed,
-            },
-        )
+        if tests::NO_VERDICT.with(|left| left.replace(left.get().saturating_sub(1))) > 0 {
+            return Ok(Inspected::Abnormal(
+                crate::i18n::current().media_check_timeout(),
+            ));
+        }
+        let result = verdict(inspect::inspect(source, output, filename, &self.config))?;
+        Ok(read_inspection(
+            true,
+            Some(&serde_json::to_vec(&result).context("invalid inspection result")?),
+        ))
     }
 
     #[cfg(test)]
@@ -1013,10 +1064,26 @@ impl Media {
     }
 }
 
+/// The payload an administrator's retry of a media job writes back, or `None` to keep it: a processing job's count
+/// of inspections without a verdict starts over (`INSPECTION_ATTEMPTS`), so the retried file gets its full allowance.
+pub(crate) fn retried_payload(event_type: &str, payload: &str) -> Option<String> {
+    if event_type != "media.process" {
+        return None;
+    }
+    let mut payload: serde_json::Value = serde_json::from_str(payload).ok()?;
+    payload.as_object_mut()?.remove("no_verdict")?;
+    Some(payload.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::media::tests::{FakeS3, Fixture, png, png_sized};
+
+    thread_local! {
+        /// How many of the next inspections on this thread give no verdict (see `inspect_process`).
+        pub(super) static NO_VERDICT: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    }
 
     #[test]
     fn idle_rounds_back_off_until_woken() {
@@ -1509,6 +1576,10 @@ mod tests {
             read_inspection(true, Some(br#"{"error":"bad"}"#)),
             Inspected::Failed
         ));
+        assert!(matches!(
+            read_inspection(true, Some(br#"{"unavailable":"disk"}"#)),
+            Inspected::Unavailable
+        ));
         let passed =
             br#"{"mime_type":"image/png","width":2,"height":2,"filesize":4,"content_sha256":"00"}"#;
         assert!(matches!(
@@ -1533,6 +1604,166 @@ mod tests {
             inconclusive(INSPECTION_ATTEMPTS, "processing timed out"),
             MediaError::Validation(_)
         ));
+    }
+
+    // A failure writing the processed output is the disk's, not the file's: the job retries it as a temporary
+    // failure, and the image passes once the disk works again.
+    #[tokio::test]
+    async fn output_write_failures_retry_instead_of_rejecting() {
+        let fixture = Fixture::new(MediaConfig::default()).await;
+        let server = FakeS3::new(fixture.db.clone()).await;
+        fixture.configure(&server.endpoint).await;
+        let aid = fixture
+            .upload(&identity::random_token(), "photo.png", &png())
+            .await
+            .unwrap()
+            .aid;
+        let now = identity::now();
+        let claim = fixture
+            .media
+            .claim(now, &mut Default::default())
+            .await
+            .unwrap()
+            .unwrap();
+        // The output path is taken by a directory, so creating the output file fails.
+        let blocked = fixture
+            .media
+            .directory
+            .join("processed")
+            .join(format!("{aid}-{}", claim.lease));
+        std::fs::create_dir_all(&blocked).unwrap();
+        let mut report = MediaReport::default();
+        fixture
+            .media
+            .run_claim(&claim, now, &mut report)
+            .await
+            .unwrap();
+        assert_eq!(lifecycle(&fixture, aid).await, "pending");
+        let row =
+            crate::db::query("SELECT status,payload FROM gonof_common_outbox WHERE event_key=?")
+                .bind(format!("media.process:{aid}"))
+                .fetch_one(fixture.db.executor())
+                .await
+                .unwrap();
+        assert_eq!(db::text(&row, "status").unwrap(), "pending");
+        assert!(
+            !db::text(&row, "payload").unwrap().contains("no_verdict"),
+            "a disk failure is not an inspection without a verdict"
+        );
+        std::fs::remove_dir_all(&blocked).unwrap();
+        fixture.media.process_pending(now + 3600).await.unwrap();
+        assert_eq!(lifecycle(&fixture, aid).await, "ready");
+        fixture._services.cleanup_ref().await.unwrap();
+    }
+
+    // Claims that decoded the image and then failed to store it do not count toward the inspections allowed to give
+    // no verdict: only the third timeout rejects the file, and an administrator's retry starts the count over.
+    #[tokio::test]
+    async fn storage_failures_do_not_use_up_the_inspection_allowance() {
+        let fixture = Fixture::new(MediaConfig::default()).await;
+        let server = FakeS3::new(fixture.db.clone()).await;
+        fixture.configure(&server.endpoint).await;
+        let aid = fixture
+            .upload(&identity::random_token(), "photo.png", &png())
+            .await
+            .unwrap()
+            .aid;
+        let key = format!("media.process:{aid}");
+        let event = |fixture: &Fixture| {
+            let key = key.clone();
+            let db = fixture.db.clone();
+            async move {
+                crate::db::query("SELECT eventid,status,attempts,available_at,lease_until,payload FROM gonof_common_outbox WHERE event_key=?")
+                    .bind(key)
+                    .fetch_one(db.executor())
+                    .await
+                    .unwrap()
+            }
+        };
+        let mut now = identity::now();
+        let mut round = |set: u32| {
+            NO_VERDICT.with(|left| left.set(set));
+            now += 7200;
+            now
+        };
+        // Two claims decode the image and fail at the storage.
+        server
+            .state
+            .fail_put
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        for _ in 0..2 {
+            let at = round(0);
+            fixture.media.process_pending(at).await.unwrap();
+        }
+        server
+            .state
+            .fail_put
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(
+            event(&fixture).await.try_get::<i64, _>("attempts").unwrap(),
+            2
+        );
+        // The first timeout is retried.
+        let at = round(1);
+        fixture.media.process_pending(at).await.unwrap();
+        assert_eq!(lifecycle(&fixture, aid).await, "pending");
+        assert_eq!(
+            db::text(&event(&fixture).await, "status").unwrap(),
+            "pending"
+        );
+        // So is the second; the job then runs out of attempts and waits for an administrator.
+        let at = round(1);
+        fixture.media.process_pending(at).await.unwrap();
+        assert_eq!(lifecycle(&fixture, aid).await, "pending");
+        crate::db::query("UPDATE gonof_common_outbox SET attempts=? WHERE event_key=?")
+            .bind(crate::outbox::MAX_ATTEMPTS - 1)
+            .bind(&key)
+            .execute(fixture.db.executor())
+            .await
+            .unwrap();
+        server
+            .state
+            .fail_put
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let at = round(0);
+        fixture.media.process_pending(at).await.unwrap();
+        server
+            .state
+            .fail_put
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        let row = event(&fixture).await;
+        assert_eq!(db::text(&row, "status").unwrap(), "failed");
+        assert!(
+            db::text(&row, "payload")
+                .unwrap()
+                .contains("\"no_verdict\":2")
+        );
+        let actor = fixture.media.test_actor(fixture.uid).await.unwrap();
+        crate::administration::retry_task(
+            &fixture.db,
+            actor,
+            row.try_get("eventid").unwrap(),
+            row.try_get("attempts").unwrap(),
+            row.try_get("available_at").unwrap(),
+            row.try_get("lease_until").unwrap(),
+            "failed",
+            "storage restored",
+        )
+        .await
+        .unwrap();
+        let payload = db::text(&event(&fixture).await, "payload").unwrap();
+        assert!(!payload.contains("no_verdict"), "{payload}");
+        assert!(payload.contains("original_size"), "{payload}");
+        // After the retry two more timeouts are retried, and the third rejects the file.
+        for _ in 0..2 {
+            let at = round(1);
+            fixture.media.process_pending(at).await.unwrap();
+            assert_eq!(lifecycle(&fixture, aid).await, "pending");
+        }
+        let at = round(1);
+        fixture.media.process_pending(at).await.unwrap();
+        assert_eq!(lifecycle(&fixture, aid).await, "rejected");
+        fixture._services.cleanup_ref().await.unwrap();
     }
 
     // After a purge completes, the objects are re-checked only once; later cleanup rounds do not resend DELETE.

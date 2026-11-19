@@ -609,7 +609,7 @@ pub async fn retry_task(
     let why = reason(why)?;
     let mut tx = db.begin_write().await?;
     runtime::admin_locked(db, &mut tx, actor).await?;
-    let row=db::query("SELECT status,attempts,available_at,lease_until,event_type,aggregate_type,aggregate_id,last_error,dateline FROM gonof_common_outbox WHERE eventid=? FOR UPDATE").bind(id).fetch_optional(db.observe(&mut *tx)).await?.ok_or(IdentityError::NotFound)?;
+    let row=db::query("SELECT status,attempts,available_at,lease_until,event_type,aggregate_type,aggregate_id,last_error,dateline,payload FROM gonof_common_outbox WHERE eventid=? FOR UPDATE").bind(id).fetch_optional(db.observe(&mut *tx)).await?.ok_or(IdentityError::NotFound)?;
     let status = db::text(&row, "status")?;
     if status != expected
         || row.try_get::<i64, _>("attempts")? != attempts
@@ -657,6 +657,17 @@ pub async fn retry_task(
         .bind(id)
         .execute(db.observe(&mut *tx))
         .await?;
+    // A media job also counts the inspections that gave no verdict, apart from its attempts; a retry starts that
+    // count over as well.
+    if let Some(payload) =
+        crate::media::retried_payload(&db::text(&row, "event_type")?, &db::text(&row, "payload")?)
+    {
+        db::query("UPDATE gonof_common_outbox SET payload=? WHERE eventid=?")
+            .bind(payload)
+            .bind(id)
+            .execute(db.observe(&mut *tx))
+            .await?;
+    }
     runtime::audit(
         db,
         &mut tx,

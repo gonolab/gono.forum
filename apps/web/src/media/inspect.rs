@@ -62,25 +62,48 @@ pub(super) fn inspect(
     );
     let (mime, width, height, thumbnail) = image_file(source, destination, &ext, config, started)?;
     deadline(started, config)?;
-    let mut file = File::open(destination)?;
+    let mut file = output_io(File::open(destination))?;
     let mut sha = Sha256::new();
     let mut buffer = [0; 65536];
     loop {
-        let count = file.read(&mut buffer)?;
+        let count = output_io(file.read(&mut buffer))?;
         if count == 0 {
             break;
         }
         sha.update(&buffer[..count]);
     }
-    File::options().write(true).open(destination)?.sync_all()?;
+    output_io(
+        File::options()
+            .write(true)
+            .open(destination)
+            .and_then(|file| file.sync_all()),
+    )?;
     Ok(Inspection {
         mime_type: mime,
         width,
         height,
-        filesize: std::fs::metadata(destination)?.len(),
+        filesize: output_io(std::fs::metadata(destination))?.len(),
         content_sha256: format!("{:x}", sha.finalize()),
         thumbnail,
     })
+}
+
+/// Creating, writing, flushing, syncing or reading back the processed output (or the thumbnail) failed: the disk's
+/// fault rather than the file's. The subprocess reports it as no verdict, and the job retries it as a temporary
+/// failure instead of rejecting the upload (`worker::verdict`).
+#[derive(Debug)]
+pub(super) struct OutputError(std::io::Error);
+
+impl fmt::Display for OutputError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "writing the processed output failed: {}", self.0)
+    }
+}
+
+impl std::error::Error for OutputError {}
+
+fn output_io<T>(result: std::io::Result<T>) -> anyhow::Result<T> {
+    result.map_err(|error| OutputError(error).into())
 }
 
 fn deadline(started: Instant, config: &MediaConfig) -> anyhow::Result<()> {
@@ -191,25 +214,35 @@ fn image_file(
     }
     let (w, h) = (image.width(), image.height());
     deadline(started, config)?;
-    let mut output = BufWriter::new(File::create(destination)?);
+    let mut output = OutputWriter::new(
+        BufWriter::new(output_io(File::create(destination))?),
+        u64::MAX,
+    );
     // JPEG and static WebP without an alpha channel are output as JPEG (quality 85), everything else as PNG. The
     // pure-Rust WebP encoder can only do lossless, and PNG would make opaque WebP photos several times larger.
-    let mime = if format == ImageFormat::Jpeg
+    let encoded = if format == ImageFormat::Jpeg
         || (format == ImageFormat::WebP && !image.color().has_alpha())
     {
         let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, JPEG_QUALITY);
-        image.to_rgb8().write_with_encoder(encoder)?;
-        "image/jpeg"
+        image
+            .to_rgb8()
+            .write_with_encoder(encoder)
+            .map(|()| "image/jpeg")
     } else {
-        image.write_to(&mut output, ImageFormat::Png)?;
-        "image/png"
+        let encoder = image::codecs::png::PngEncoder::new(&mut output);
+        image.write_with_encoder(encoder).map(|()| "image/png")
     };
-    output.flush()?;
+    // An encoder error caused by the disk is the output's failure, not the image's.
+    output.check()?;
+    let mime = encoded?;
+    // The flush error is kept by the writer as well.
+    let _ = output.flush();
+    output.check()?;
     // List thumbnail: the same decoded image is scaled down along the way, and the processing task stores it as a
     // second object.
     deadline(started, config)?;
     let (thumb, thumb_mime) = super::thumbnail::render(&image)?;
-    std::fs::write(thumbnail_path(destination), thumb)?;
+    output_io(std::fs::write(thumbnail_path(destination), thumb))?;
     Ok((
         mime.into(),
         Some(w.into()),
@@ -225,43 +258,55 @@ fn animation_limit_message(limit: u64) -> String {
     crate::i18n::current().media_error_animation_size(limit.div_ceil(1024 * 1024))
 }
 
-/// Output that fails once the limit is reached: encoding aborts as soon as it is exceeded, instead of judging
-/// after the whole GIF is written.
+/// The writer for the processed output. It fails once `limit` is reached, so encoding a GIF aborts as soon as it
+/// is exceeded instead of judging after the whole file is written.
 ///
-/// The GIF encoder writes the trailer when it is dropped and discards any error, so the writer keeps the first
-/// error itself (over the limit, or the disk refusing a write) for [`animation`] to check afterwards.
-struct LimitedWriter<W> {
+/// Encoders turn a write error into an encoding error, and the GIF encoder writes the trailer when it is dropped and
+/// discards any error, so the writer keeps what happened itself for [`OutputWriter::check`]: the limit reached (a
+/// verdict on the image), or the disk refusing a write or flush (an [`OutputError`]).
+struct OutputWriter<W> {
     inner: W,
     written: u64,
     limit: u64,
+    exceeded: bool,
     failed: Option<std::io::Error>,
 }
 
-impl<W: Write> LimitedWriter<W> {
+impl<W: Write> OutputWriter<W> {
     fn new(inner: W, limit: u64) -> Self {
         Self {
             inner,
             written: 0,
             limit,
+            exceeded: false,
             failed: None,
         }
     }
 
+    /// Keeps the first error from the disk and hands the caller a copy.
     fn keep<T>(&mut self, result: std::io::Result<T>) -> std::io::Result<T> {
-        if let Err(error) = &result
-            && self.failed.is_none()
-        {
-            self.failed = Some(std::io::Error::new(error.kind(), error.to_string()));
+        result.map_err(|error| {
+            let copy = std::io::Error::new(error.kind(), error.to_string());
+            self.failed.get_or_insert(error);
+            copy
+        })
+    }
+
+    /// A disk failure first (retried), then the limit (rejected).
+    fn check(&mut self) -> anyhow::Result<()> {
+        if let Some(error) = self.failed.take() {
+            return Err(OutputError(error).into());
         }
-        result
+        anyhow::ensure!(!self.exceeded, "{}", animation_limit_message(self.limit));
+        Ok(())
     }
 }
 
-impl<W: Write> Write for LimitedWriter<W> {
+impl<W: Write> Write for OutputWriter<W> {
     fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
         if self.written.saturating_add(buffer.len() as u64) > self.limit {
-            let exceeded = Err(std::io::Error::other(animation_limit_message(self.limit)));
-            return self.keep(exceeded);
+            self.exceeded = true;
+            return Err(std::io::Error::other(animation_limit_message(self.limit)));
         }
         let written = self.inner.write(buffer);
         let count = self.keep(written)?;
@@ -307,8 +352,8 @@ fn animation(
     config: &MediaConfig,
     started: Instant,
 ) -> anyhow::Result<()> {
-    let mut output = LimitedWriter::new(
-        BufWriter::new(File::create(destination)?),
+    let mut output = OutputWriter::new(
+        BufWriter::new(output_io(File::create(destination))?),
         config.file_max_bytes,
     );
     let encoded: anyhow::Result<()> = (|| {
@@ -339,15 +384,10 @@ fn animation(
         Ok(())
     })();
     // A write that failed, the trailer's included, counts even when the encoder discarded it.
-    if let Some(error) = output.failed.take() {
-        return Err(error.into());
-    }
+    output.check()?;
     encoded?;
-    output.flush()?;
-    if let Some(error) = output.failed.take() {
-        return Err(error.into());
-    }
-    Ok(())
+    let _ = output.flush();
+    output.check()
 }
 
 /// Conversion of an image's pixels from the color space of its embedded ICC profile to sRGB. Re-encoding drops the
@@ -550,6 +590,37 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.mime_type, "image/png");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A failure writing the output is told apart from a verdict on the image: it is an [`OutputError`], which the
+    /// subprocess reports as no verdict.
+    #[test]
+    fn output_failures_are_not_verdicts_on_the_image() {
+        let root = std::env::temp_dir().join(format!("gonof-output-{}", identity::random_token()));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("photo.png");
+        image::RgbImage::from_pixel(4, 4, image::Rgb([1, 2, 3]))
+            .save(&source)
+            .unwrap();
+        let missing = root.join("missing").join("out");
+        let error = inspect(&source, &missing, "photo.png", &MediaConfig::default()).unwrap_err();
+        assert!(error.downcast_ref::<OutputError>().is_some(), "{error:#}");
+        // The same output path for the thumbnail: a directory where the thumbnail goes.
+        let output = root.join("thumbless");
+        std::fs::create_dir_all(thumbnail_path(&output)).unwrap();
+        let error = inspect(&source, &output, "photo.png", &MediaConfig::default()).unwrap_err();
+        assert!(error.downcast_ref::<OutputError>().is_some(), "{error:#}");
+        let broken = root.join("broken.png");
+        std::fs::write(&broken, b"not an image").unwrap();
+        let error = inspect(
+            &broken,
+            &root.join("out"),
+            "broken.png",
+            &MediaConfig::default(),
+        )
+        .unwrap_err();
+        assert!(error.downcast_ref::<OutputError>().is_none(), "{error:#}");
         std::fs::remove_dir_all(root).unwrap();
     }
 
