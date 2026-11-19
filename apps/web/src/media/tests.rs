@@ -992,6 +992,71 @@ async fn new_keys_for_the_same_bucket_also_serve_earlier_attachments() {
     fixture._services.cleanup_ref().await.unwrap();
 }
 
+/// Spellings of one endpoint are one endpoint: it is stored in canonical form, and new keys saved with any spelling
+/// replace the keys earlier attachments are read with, also for a profile an earlier version saved as spelled.
+#[tokio::test]
+async fn equivalent_endpoint_spellings_share_key_rotation() {
+    let fixture = Fixture::new(MediaConfig::default()).await;
+    let server = FakeS3::new(fixture.db.clone()).await;
+    let shouting = server.endpoint.replace("http://", "HTTP://");
+    fixture
+        .media
+        .save_settings(fixture.uid, storage_input(&format!("{shouting}/"), 0))
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture.media.settings(fixture.uid).await.unwrap().endpoint,
+        server.endpoint,
+        "stored in canonical form"
+    );
+    let upload = fixture
+        .upload(&identity::random_token(), "photo.png", &png())
+        .await
+        .unwrap();
+    fixture
+        .media
+        .process_pending(identity::now())
+        .await
+        .unwrap();
+    // As an earlier version stored it: the endpoint exactly as typed.
+    let stored: String =
+        crate::db::query_scalar("SELECT svalue FROM gonof_common_settings WHERE skey=?")
+            .bind(SETTING)
+            .fetch_one(fixture.db.executor())
+            .await
+            .unwrap();
+    crate::db::query("UPDATE gonof_common_settings SET svalue=? WHERE skey=?")
+        .bind(stored.replace(&server.endpoint, &shouting))
+        .bind(SETTING)
+        .execute(fixture.db.executor())
+        .await
+        .unwrap();
+    let mut rotated = storage_input(&server.endpoint, 1);
+    rotated.access_key = "rotated-access-key".into();
+    rotated.secret_key = "rotated-secret-key".into();
+    fixture
+        .media
+        .save_settings(fixture.uid, rotated)
+        .await
+        .unwrap();
+    *server.state.revoked.lock().unwrap() = Some("contract-access-key".into());
+    let download = fixture
+        .media
+        .read(upload.aid, None, Some(fixture.uid))
+        .await
+        .expect("the earlier attachment is read with the new keys");
+    assert!(
+        !download
+            .body
+            .collect()
+            .await
+            .unwrap()
+            .into_bytes()
+            .is_empty()
+    );
+    fixture._services.cleanup_ref().await.unwrap();
+}
+
 /// A muted member cannot upload (docs/roles.md, "Mutes"); the upload is rejected before the attachment row
 /// is written and takes no quota; after the mute expires, uploads work as usual.
 #[tokio::test]

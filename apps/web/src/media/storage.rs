@@ -77,6 +77,7 @@ impl Media {
                     .into(),
             ));
         }
+        let endpoint = canonical_endpoint(address);
         let region = input.region.trim();
         let bucket = input.bucket.trim();
         let prefix = input.prefix.trim().trim_matches('/');
@@ -222,8 +223,9 @@ impl Media {
     /// (if the version number has not changed, the configuration version the candidate was based on has not changed
     /// either) and writes the new configuration.
     ///
-    /// New keys for the endpoint and bucket of earlier profiles replace theirs too: attachments keep the profile they
-    /// were stored with, and once the old keys are revoked they could not be read any more. The transaction is handed
+    /// New keys for the endpoint (compared in canonical form) and bucket of earlier profiles replace theirs too:
+    /// attachments keep the profile they were stored with, and once the old keys are revoked they could not be read
+    /// any more. The transaction is handed
     /// back to the caller to commit, with the credentials no profile references any more.
     async fn save_profile(
         &self,
@@ -257,7 +259,10 @@ impl Media {
         let mut rotated = Vec::new();
         if new_keys {
             for other in current.profiles.values_mut() {
-                if other.endpoint == profile.endpoint && other.bucket == profile.bucket {
+                // Profiles saved before endpoints were stored canonically may spell the same one differently.
+                if stored_endpoint(&other.endpoint) == profile.endpoint
+                    && other.bucket == profile.bucket
+                {
                     other.secret_ref = profile.secret_ref.clone();
                     rotated.push(other.id.clone());
                 }
@@ -762,6 +767,17 @@ const POST_ACCESS_JOINS: &str = "JOIN gonof_forum_thread t ON t.tid=p.tid
      LEFT JOIN gonof_forum_forum ancestor ON ancestor.fid=f.parent_fid
      JOIN gonof_forum_post firstpost ON firstpost.first_tid=t.tid
      LEFT JOIN gonof_forum_post parent ON parent.pid=p.root_pid";
+
+/// The endpoint as stored and compared: the URL parser's serialization without its trailing slash, so spellings of
+/// one endpoint (an upper-case scheme or host, an explicit default port such as `:443`) are stored as one.
+fn canonical_endpoint(address: url::Url) -> String {
+    address.as_str().trim_end_matches('/').to_owned()
+}
+
+/// A stored endpoint in canonical form; one that no longer parses is compared as it is.
+fn stored_endpoint(endpoint: &str) -> String {
+    url::Url::parse(endpoint).map_or_else(|_| endpoint.to_owned(), canonical_endpoint)
+}
 
 fn summary(stored: &StoredSettings) -> StorageSettings {
     match stored.profiles.get(&stored.active) {
