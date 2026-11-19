@@ -282,11 +282,11 @@ pub const DATA_THREADS: Entry = anonymous(
     "data-threads-v1",
 );
 /// Member lists of the data sources (`members.rank`, `members.honors`, `members.verified`), one copy per visitor
-/// class (anonymous, signed in) without anyone's blocks, segmented by the list lifetime; each viewer's blocks are
-/// removed in code.
+/// class (anonymous, signed in) without anyone's blocks, keyed by the site-wide content version (a privacy change
+/// raises it) and segmented by the list lifetime; each viewer's blocks are removed in code.
 pub const DATA_MEMBERS: Entry = anonymous(
     "data-members",
-    &[Invalidation::Segmented],
+    &[Invalidation::Versioned, Invalidation::Segmented],
     Lifetime::List,
     "data-members-v1",
 );

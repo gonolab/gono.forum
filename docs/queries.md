@@ -214,8 +214,9 @@ are listed above; the new ones are below. Plans are from MySQL 8.4 and 5.7 on th
 - **`me.card`**: the growth account by primary key, besides the member card's summary.
 
 `members.rank`, `members.honors` and `members.verified` keep one copy per visitor class (anonymous, signed in) in
-Redis (`data-members`, segmented by the list lifetime) and remove each viewer's blocks in code, so a block costs a
-Redis read for every visitor. `members.recent`, `moderators`, `site.stats` and `site.links` read process caches only.
+Redis (`data-members`, keyed by the content revision and segmented by the list lifetime, so a member who makes their
+profile private leaves the copies at once) and remove each viewer's blocks in code, so a block costs a Redis read for
+every visitor. `members.recent`, `moderators`, `site.stats` and `site.links` read process caches only.
 
 ## Thread page
 
@@ -397,8 +398,16 @@ queries. A background task in every process aggregates them every `settings.rank
 board's rows in `gonof_rank_snapshot` (one row per place) in a short transaction. `gonof_rank_board` keeps one row per
 board and period with the time it was last computed, written in the same transaction, so a board that came out empty
 still has its time: its page says nobody is on it yet rather than that it is being built. A board computed less than
-half an interval ago, by this process or another, is skipped. Reading a board filters the snapshot by each member's
-current state (frozen, deleted, private space, blocked by the viewer) and closes up the places.
+half an interval ago, by this process or another, is skipped. The replacement locks the board's `gonof_rank_board` row
+and gives up when the time there changed since the refresh read it, so a refresh that started earlier but finished
+later never overwrites a newer snapshot. A board that fails does not stop the others, and a round with a failure is
+tried again at the task's next wake-up (10 seconds) instead of a full interval later.
+
+A refresh keeps only members someone may see (active, not frozen, a profile space other than "Only me"), taking
+candidates in board order until anonymous visitors and signed-in members each have 100 places (so a snapshot holds up
+to 200 rows); when the first 400 candidates do not fill them, the aggregation is asked for four times as many. Reading
+a board filters the snapshot again by each member's current state (frozen, deleted, private space, blocked by the
+viewer) and closes up the places.
 
 ## Rules enforced by the source scan
 

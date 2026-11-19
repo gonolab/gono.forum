@@ -711,6 +711,188 @@ async fn empty_boards_keep_their_computation_time() {
     f.services.cleanup_ref().await.unwrap();
 }
 
+/// A refresh that started earlier but stores later gives up instead of overwriting the snapshot a later refresh
+/// already stored (#17): the newer figures and time stay.
+#[tokio::test]
+async fn an_older_refresh_never_overwrites_a_newer_snapshot() {
+    let f = Fixture::new().await;
+    f.thread(A, "RANK older").await;
+    let now = identity::now();
+    let older = ranks::prepare(f.db(), Board::Threads, Period::All, now, 0)
+        .await
+        .unwrap()
+        .expect("the board has never been computed");
+    f.thread(B, "RANK newer").await;
+    f.thread(B, "RANK newer again").await;
+    assert!(
+        ranks::refresh_board(f.db(), Board::Threads, Period::All, now + 5, 0)
+            .await
+            .unwrap()
+    );
+    assert!(!older.store(f.db()).await.unwrap());
+    let board = ranks::read(f.db(), Board::Threads, Period::All, None)
+        .await
+        .unwrap();
+    assert_eq!(board.computed_at, Some(now + 5));
+    let places: Vec<(i64, i64)> = board
+        .standings
+        .iter()
+        .map(|standing| (standing.uid, standing.score))
+        .collect();
+    assert_eq!(places, [(B, 2), (A, 1)]);
+    // A snapshot time in the future that was there before the refresh read it (the clock went back) is replaced.
+    let behind = ranks::prepare(f.db(), Board::Threads, Period::All, now, 30)
+        .await
+        .unwrap()
+        .expect("a snapshot from the future is never fresh");
+    assert!(behind.store(f.db()).await.unwrap());
+    f.services.cleanup_ref().await.unwrap();
+}
+
+/// One failing board does not end the round, and a round with a failure is tried again at the next wake-up instead of
+/// a full interval later (#182).
+#[tokio::test]
+async fn a_failed_board_neither_stops_the_round_nor_waits_an_interval() {
+    let f = Fixture::new().await;
+    f.thread(A, "RANK fault").await;
+    let boards = || f.scalar("SELECT COUNT(*) FROM gonof_rank_board");
+    test_support::fail_when(
+        f.db(),
+        "gonof_test_rank_fault",
+        "BEFORE INSERT",
+        "gonof_rank_board",
+        "NEW.board = 'threads'",
+        "injected leaderboard fault",
+    )
+    .await
+    .unwrap();
+    let schedule = ranks::Schedule::default();
+    let now = identity::now();
+    let error = schedule.tick(f.db(), 60, now).await.unwrap_err();
+    assert!(error.to_string().contains("3 of 12"), "{error:#}");
+    // Growth, replies and likes were refreshed although the threads boards came before them.
+    assert_eq!(boards().await, 9);
+    test_support::drop_trigger(f.db(), "gonof_test_rank_fault")
+        .await
+        .unwrap();
+    // The next wake-up, well within the 60-second interval, refreshes the three missing boards only.
+    schedule.tick(f.db(), 60, now + 10).await.unwrap();
+    assert_eq!(boards().await, 12);
+    assert_eq!(
+        f.scalar(
+            "SELECT COUNT(*) FROM gonof_rank_board WHERE computed_at > 0 AND board = 'threads'"
+        )
+        .await,
+        3
+    );
+    // A round that refreshed everything is recorded: the following wake-ups wait for the interval.
+    f.thread(B, "RANK after").await;
+    schedule.tick(f.db(), 60, now + 20).await.unwrap();
+    let threads = ranks::read(f.db(), Board::Threads, Period::All, None)
+        .await
+        .unwrap();
+    assert_eq!(threads.computed_at, Some(now + 10));
+    f.services.cleanup_ref().await.unwrap();
+}
+
+/// Members nobody may see do not take the places of those after them (#160): with the 100 highest growth values held
+/// by "Only me" profiles and the next 100 by "Logged-in members" profiles, anonymous visitors still see the public
+/// member behind them, and signed-in members see the members-only profiles and then the public one.
+#[tokio::test]
+async fn hidden_profiles_do_not_crowd_out_the_members_behind_them() {
+    let f = Fixture::new().await;
+    let first = 20_000;
+    let mut members = Vec::new();
+    let mut accounts = Vec::new();
+    for offset in 0..201 {
+        let uid = first + offset;
+        let space = match offset {
+            0..100 => "private",
+            100..200 => "members",
+            _ => "public",
+        };
+        members.push(format!(
+            "({uid},'crowd-{uid}','synthetic-hash','crowd-{uid}@example.test',1,0,{},'{space}')",
+            f.now - 86_400
+        ));
+        accounts.push(format!("({uid},{})", 1_000 - offset));
+    }
+    f.execute(&format!(
+        "INSERT INTO gonof_common_member(uid,username,password,email,emailstatus,adminid,regdate,space_visibility) VALUES {}",
+        members.join(",")
+    ))
+    .await;
+    f.execute(&format!(
+        "INSERT INTO gonof_common_growth_account(uid,growth) VALUES {}",
+        accounts.join(",")
+    ))
+    .await;
+    let now = identity::now();
+    assert!(
+        ranks::refresh_board(f.db(), Board::Growth, Period::All, now, 0)
+            .await
+            .unwrap()
+    );
+    let uids = |snapshot: &ranks::Snapshot| -> Vec<i64> {
+        snapshot
+            .standings
+            .iter()
+            .map(|standing| standing.uid)
+            .collect()
+    };
+    let anonymous = ranks::read(f.db(), Board::Growth, Period::All, None)
+        .await
+        .unwrap();
+    assert_eq!(uids(&anonymous), [first + 200]);
+    assert_eq!(anonymous.standings[0].rank, 1);
+    let signed_in = ranks::read(f.db(), Board::Growth, Period::All, Some(VIEWER))
+        .await
+        .unwrap();
+    let expected: Vec<i64> = (first + 100..=first + 200).collect();
+    assert_eq!(uids(&signed_in), expected);
+    // Nobody may see the "Only me" profiles, so the snapshot does not keep them.
+    assert_eq!(
+        f.scalar(&format!(
+            "SELECT COUNT(*) FROM gonof_rank_snapshot WHERE board='growth' AND period='all' AND uid < {}",
+            first + 100
+        ))
+        .await,
+        0
+    );
+    f.services.cleanup_ref().await.unwrap();
+}
+
+/// The `members.rank` data source does not keep showing a member who made their profile private until the cached
+/// copy's segment ends (#7): the copy is keyed by the content revision the privacy change raised.
+#[tokio::test]
+async fn data_source_copies_drop_a_member_who_turned_private() {
+    let f = Fixture::new().await;
+    if !f.services.cache.enabled() {
+        return f.services.cleanup_ref().await.unwrap();
+    }
+    f.thread(A, "RANK cached").await;
+    ranks::refresh(f.db(), identity::now(), 0).await.unwrap();
+    let path = "/data/v1/members.rank?board=threads&period=all";
+    let before = f.get(path, None).await;
+    assert_eq!(before.status, StatusCode::OK, "{}", before.body);
+    assert!(before.body.contains("grower-7302"), "{}", before.body);
+    let session = f.login(A).await;
+    let identity = Identity::new(
+        f.db().clone(),
+        f.services.config.identity.clone(),
+        f.services.root.clone(),
+        gono_forum_web::test_support::detached_global(),
+    );
+    identity
+        .update_space_visibility(&session.session_token, "private")
+        .await
+        .unwrap();
+    let after = f.get(path, None).await;
+    assert_eq!(after.status, StatusCode::OK, "{}", after.body);
+    assert!(!after.body.contains("grower-7302"), "{}", after.body);
+    f.services.cleanup_ref().await.unwrap();
+}
+
 /// Pages: "My credits" shows growth points, level and today's earnings; growth history; admin adjustment
 /// (administrators only); the level reaches 2 at 20; the profile page and thread floors show levels; credits rules are
 /// readable anonymously; "Only me" spaces do not reveal growth points.

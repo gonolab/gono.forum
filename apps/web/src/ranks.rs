@@ -1,24 +1,32 @@
 //! Leaderboards.
 //!
 //! Four boards (growth, threads, replies, likes received) × three periods (24 hours, 30 days, all time). A
-//! background task recomputes them every `settings.ranks.refresh_seconds` (re-read each round), and the top 100 of
-//! each (board, period) are replaced wholesale into `gonof_rank_snapshot` in one transaction; reading a board only
-//! fetches these ≤100 rows by primary key, regardless of the Redis switch.
+//! background task recomputes them every `settings.ranks.refresh_seconds` (re-read each round, [`Schedule`]), and the
+//! places of each (board, period) are replaced wholesale into `gonof_rank_snapshot` in one transaction; reading a
+//! board only fetches these ≤200 rows by primary key, regardless of the Redis switch.
 //!
 //! Threads, replies and likes received count only public content visible to anonymous visitors, with the same
 //! conditions as the activity index; the growth board ranks by growth value.
-//! Who may appear on a board is decided at read time from the member's current state, so a privacy change or a
-//! freeze takes effect immediately without waiting for the next refresh.
+//! Who may appear on a board is decided twice from the member's current state: a refresh keeps only members someone
+//! may see, until both anonymous visitors and signed-in members have [`SNAPSHOT_SIZE`] places, so members with
+//! private profiles cannot crowd out the ones after them; reading filters again, so a privacy change or a freeze
+//! takes effect immediately without waiting for the next refresh.
 use crate::db::Tx;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::sync::atomic::{AtomicI64, Ordering};
 
 use anyhow::Result;
 
 use crate::db::Database;
 
-/// Number of places a snapshot keeps; the page shows the top `settings.display.ranks_shown` (10–100), and the rest
-/// leaves headroom for filtering at read time.
+/// Places a snapshot keeps for each audience: the first 100 members anonymous visitors may see and the first 100
+/// signed-in members may see (a snapshot therefore has at most 200 rows). The page shows the top
+/// `settings.display.ranks_shown` (10–100), and the rest leaves headroom for filtering at read time.
 pub const SNAPSHOT_SIZE: i64 = 100;
+
+/// Candidates the first aggregation of a refresh asks for; when members nobody may see leave the snapshot short, the
+/// aggregation is asked again for four times as many.
+const FIRST_CANDIDATES: i64 = 4 * SNAPSHOT_SIZE;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Board {
@@ -116,6 +124,17 @@ pub async fn compute(
     period: Period,
     now: i64,
 ) -> Result<Vec<(i64, i64)>> {
+    candidates(db, board, period, now, SNAPSHOT_SIZE).await
+}
+
+/// The first `limit` members of a board before anyone is filtered out, in board order.
+async fn candidates(
+    db: &Database,
+    board: Board,
+    period: Period,
+    now: i64,
+    limit: i64,
+) -> Result<Vec<(i64, i64)>> {
     let since = period.since(now);
     // The readable scope uses the forum IDs readable by anonymous visitors (one read of the forum table; the thread
     // row holds no forum copies), and post visibility looks at the post's own and its parent post's copies; no join
@@ -131,14 +150,14 @@ pub async fn compute(
                     "SELECT l.uid, CAST(SUM(l.delta) AS SIGNED) AS score
                      FROM gonof_common_growth_ledger l FORCE INDEX (gonof_growth_window)
                      WHERE l.dateline >= ? GROUP BY l.uid HAVING score > 0
-                     ORDER BY score DESC, l.uid LIMIT {SNAPSHOT_SIZE}"
+                     ORDER BY score DESC, l.uid LIMIT {limit}"
                 ),
                 vec![since],
             ),
             None => (
                 format!(
                     "SELECT uid, growth AS score FROM gonof_common_growth_account
-                     WHERE growth > 0 ORDER BY growth DESC, uid LIMIT {SNAPSHOT_SIZE}"
+                     WHERE growth > 0 ORDER BY growth DESC, uid LIMIT {limit}"
                 ),
                 vec![],
             ),
@@ -152,7 +171,7 @@ pub async fn compute(
                          FROM gonof_forum_post p FORCE INDEX (gonof_post_dateline) {joins}
                          WHERE p.dateline >= ? AND p.first = ? AND p.authorid IS NOT NULL
                            AND {public} AND {post}
-                         GROUP BY p.authorid ORDER BY score DESC, p.authorid LIMIT {SNAPSHOT_SIZE}"
+                         GROUP BY p.authorid ORDER BY score DESC, p.authorid LIMIT {limit}"
                     ),
                     vec![since, first],
                 ),
@@ -161,7 +180,7 @@ pub async fn compute(
                         "SELECT p.authorid AS uid, COUNT(*) AS score
                          FROM gonof_forum_post p {joins}
                          WHERE p.first = ? AND p.authorid IS NOT NULL AND {public} AND {post}
-                         GROUP BY p.authorid ORDER BY score DESC, p.authorid LIMIT {SNAPSHOT_SIZE}"
+                         GROUP BY p.authorid ORDER BY score DESC, p.authorid LIMIT {limit}"
                     ),
                     vec![first],
                 ),
@@ -174,7 +193,7 @@ pub async fn compute(
                      FROM gonof_forum_post_reaction r FORCE INDEX (gonof_reaction_dateline)
                      JOIN gonof_forum_post p ON p.pid = r.pid {joins}
                      WHERE r.dateline >= ? AND r.uid <> p.authorid AND {public} AND {post}
-                     GROUP BY p.authorid ORDER BY score DESC, p.authorid LIMIT {SNAPSHOT_SIZE}"
+                     GROUP BY p.authorid ORDER BY score DESC, p.authorid LIMIT {limit}"
                 ),
                 vec![since],
             ),
@@ -184,7 +203,7 @@ pub async fn compute(
                      FROM gonof_forum_post_reaction r
                      JOIN gonof_forum_post p ON p.pid = r.pid {joins}
                      WHERE r.uid <> p.authorid AND {public} AND {post}
-                     GROUP BY p.authorid ORDER BY score DESC, p.authorid LIMIT {SNAPSHOT_SIZE}"
+                     GROUP BY p.authorid ORDER BY score DESC, p.authorid LIMIT {limit}"
                 ),
                 vec![],
             ),
@@ -202,18 +221,57 @@ pub async fn compute(
         .collect()
 }
 
-/// Refreshes all 12 boards. Boards refreshed within the last `min_age` seconds are skipped (with multiple
-/// processes, another process has already computed them).
+/// Refreshes all 12 boards and returns how many got a new snapshot. Boards refreshed within the last `min_age` seconds
+/// are skipped (with multiple processes, another process has already computed them). A board that fails does not stop
+/// the others: each is tried, and the round reports an error naming how many failed, so the caller retries soon
+/// instead of a full interval later ([`Schedule`]).
 pub async fn refresh(db: &Database, now: i64, min_age: i64) -> Result<usize> {
     let mut refreshed = 0;
+    let mut failed = Vec::new();
     for board in Board::ALL {
         for period in Period::ALL {
-            if refresh_board(db, board, period, now, min_age).await? {
-                refreshed += 1;
+            match refresh_board(db, board, period, now, min_age).await {
+                Ok(true) => refreshed += 1,
+                Ok(false) => {}
+                Err(error) => {
+                    tracing::warn!(
+                        board = board.slug(),
+                        period = period.slug(),
+                        error = %format!("{error:#}"),
+                        "leaderboard refresh failed; the other boards continue"
+                    );
+                    failed.push(format!("{}/{}", board.slug(), period.slug()));
+                }
             }
         }
     }
+    anyhow::ensure!(
+        failed.is_empty(),
+        "{} of 12 leaderboards were not refreshed ({}); {refreshed} were",
+        failed.len(),
+        failed.join(", ")
+    );
     Ok(refreshed)
+}
+
+/// The refresh interval of the background task: a round runs once `settings.ranks.refresh_seconds` have passed since
+/// the last round that refreshed every board. A round with a failed board is not recorded, so the next tick tries again
+/// (boards that succeeded are fresh and are skipped).
+#[derive(Debug, Default)]
+pub struct Schedule {
+    last: AtomicI64,
+}
+
+impl Schedule {
+    /// One tick of the background task at `now`, with the interval read this round.
+    pub async fn tick(&self, db: &Database, refresh_seconds: i64, now: i64) -> Result<()> {
+        if now.saturating_sub(self.last.load(Ordering::Relaxed)) < refresh_seconds {
+            return Ok(());
+        }
+        refresh(db, now, refresh_seconds / 2).await?;
+        self.last.store(now, Ordering::Relaxed);
+        Ok(())
+    }
 }
 
 async fn computed_at(
@@ -246,10 +304,7 @@ fn fresh(computed: Option<i64>, now: i64, min_age: i64) -> bool {
     computed.is_some_and(|at| at <= now && now - at < min_age)
 }
 
-/// Refreshes one board and returns whether a new snapshot was written. Aggregation runs outside the transaction
-/// (consistent read, no locks) and the replacement in a short transaction: it first locks the board's row in
-/// `gonof_rank_board` and rechecks old against new, so a consistent read of the board sees either all old rows or all
-/// new ones.
+/// Refreshes one board and returns whether a new snapshot was written: [`prepare`] then [`Prepared::store`].
 pub async fn refresh_board(
     db: &Database,
     board: Board,
@@ -257,60 +312,201 @@ pub async fn refresh_board(
     now: i64,
     min_age: i64,
 ) -> Result<bool> {
-    if fresh(computed_at(db, None, board, period).await?, now, min_age) {
-        return Ok(false);
+    match prepare(db, board, period, now, min_age).await? {
+        Some(prepared) => prepared.store(db).await,
+        None => Ok(false),
     }
-    let rows = compute(db, board, period, now).await?;
-    crate::activities::retry_transaction(|| replace(db, board, period, &rows, now, min_age)).await
 }
 
-async fn replace(
+/// A board computed at `now`, not yet stored.
+#[derive(Clone, Debug)]
+pub struct Prepared {
+    board: Board,
+    period: Period,
+    now: i64,
+    /// The board's computation time when this refresh read it, before aggregating.
+    seen: Option<i64>,
+    rows: Vec<(i64, i64)>,
+}
+
+/// Computes one board unless it is fresh. Aggregation runs outside any transaction (consistent read, no locks).
+pub async fn prepare(
     db: &Database,
     board: Board,
     period: Period,
-    rows: &[(i64, i64)],
     now: i64,
     min_age: i64,
-) -> Result<bool> {
-    let mut tx = db.begin_write().await?;
-    if fresh(
-        computed_at(db, Some(&mut tx), board, period).await?,
-        now,
-        min_age,
-    ) {
-        tx.commit().await?;
-        return Ok(false);
+) -> Result<Option<Prepared>> {
+    let seen = computed_at(db, None, board, period).await?;
+    if fresh(seen, now, min_age) {
+        return Ok(None);
     }
-    crate::db::query("DELETE FROM gonof_rank_snapshot WHERE board=? AND period=?")
-        .bind(board.slug())
-        .bind(period.slug())
-        .execute(db.observe(&mut *tx))
-        .await?;
-    if !rows.is_empty() {
-        let values = vec!["(?,?,?,?,?,?)"; rows.len()].join(",");
+    let rows = places(db, board, period, now).await?;
+    Ok(Some(Prepared {
+        board,
+        period,
+        now,
+        seen,
+        rows,
+    }))
+}
+
+impl Prepared {
+    /// Replaces the snapshot in a short transaction and returns whether it did. It first locks the board's row in
+    /// `gonof_rank_board`, so a consistent read of the board sees either all old rows or all new ones, and gives up
+    /// when the board was replaced after this refresh read it: another worker stored it meanwhile, possibly one that
+    /// started later and so holds newer figures (its time is then later than this refresh's `now`). A time in the
+    /// future that was already there before (the clock went back) is replaced as usual.
+    pub async fn store(&self, db: &Database) -> Result<bool> {
+        crate::activities::retry_transaction(|| self.replace(db)).await
+    }
+
+    async fn replace(&self, db: &Database) -> Result<bool> {
+        let (board, period, now) = (self.board, self.period, self.now);
+        let mut tx = db.begin_write().await?;
+        if computed_at(db, Some(&mut tx), board, period).await? != self.seen {
+            tx.commit().await?;
+            return Ok(false);
+        }
+        crate::db::query("DELETE FROM gonof_rank_snapshot WHERE board=? AND period=?")
+            .bind(board.slug())
+            .bind(period.slug())
+            .execute(db.observe(&mut *tx))
+            .await?;
+        if !self.rows.is_empty() {
+            let values = vec!["(?,?,?,?,?,?)"; self.rows.len()].join(",");
+            let sql = format!(
+                "INSERT INTO gonof_rank_snapshot(board,period,position,uid,score,computed_at) VALUES {values}"
+            );
+            let mut query = crate::db::query(&sql);
+            for (index, (uid, score)) in self.rows.iter().enumerate() {
+                query = query
+                    .bind(board.slug())
+                    .bind(period.slug())
+                    .bind(i64::try_from(index)? + 1)
+                    .bind(*uid)
+                    .bind(*score)
+                    .bind(now);
+            }
+            query.execute(db.observe(&mut *tx)).await?;
+        }
+        crate::db::query("INSERT INTO gonof_rank_board(board,period,computed_at) VALUES(?,?,?) ON DUPLICATE KEY UPDATE computed_at=VALUES(computed_at)")
+            .bind(board.slug())
+            .bind(period.slug())
+            .bind(now)
+            .execute(db.observe(&mut *tx))
+            .await?;
+        tx.commit().await?;
+        Ok(true)
+    }
+}
+
+/// Who may see a member on a board, from the member's current state (the rules [`read_listed`] applies).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Audience {
+    /// Frozen, deleted or being deleted, or a profile space of "Only me".
+    Nobody,
+    /// A profile space of "Logged-in members".
+    SignedIn,
+    Everyone,
+}
+
+impl Audience {
+    fn of(account_state: &str, freeze: i64, space: &str) -> Self {
+        if account_state != "active" || freeze != 0 {
+            return Self::Nobody;
+        }
+        match space {
+            "public" => Self::Everyone,
+            "members" => Self::SignedIn,
+            _ => Self::Nobody,
+        }
+    }
+}
+
+async fn audiences(db: &Database, uids: &[i64]) -> Result<HashMap<i64, Audience>> {
+    let mut found = HashMap::new();
+    for chunk in uids.chunks(500) {
+        let placeholders = vec!["?"; chunk.len()].join(",");
         let sql = format!(
-            "INSERT INTO gonof_rank_snapshot(board,period,position,uid,score,computed_at) VALUES {values}"
+            "SELECT uid,account_state,freeze,space_visibility FROM gonof_common_member WHERE uid IN ({placeholders})"
         );
         let mut query = crate::db::query(&sql);
-        for (index, (uid, score)) in rows.iter().enumerate() {
-            query = query
-                .bind(board.slug())
-                .bind(period.slug())
-                .bind(i64::try_from(index)? + 1)
-                .bind(*uid)
-                .bind(*score)
-                .bind(now);
+        for uid in chunk {
+            query = query.bind(*uid);
         }
-        query.execute(db.observe(&mut *tx)).await?;
+        for row in query.fetch_all(db.executor()).await? {
+            found.insert(
+                row.try_get("uid")?,
+                Audience::of(
+                    &crate::db::text(&row, "account_state")?,
+                    row.try_get("freeze")?,
+                    &crate::db::text(&row, "space_visibility")?,
+                ),
+            );
+        }
     }
-    crate::db::query("INSERT INTO gonof_rank_board(board,period,computed_at) VALUES(?,?,?) ON DUPLICATE KEY UPDATE computed_at=VALUES(computed_at)")
-        .bind(board.slug())
-        .bind(period.slug())
-        .bind(now)
-        .execute(db.observe(&mut *tx))
-        .await?;
-    tx.commit().await?;
-    Ok(true)
+    Ok(found)
+}
+
+/// The rows a snapshot keeps, chosen from candidates in board order.
+#[derive(Debug, Default)]
+struct Places {
+    rows: Vec<(i64, i64)>,
+    everyone: i64,
+    signed_in: i64,
+}
+
+impl Places {
+    fn full(&self) -> bool {
+        self.everyone >= SNAPSHOT_SIZE && self.signed_in >= SNAPSHOT_SIZE
+    }
+
+    /// Keeps a candidate while an audience that may see it still has places left.
+    fn offer(&mut self, row: (i64, i64), audience: Audience) {
+        match audience {
+            Audience::Nobody => {}
+            Audience::SignedIn => {
+                if self.signed_in < SNAPSHOT_SIZE {
+                    self.rows.push(row);
+                    self.signed_in += 1;
+                }
+            }
+            Audience::Everyone => {
+                if self.everyone < SNAPSHOT_SIZE || self.signed_in < SNAPSHOT_SIZE {
+                    self.rows.push(row);
+                    self.everyone += 1;
+                    self.signed_in += 1;
+                }
+            }
+        }
+    }
+}
+
+/// The places of a board's snapshot: candidates in board order, leaving out members nobody may see, until both
+/// audiences have [`SNAPSHOT_SIZE`] places or the candidates run out. When the first candidates do not fill them, the
+/// aggregation is asked for four times as many.
+async fn places(db: &Database, board: Board, period: Period, now: i64) -> Result<Vec<(i64, i64)>> {
+    let mut limit = FIRST_CANDIDATES;
+    loop {
+        let rows = candidates(db, board, period, now, limit).await?;
+        let uids: Vec<i64> = rows.iter().map(|(uid, _)| *uid).collect();
+        let audiences = audiences(db, &uids).await?;
+        let mut places = Places::default();
+        for row in &rows {
+            places.offer(
+                *row,
+                audiences.get(&row.0).copied().unwrap_or(Audience::Nobody),
+            );
+            if places.full() {
+                break;
+            }
+        }
+        if places.full() || i64::try_from(rows.len())? < limit {
+            return Ok(places.rows);
+        }
+        limit = limit.saturating_mul(4);
+    }
 }
 
 /// One row on the page.
@@ -394,10 +590,15 @@ pub async fn read_listed(
     let mut standings = Vec::new();
     for row in rows {
         let uid: i64 = row.try_get("uid")?;
-        let space = crate::db::text(&row, "space_visibility")?;
-        let listed = crate::db::text(&row, "account_state")? == "active"
-            && row.try_get::<i64, _>("freeze")? == 0
-            && (space == "public" || (space == "members" && signed_in));
+        let listed = match Audience::of(
+            &crate::db::text(&row, "account_state")?,
+            row.try_get("freeze")?,
+            &crate::db::text(&row, "space_visibility")?,
+        ) {
+            Audience::Everyone => true,
+            Audience::SignedIn => signed_in,
+            Audience::Nobody => false,
+        };
         if !listed {
             continue;
         }

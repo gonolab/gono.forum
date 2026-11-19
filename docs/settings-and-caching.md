@@ -300,7 +300,7 @@ callers read the database.
 | `rendered-bodies` | rendered post HTML for anonymous visitors, with the places of its thread cards (the cards are read for each request) | content revision and post versions | page |
 | `member-frame` | a member's own board filters and reading choices | deleted on write | member |
 | `data-threads` | anonymous thread lists of the data sources ([data.md](data.md)) | list version (and for hot threads a list-lifetime segment and the window in days: the copy filled first in a segment serves it) | list |
-| `data-members` | the member lists of the data sources (`members.rank`, `members.honors`, `members.verified`), one copy per visitor class without anyone's blocks | list-lifetime segment | list |
+| `data-members` | the member lists of the data sources (`members.rank`, `members.honors`, `members.verified`), one copy per visitor class without anyone's blocks | content revision and a list-lifetime segment | list |
 | `thread-outline` | the floors behind `thread.outline` | thread revision | page |
 
 - **Keys.** `CacheKey::new(entry, revision, variants)` builds `{namespace}:cache:v2:{tag}:{digest}`: the registry tag
@@ -308,14 +308,14 @@ callers read the database.
   appears in a key. Settings and request details that change the content (page sizes, card counts, the time style,
   the path prefix, the language) are part of the variants.
 - **Versions.** `gonof_common_content_revision.revision` is raised by `content::copies::bump_site` on structural events
-  (title changes, hiding, withdrawal, moves, board changes, renames, account deletion); every update of a thread row
-  raises `gonof_forum_thread.cache_revision`, except the view count's ("View counting"); list keys also carry the
-  highest post id, so new threads and replies change them without touching the revision row. A key only uses versions
-  this request read from the database, never one read from Redis. See [queries.md](queries.md). On MySQL a post id is
-  taken before its transaction commits, so a thread or reply that commits after one with a higher id leaves the
-  watermark as it was: until the list lifetime runs out, cached lists, feeds and the boards' latest threads
-  (`board-last-posts`) can leave it out. A new post on MySQL can therefore appear up to one list lifetime late; SQLite
-  has one writer and commits ids in order.
+  (title changes, hiding, withdrawal, moves, board changes, renames, profile privacy changes, account deletion); every
+  update of a thread row raises `gonof_forum_thread.cache_revision`, except the view count's ("View counting"); list
+  keys also carry the highest post id, so new threads and replies change them without touching the revision row. A
+  key only uses versions this request read from the database, never one read from Redis. See [queries.md](queries.md).
+  On MySQL a post id is taken before its transaction commits, so a thread or reply that commits after one with a
+  higher id leaves the watermark as it was: until the list lifetime runs out, cached lists, feeds and the boards'
+  latest threads (`board-last-posts`) can leave it out. A new post on MySQL can therefore appear up to one list
+  lifetime late; SQLite has one writer and commits ids in order.
 - **Anonymous only.** Lists, sidebars, pins, floors and rendered bodies are cached for anonymous visitors only;
   members' views depend on their own blocks and permissions.
 - **Member frame.** One key per uid holds the raw choices (board hides and blocks, reading choices, the custom style

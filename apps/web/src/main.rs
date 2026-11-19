@@ -425,7 +425,8 @@ async fn main() -> Result<()> {
     // Rank snapshots. Reads and writes MySQL only and runs as usual with Redis off; boards refreshed by another process
     // very recently (less than half an interval ago) are skipped, so multiple processes do not aggregate twice. The
     // refresh interval is the admin setting `settings.ranks.refresh_seconds`, re-read each round: the task wakes at the
-    // shortest interval of 10 seconds and skips the round if less than one interval has passed since the last refresh
+    // shortest interval of 10 seconds and skips the round if less than one interval has passed since the last round
+    // that refreshed every board; a round with a failed board is tried again at the next wake-up
     // (docs/settings-and-caching.md, "Keys and groups").
     spawn_worker(
         &mut workers,
@@ -436,22 +437,14 @@ async fn main() -> Result<()> {
         {
             let db = db.clone();
             let global = global.clone();
-            let last = std::sync::Arc::new(std::sync::atomic::AtomicI64::new(0));
+            let schedule = std::sync::Arc::new(gono_forum_web::ranks::Schedule::default());
             move || {
                 let db = db.clone();
                 let global = global.clone();
-                let last = last.clone();
+                let schedule = schedule.clone();
                 async move {
                     let refresh = settings(&global, &db).await?.ranks.refresh_seconds;
-                    let now = identity::now();
-                    if now.saturating_sub(last.load(std::sync::atomic::Ordering::Relaxed)) < refresh
-                    {
-                        return Ok(());
-                    }
-                    last.store(now, std::sync::atomic::Ordering::Relaxed);
-                    gono_forum_web::ranks::refresh(&db, now, refresh / 2)
-                        .await
-                        .map(drop)
+                    schedule.tick(&db, refresh, identity::now()).await
                 }
             }
         },

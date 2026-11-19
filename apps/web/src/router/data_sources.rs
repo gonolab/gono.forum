@@ -478,7 +478,8 @@ fn list_segment(state: &AppState, now: i64) -> i64 {
 }
 
 /// A member list one copy of which serves a visitor class (`data-members`): from Redis when it is on, read
-/// otherwise.
+/// otherwise. The key carries the site-wide content version, which a profile privacy change, a rename and account
+/// deletion raise, so a member who left a list does not stay in a copy until the segment ends.
 async fn class_cached<T, F, Fut>(
     state: &AppState,
     variant: &impl serde::Serialize,
@@ -493,7 +494,9 @@ where
     if !cache.cache().enabled() {
         return fill().await;
     }
-    let key = crate::cache::CacheKey::new(&crate::cache::registry::DATA_MEMBERS, 0, variant)?;
+    let revision = crate::content::cache_revision(&state.db).await?;
+    let key =
+        crate::cache::CacheKey::new(&crate::cache::registry::DATA_MEMBERS, revision, variant)?;
     cache.get_or_fill_json(&key, fill).await
 }
 
