@@ -95,6 +95,11 @@ Endpoints used by HTMX return HTML fragments, for example:
 | Favorite a thread | `POST /api/thread-<id>/star` | the updated favorite control |
 | Preview | `POST /api/preview` | the rendered Markdown |
 
+A reply comes back as a fragment only when the thread page's reply box sent it (its form carries the header
+`X-Composer-Context: thread`) and it lands on the page the reader is on; otherwise, as from the editor page a failed
+reply leaves in place of the thread, the answer is an `HX-Redirect` to the reply, with `HX-Refresh` when the browser
+is already at that page's address (`HX-Current-URL`), so that it reloads the page instead of only moving to the reply.
+
 The member API under `/api/v1/` (threads, replies, likes, check-in and so on) is JSON with personal bearer tokens;
 see [api.md](api.md). The data sources ([data.md](data.md)) are read-only views of forum data shared by a layout's
 blocks, the page data block and `GET /data/v1/<source>`, which answers the session's own view as JSON to the site's

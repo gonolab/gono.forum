@@ -2,7 +2,7 @@
 use super::extract::{CsrfForm, Page, csrf_forms};
 use super::*;
 use crate::{
-    content::edits::{ChangeRequest, ContentAction, ContentEditor, EditRequest},
+    content::edits::{ChangeRequest, ContentAction, ContentEditor, EditRequest, EditablePost},
     identity,
 };
 use axum::{
@@ -117,6 +117,7 @@ async fn edit_page(Page(state): Page, AxumPath(segment): AxumPath<String>) -> Re
         )
             .into_response();
     }
+    let management = moderates(&post);
     let mut e = posting::Editor {
         edit_pid: pid,
         edit_thread: first,
@@ -131,7 +132,7 @@ async fn edit_page(Page(state): Page, AxumPath(segment): AxumPath<String>) -> Re
         },
         expected_post_version: post.version,
         expected_thread_version: post.thread_version,
-        management: post.can_manage && !post.can_author_edit,
+        management,
         location: format!("/thread-{tid}"),
         ..Default::default()
     };
@@ -166,7 +167,6 @@ async fn save(
         e.message = crate::i18n::current().editor_error_sign_in_to_edit().into();
         return posting::failure(&state, &headers, &e, StatusCode::UNAUTHORIZED).await;
     };
-    e.management = session.member.is_staff();
     // Only the first post carries a visibility scope; when the form has no such field (a reply, or the forum is
     // already stricter than public) the original value is kept.
     let visibility = if first {
@@ -175,6 +175,10 @@ async fn save(
             Err(err) => {
                 let (status, message) = posting::write_error(err);
                 e.message = message;
+                e.management = service(&state)
+                    .editable(session.member.actor(), pid)
+                    .await
+                    .is_ok_and(|post| moderates(&post));
                 return posting::failure(&state, &headers, &e, status).await;
             }
         }
@@ -201,15 +205,24 @@ async fn save(
         Err(err) => {
             let (status, message) = posting::write_error(err);
             e.message = message;
-            if status == StatusCode::CONFLICT
-                && let Ok(current) = service(&state).editable(session.member.actor(), pid).await
-            {
-                e.current_title = current.title;
-                e.current_body = current.body;
+            if let Ok(current) = service(&state).editable(session.member.actor(), pid).await {
+                e.management = moderates(&current);
+                if status == StatusCode::CONFLICT {
+                    e.current_title = current.title;
+                    e.current_body = current.body;
+                }
             }
             posting::failure(&state, &headers, &e, status).await
         }
     }
+}
+
+/// Whether the edit form asks for a moderation reason: only when the member may edit the post as staff but not as its
+/// author. The form shown again after a failed save asks the same, from the post as it is then: a moderator correcting
+/// their own post within the edit window edits it as its author, and a reason would turn that into a moderation action.
+/// The editor page still asks when the failed form carried a reason (`posting::editor_page`).
+fn moderates(post: &EditablePost) -> bool {
+    post.can_manage && !post.can_author_edit
 }
 
 #[derive(Default, Deserialize)]

@@ -271,7 +271,8 @@
         </div>
       </div>
 
-      <section class="reply-box" id="reply-editor" aria-labelledby="reply-editor-title">
+      {#- Tells posting.rs the reply comes from the thread page, which may get this block (reply_fragment) back. #}
+      <section class="reply-box" id="reply-editor" aria-labelledby="reply-editor-title" hx-headers='{"X-Composer-Context": "thread"}'>
         <h3 class="reply-box__title" id="reply-editor-title">{{ p.t.topic_post_reply() }}</h3>
         {%- if thread.closed %}
         <p class="reply-gate">{{ p.t.topic_locked() }}</p>

@@ -644,7 +644,8 @@ async fn an_in_page_reply_refreshes_the_activity_card_out_of_band() {
                 ("location", &path),
             ],
             true,
-            &[("HX-Request", "true")],
+            // The thread page's reply box sends the second header (topic/detail.html).
+            &[("HX-Request", "true"), ("X-Composer-Context", "thread")],
         )
         .await;
     reply.status(StatusCode::OK);

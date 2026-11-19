@@ -161,6 +161,32 @@ for (const instance of instances().filter((instance) => instance.content === 'fi
       });
     });
 
+    test.describe('replies', () => {
+      test('a reply that succeeds after an error goes back to the whole thread page', async ({ page }) => {
+        const thread = `${instance.origin}/thread-105`;
+        const title = page.locator('#thread-title');
+        await page.goto(thread);
+        await ready(page);
+        const heading = await title.textContent();
+        const body = page.locator('textarea[name="body"]');
+        const submit = page.locator('form[data-composer] button[type="submit"]:not([formaction])');
+        // The server refuses a reference to an attachment that does not exist; the editor page takes the thread's place.
+        await body.fill('See ![missing](attachment:999999999)');
+        await Promise.all([
+          page.waitForResponse((answer) => answer.url().endsWith('/api/thread-105/comments') && answer.status() === 422),
+          submit.click(),
+        ]);
+        await expect(page.locator('[data-error-message]')).toBeVisible();
+        await expect(title).toHaveCount(0);
+        await ready(page);
+        await body.fill('A reply corrected on the editor page');
+        await submit.click();
+        await expect(title).toHaveText(heading);
+        await expect(page.locator('#topic-replies .floor').filter({ hasText: 'A reply corrected on the editor page' })).toHaveCount(1);
+        expect(new URL(page.url()).pathname).toBe('/thread-105');
+      });
+    });
+
     test.describe('without scripts', () => {
       test.use({ javaScriptEnabled: false });
 

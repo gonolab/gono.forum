@@ -21,6 +21,8 @@ use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:58833";
 const HX: &[(&str, &str)] = &[("HX-Request", "true")];
+/// An HTMX request from the thread page's reply box, which sends this header (`topic/detail.html`).
+const HX_THREAD: &[(&str, &str)] = &[("HX-Request", "true"), ("X-Composer-Context", "thread")];
 
 struct Fixture {
     _services: gono_forum_web::test_support::TestFixture,
@@ -765,6 +767,135 @@ async fn preview_and_published_markdown_share_sanitization_and_live_member_names
     f._services.cleanup_ref().await.unwrap();
 }
 
+/// A failed HTMX reply puts the editor page in place of the thread (`posting::failure`). That page's form has no thread
+/// title or opening post around its `#topic-replies`, so a reply that succeeds from there goes back to the thread page
+/// instead of swapping in the reply list alone.
+#[tokio::test]
+async fn a_reply_retried_from_the_editor_page_goes_back_to_the_thread() {
+    let f = Fixture::new().await;
+    let mut admin = f.admin.clone();
+    let tid = f.topic(&mut admin).await;
+    let path = format!("/thread-{tid}");
+    let page = get(&f, &path, &mut admin).await;
+    assert!(
+        page.html
+            .contains(r#"id="reply-editor" aria-labelledby="reply-editor-title" hx-headers='{"X-Composer-Context": "thread"}'"#),
+        "{}",
+        page.html
+    );
+    let endpoint = format!("/api/thread-{tid}/comments");
+    let key = identity::random_token();
+    let failed = post(
+        &f,
+        &endpoint,
+        &mut admin,
+        &[("body", "   "), ("request_key", &key), ("location", &path)],
+        HX_THREAD,
+    )
+    .await;
+    failed.status(StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(failed.headers["HX-Retarget"], "body");
+    assert!(failed.html.contains("id=\"topic-replies\""));
+    assert!(!failed.html.contains("X-Composer-Context"));
+    // The editor page's form sends no thread-page header, and the address bar still shows the thread: going there only
+    // moves to the reply's fragment unless the page is reloaded too.
+    let current = format!("{ORIGIN}{path}");
+    let retried = post(
+        &f,
+        &endpoint,
+        &mut admin,
+        &[
+            ("body", "Corrected reply"),
+            ("request_key", &key),
+            ("location", &path),
+        ],
+        &[("HX-Request", "true"), ("HX-Current-URL", &current)],
+    )
+    .await;
+    retried.status(StatusCode::OK);
+    assert_eq!(retried.headers["HX-Redirect"], format!("{path}#floor-2"));
+    assert_eq!(retried.headers["HX-Refresh"], "true");
+    assert!(!retried.html.contains("id=\"topic-replies\""));
+    assert!(
+        admin.0.contains_key("gonof_published__port58833"),
+        "the redirected page clears the draft"
+    );
+    assert_eq!(
+        f.scalar(&format!(
+            "SELECT COUNT(*) FROM gonof_forum_post WHERE tid={tid} AND first=0"
+        ))
+        .await,
+        1
+    );
+    f._services.cleanup_ref().await.unwrap();
+}
+
+/// The form shown again after a failed save asks for a moderation reason only when the edit page would: a staff
+/// member correcting their own post within the edit window edits it as its author.
+#[tokio::test]
+async fn a_failed_save_asks_for_a_moderation_reason_only_as_the_edit_page_does() {
+    let f = Fixture::new().await;
+    let mut admin = f.admin.clone();
+    let tid = f.topic(&mut admin).await;
+    let path = format!("/edit/thread-{tid}");
+    let form = get(&f, &path, &mut admin).await;
+    form.status(StatusCode::OK);
+    assert!(!form.html.contains("name=\"reason\""));
+    let key = identity::random_token();
+    let mut fields = vec![
+        ("title", "Corrected title"),
+        ("body", "   "),
+        ("request_key", key.as_str()),
+        ("expected_post_version", "1"),
+        ("expected_thread_version", "1"),
+    ];
+    let failed = post(&f, &path, &mut admin, &fields, &[]).await;
+    failed.status(StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(failed.html.contains("Corrected title"));
+    assert!(!failed.html.contains("name=\"reason\""), "{}", failed.html);
+    fields[1] = ("body", "Corrected body");
+    post(&f, &path, &mut admin, &fields, &[])
+        .await
+        .redirect(&format!("/thread-{tid}#floor-1"));
+    // Recorded as the author's own edit: no moderation reason in the action log.
+    assert_eq!(
+        f.scalar("SELECT COUNT(*) FROM gonof_common_log WHERE type='content.edit'")
+            .await,
+        1
+    );
+    assert_eq!(
+        f.scalar(
+            r#"SELECT COUNT(*) FROM gonof_common_log WHERE type='content.edit' AND data LIKE '%"reason":""%'"#
+        )
+        .await,
+        1
+    );
+
+    // Past the edit window the same member can only edit it as staff: then the retry form asks for a reason.
+    f.execute(&format!(
+        "UPDATE gonof_forum_post SET dateline=dateline-100000000 WHERE tid={tid}"
+    ))
+    .await;
+    let key = identity::random_token();
+    let failed = post(
+        &f,
+        &path,
+        &mut admin,
+        &[
+            ("title", "Moderated title"),
+            ("body", "   "),
+            ("request_key", key.as_str()),
+            ("expected_post_version", "2"),
+            ("expected_thread_version", "2"),
+        ],
+        &[],
+    )
+    .await;
+    failed.status(StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(failed.html.contains("name=\"reason\""), "{}", failed.html);
+    f._services.cleanup_ref().await.unwrap();
+}
+
 #[tokio::test]
 async fn replies_resolve_root_and_child_pages_with_native_and_htmx_navigation() {
     let f = Fixture::new().await;
@@ -785,7 +916,7 @@ async fn replies_resolve_root_and_child_pages_with_native_and_htmx_navigation() 
             ("root_pid", "999"),
             ("reply_to_pid", "999"),
         ],
-        HX,
+        HX_THREAD,
     )
     .await;
     root.status(StatusCode::OK);
@@ -810,7 +941,7 @@ async fn replies_resolve_root_and_child_pages_with_native_and_htmx_navigation() 
             ("location", &path),
             ("tid", "999"),
         ],
-        HX,
+        HX_THREAD,
     )
     .await;
     child1.status(StatusCode::OK);
@@ -881,7 +1012,7 @@ async fn replies_resolve_root_and_child_pages_with_native_and_htmx_navigation() 
         ("request_key", child_key.as_str()),
         ("location", path.as_str()),
     ];
-    let cross_child = post(&f, &child_endpoint, &mut admin, &child_fields, HX).await;
+    let cross_child = post(&f, &child_endpoint, &mut admin, &child_fields, HX_THREAD).await;
     cross_child.status(StatusCode::OK);
     let child_location = format!("{path}?sub_root={root_pid}&sub_page=2#floor-23");
     assert_eq!(cross_child.headers["HX-Redirect"], child_location);
@@ -907,7 +1038,7 @@ async fn replies_resolve_root_and_child_pages_with_native_and_htmx_navigation() 
     assert!(!page.html.contains("id=\"floor-3\""));
     let mut replay = child_fields;
     replay[2] = ("location", child_location.split('#').next().unwrap());
-    let same_child = post(&f, &child_endpoint, &mut admin, &replay, HX).await;
+    let same_child = post(&f, &child_endpoint, &mut admin, &replay, HX_THREAD).await;
     assert_eq!(same_child.headers["HX-Push-Url"], child_location);
     assert!(same_child.html.contains("id=\"floor-23\""));
     assert_eq!(
@@ -941,11 +1072,12 @@ async fn replies_resolve_root_and_child_pages_with_native_and_htmx_navigation() 
             ("request_key", &identity::random_token()),
             ("location", &path),
         ],
-        HX,
+        HX_THREAD,
     )
     .await;
     cross.status(StatusCode::OK);
     assert_eq!(cross.headers["HX-Redirect"], format!("{path}-2#floor-73"));
+    assert!(!cross.headers.contains_key("HX-Refresh"));
     let page2 = get(&f, &format!("{path}-2"), &mut admin).await;
     page2.status(StatusCode::OK);
     assert!(page2.html.contains("id=\"floor-73\""));

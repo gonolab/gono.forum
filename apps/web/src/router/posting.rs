@@ -778,6 +778,14 @@ pub(super) async fn failure(
 pub(super) fn hx(headers: &HeaderMap) -> bool {
     headers.get("HX-Request").is_some_and(|v| v == "true")
 }
+/// Sent by the thread page's reply box (`hx-headers` on `#reply-editor` in `topic/detail.html`). Only a reply posted
+/// from there may come back as a fragment of the thread page: the editor page that a failed reply puts in place of the
+/// thread (`failure`) has a `#topic-replies` too, but no thread title and opening post around it.
+fn from_thread_page(headers: &HeaderMap) -> bool {
+    headers
+        .get("X-Composer-Context")
+        .is_some_and(|v| v == "thread")
+}
 pub(super) async fn published(
     state: &AppState,
     headers: &HeaderMap,
@@ -836,7 +844,7 @@ pub(super) async fn published(
     let marker =
         serde_json::json!({"uid":uid.to_string(),"draft":e.draft,"request_key":e.request_key})
             .to_string();
-    let mut response = if hx(headers) && result.position > 1 {
+    let mut response = if hx(headers) && result.position > 1 && from_thread_page(headers) {
         let target_page = location.split('#').next().unwrap_or(&location);
         let origin = auth::safe_return(&e.location);
         let origin = origin.split('#').next().unwrap_or("");
@@ -880,18 +888,10 @@ pub(super) async fn published(
             );
             response
         } else {
-            (
-                StatusCode::OK,
-                [("HX-Redirect", crate::site::href(&location))],
-            )
-                .into_response()
+            hx_redirect(headers, &location)
         }
     } else if hx(headers) {
-        (
-            StatusCode::OK,
-            [("HX-Redirect", crate::site::href(&location))],
-        )
-            .into_response()
+        hx_redirect(headers, &location)
     } else {
         auth::redirect(&location)
     };
@@ -908,6 +908,28 @@ pub(super) async fn published(
             &marker,
             60,
         );
+    }
+    response
+}
+/// `HX-Redirect` to a post. When the browser already shows that page's address, as with the editor page a failed reply
+/// put in place of the thread (the address stays the thread's), setting the address would only move to the fragment;
+/// `HX-Refresh` makes htmx reload the page as well.
+fn hx_redirect(headers: &HeaderMap, location: &str) -> Response {
+    let current = headers
+        .get("HX-Current-URL")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| url::Url::parse(value).ok())
+        .map(|url| match url.query() {
+            Some(query) => format!("{}?{query}", url.path()),
+            None => url.path().to_owned(),
+        });
+    let target = crate::site::href(location);
+    let refresh = current.as_deref() == target.split('#').next();
+    let mut response = (StatusCode::OK, [("HX-Redirect", target)]).into_response();
+    if refresh {
+        response
+            .headers_mut()
+            .insert("HX-Refresh", HeaderValue::from_static("true"));
     }
     response
 }
