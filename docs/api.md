@@ -349,6 +349,10 @@ edited through the thread endpoint (`422` otherwise). Both return:
 - `version` is the post's version: a new post has version 1, and each change to its title or body adds 1. Changing
   only `visibility` does not change it. Pass the version you last saw as `expected_version`; if the post has changed
   since, the edit gets `409 conflict`. Without it, the edit applies to the current version.
+- `version` is the version your edit left the post at, even when someone else edits the post right after it. A
+  replay of the edit (the same `Idempotency-Key` and content) returns that same version, not the post's current one,
+  so passing it as the next `expected_version` gets `409 conflict` if the post has changed since. Keys recorded by an
+  older forum version, which did not keep the version with the key, replay with the post's current version.
 - Only your own posts can be edited through the API. Someone else's post gets `404`, or `422` for a moderator who
   manages it: moderation edits need a reason and are made on the website. The author edit window applies (24 hours
   after posting by default, then `403`), and you cannot edit a post that moderators have hidden.

@@ -128,6 +128,15 @@ pub struct EditablePost {
     pub can_author_edit: bool,
     pub can_manage: bool,
 }
+/// The result of an edit: where the post is, and the post version this edit left behind (the version it wrote, or the
+/// version it found when nothing changed). A replay returns the version recorded with the request, not the post's
+/// current one, so a client never receives a version for a body it has not seen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Edited {
+    pub published: Published,
+    pub version: i64,
+}
+
 impl EditablePost {
     fn published(&self) -> Published {
         Published {
@@ -283,6 +292,22 @@ impl ContentEditor {
         request: EditRequest,
         timestamp: i64,
     ) -> Result<Published> {
+        Ok(self
+            .edit_versioned_at(actor, request, timestamp)
+            .await?
+            .published)
+    }
+    /// Like [`Self::edit`], also returning the post version the edit left behind, read inside the edit transaction.
+    pub async fn edit_versioned(&self, actor: Actor, request: EditRequest) -> Result<Edited> {
+        self.edit_versioned_at(actor, request, identity::now())
+            .await
+    }
+    pub async fn edit_versioned_at(
+        &self,
+        actor: Actor,
+        request: EditRequest,
+        timestamp: i64,
+    ) -> Result<Edited> {
         for attempt in 0..3 {
             let result = self.edit_inner(actor, request.clone(), timestamp).await;
             match &result {
@@ -315,7 +340,7 @@ impl ContentEditor {
         actor: Actor,
         mut request: EditRequest,
         timestamp: i64,
-    ) -> Result<Published> {
+    ) -> Result<Edited> {
         self.validate_request(
             request.pid,
             request.expected_post_version,
@@ -405,12 +430,12 @@ impl ContentEditor {
         if staff {
             self.own_hidden(&account, &locked)?;
         }
-        if let Some(result) = self
+        if let Some((published, version)) = self
             .replay(&mut tx, actor.uid, &request.request_key, &hash)
             .await?
         {
             tx.commit().await?;
-            return Ok(result);
+            return Ok(Edited { published, version });
         }
         self.check_window(&locked, staff)?;
         let post = &locked.post;
@@ -498,6 +523,12 @@ impl ContentEditor {
         let content_changed =
             post.body != body || request.title.as_ref().is_some_and(|v| v != &post.title);
         let changed = content_changed || visibility_changed;
+        // The post version after this edit: only a body or title change bumps it.
+        let version = if content_changed {
+            next(post.version)?
+        } else {
+            post.version
+        };
         // Changing the first post (title, visibility and body all appear in lists, feeds and in-site cards elsewhere)
         // or the excerpt of the last reply is a structural change, so the site version is bumped at the end of the
         // transaction; changing only a floor in the middle bumps only the thread version.
@@ -513,7 +544,6 @@ impl ContentEditor {
             crate::db::query("INSERT INTO gonof_forum_post_revision (pid,version,editor_uid,subject,message,dateline) VALUES (?,?,?,?,?,?)")
                 .bind(post.pid).bind(post.version).bind(actor.uid).bind(post.first.then_some(post.title.as_str())).bind(&post.body).bind(timestamp)
                 .execute(self.db.observe(&mut *tx)).await?;
-            let version = next(post.version)?;
             crate::db::query(
                 "UPDATE gonof_forum_post SET message=?,version=?,edited_at=? WHERE pid=?",
             )
@@ -599,7 +629,7 @@ impl ContentEditor {
             actor.uid,
             &request.request_key,
             &hash,
-            post.pid,
+            (post.pid, Some(version)),
             timestamp,
         )
         .await?;
@@ -607,7 +637,10 @@ impl ContentEditor {
             super::copies::bump_site(&self.db, &mut tx).await?;
         }
         tx.commit().await?;
-        Ok(post.published())
+        Ok(Edited {
+            published: post.published(),
+            version,
+        })
     }
 
     pub async fn change(&self, actor: Actor, request: ChangeRequest) -> Result<Published> {
@@ -818,11 +851,11 @@ impl ContentEditor {
                 crate::i18n::current().editor_error_intern_actions()
             }));
         }
-        if let Some(result) = self
+        if let Some((published, _)) = self
             .replay(tx, actor_uid, &request.request_key, hash)
             .await?
         {
-            return Ok(result);
+            return Ok(published);
         }
         self.check_window(&locked, staff)?;
         let post = &locked.post;
@@ -1012,7 +1045,7 @@ impl ContentEditor {
             actor_uid,
             &request.request_key,
             hash,
-            post.pid,
+            (post.pid, None),
             timestamp,
         )
         .await?;
@@ -1318,16 +1351,19 @@ impl ContentEditor {
             hidden: thread_invisible != 0 || root_invisible != 0 || invisible != 0,
         })
     }
+    /// The original result of a request already recorded under this key, with the post version an edit recorded.
+    /// Records without a version (status actions, and edits recorded before migration 0007) give the post's current
+    /// version, read under the post lock; status actions discard it.
     async fn replay(
         &self,
         tx: &mut Tx<'_>,
         uid: i64,
         key: &str,
         hash: &str,
-    ) -> Result<Option<Published>> {
+    ) -> Result<Option<(Published, i64)>> {
         // The account lock already serializes requests; keys that do not exist are not locked, avoiding MySQL gap
         // locks.
-        let sql = "SELECT r.request_hash,p.pid,p.tid,p.position FROM gonof_forum_post_request r JOIN gonof_forum_post p ON p.pid=r.pid WHERE r.uid=? AND r.request_key=?";
+        let sql = "SELECT r.request_hash,r.version,p.pid,p.tid,p.position,p.version AS current_version FROM gonof_forum_post_request r JOIN gonof_forum_post p ON p.pid=r.pid WHERE r.uid=? AND r.request_key=?";
         let Some(row) = crate::db::query(sql)
             .bind(uid)
             .bind(key)
@@ -1341,24 +1377,44 @@ impl ContentEditor {
                 crate::i18n::current().editor_error_edit_request_reused(),
             ));
         }
-        Ok(Some(Published {
-            pid: row.try_get("pid")?,
-            tid: row.try_get("tid")?,
-            position: row.try_get("position")?,
-            replayed: true,
-        }))
+        let version = match row.try_get::<Option<i64>, _>("version")? {
+            Some(version) => version,
+            None => row.try_get("current_version")?,
+        };
+        Ok(Some((
+            Published {
+                pid: row.try_get("pid")?,
+                tid: row.try_get("tid")?,
+                position: row.try_get("position")?,
+                replayed: true,
+            },
+            version,
+        )))
     }
+    /// Records the request; an edit passes the post version it left behind, a status action passes none.
     async fn record(
         &self,
         tx: &mut Tx<'_>,
         uid: i64,
         key: &str,
         hash: &str,
-        pid: i64,
+        (pid, version): (i64, Option<i64>),
         timestamp: i64,
     ) -> Result<()> {
-        crate::identity::rules::insert_post_request(&self.db, tx, uid, key, hash, pid, timestamp)
-            .await?;
+        match version {
+            Some(version) => {
+                crate::identity::rules::insert_edit_request(
+                    &self.db, tx, uid, key, hash, pid, timestamp, version,
+                )
+                .await?
+            }
+            None => {
+                crate::identity::rules::insert_post_request(
+                    &self.db, tx, uid, key, hash, pid, timestamp,
+                )
+                .await?
+            }
+        }
         Ok(())
     }
     #[allow(clippy::too_many_arguments)]

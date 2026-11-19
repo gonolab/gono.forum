@@ -790,7 +790,10 @@ async fn authors_edit_their_threads_and_replies_with_version_checks() {
         StatusCode::OK,
         "a replay of a title-only edit ignores later body changes: {replay}"
     );
-    assert_eq!(replay["version"], 3);
+    assert_eq!(
+        replay["version"], 2,
+        "a replay returns the version that edit wrote, not the later body edit's"
+    );
     assert_eq!(post_message(&f.db, first).await, "New body");
     let (status, _, edited) = f
         .api(
@@ -816,8 +819,37 @@ async fn authors_edit_their_threads_and_replies_with_version_checks() {
         StatusCode::OK,
         "a replay of a body-only edit ignores later title changes: {replay}"
     );
-    assert_eq!(replay["version"], 4);
+    assert_eq!(replay["version"], 3);
     assert_eq!(thread_subject(&f.db, tid).await, "Later title");
+    // Every write other than an edit records no version; neither did edits before migration 0007. Replaying such an
+    // edit record falls back to the post's current version, read inside the edit transaction.
+    assert_eq!(
+        f.scalar(&format!(
+            "SELECT COUNT(*) FROM gonof_forum_post_request WHERE uid={MEMBER} AND pid={first} AND version IS NULL"
+        ))
+        .await,
+        1,
+        "publishing the thread records no version"
+    );
+    db::query("UPDATE gonof_forum_post_request SET version=NULL WHERE uid=? AND version=3")
+        .bind(MEMBER)
+        .execute(f.db.executor())
+        .await
+        .unwrap();
+    let (status, _, replay) = f
+        .api(
+            "PATCH",
+            &thread_path,
+            Some(&secret),
+            Some(r#"{"body":"New body","expected_version":2}"#),
+            &[("idempotency-key", "edit-body")],
+        )
+        .await;
+    assert_eq!(
+        (status, replay["version"].as_i64()),
+        (StatusCode::OK, Some(4)),
+        "an edit record without a version replays with the current version: {replay}"
+    );
     let (status, _, stale) = f
         .api(
             "PATCH",

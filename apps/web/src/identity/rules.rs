@@ -375,8 +375,8 @@ fn check_request(uid: i64, request_key: &str, request_hash: &str, dateline: i64)
     Ok(())
 }
 
-/// Records a post request (idempotency record for posting, replying, editing, likes, tips, activities and
-/// moderation): the only INSERT into this table in the whole repository (pinned by a source scan).
+/// Records a post request (idempotency record for posting, replying, likes, tips, activities and moderation), with no
+/// post version; edits record theirs with [`insert_edit_request`].
 pub async fn insert_post_request(
     db: &Database,
     tx: &mut Tx<'_>,
@@ -386,15 +386,61 @@ pub async fn insert_post_request(
     pid: i64,
     dateline: i64,
 ) -> Result<()> {
+    insert_request_row(db, tx, uid, request_key, request_hash, pid, dateline, None).await
+}
+
+/// Records an edit request together with the post version the edit left behind, so that a replay returns that
+/// version rather than whatever the post has reached since.
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_edit_request(
+    db: &Database,
+    tx: &mut Tx<'_>,
+    uid: i64,
+    request_key: &str,
+    request_hash: &str,
+    pid: i64,
+    dateline: i64,
+    version: i64,
+) -> Result<()> {
+    ensure!(
+        version > 0,
+        "an edit request records a positive post version"
+    );
+    insert_request_row(
+        db,
+        tx,
+        uid,
+        request_key,
+        request_hash,
+        pid,
+        dateline,
+        Some(version),
+    )
+    .await
+}
+
+/// The only INSERT into the post request table in the whole repository (pinned by a source scan).
+#[allow(clippy::too_many_arguments)]
+async fn insert_request_row(
+    db: &Database,
+    tx: &mut Tx<'_>,
+    uid: i64,
+    request_key: &str,
+    request_hash: &str,
+    pid: i64,
+    dateline: i64,
+    version: Option<i64>,
+) -> Result<()> {
     check_request(uid, request_key, request_hash, dateline)?;
     crate::db::query(
-        "INSERT INTO gonof_forum_post_request(uid,request_key,request_hash,pid,dateline) VALUES(?,?,?,?,?)",
+        "INSERT INTO gonof_forum_post_request(uid,request_key,request_hash,pid,dateline,version) VALUES(?,?,?,?,?,?)",
     )
     .bind(uid)
     .bind(request_key)
     .bind(request_hash)
     .bind(pid)
     .bind(dateline)
+    .bind(version)
     .execute(db.observe(&mut **tx))
     .await?;
     Ok(())

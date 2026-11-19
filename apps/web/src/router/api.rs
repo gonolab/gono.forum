@@ -1183,8 +1183,10 @@ async fn submit_edit(
     expected_version: Option<i64>,
 ) -> Result<Response, ApiError> {
     let key = request_key(headers)?;
-    let published = editor(state, actor)
-        .edit(
+    // The version comes from the edit transaction (or, for a replay, from the request record): a read after the commit
+    // could return another edit's version for a body this client has never seen.
+    let edited = editor(state, actor)
+        .edit_versioned(
             actor.actor(),
             EditRequest {
                 pid: current.pid,
@@ -1198,10 +1200,7 @@ async fn submit_edit(
             },
         )
         .await?;
-    let version: i64 = db::query_scalar("SELECT version FROM gonof_forum_post WHERE pid = ?")
-        .bind(published.pid)
-        .fetch_one(state.db.executor())
-        .await?;
+    let published = edited.published;
     let url = if current.first {
         format!("{}/thread-{}", actor.site_url, published.tid)
     } else {
@@ -1213,7 +1212,7 @@ async fn submit_edit(
             "tid": published.tid,
             "pid": published.pid,
             "position": published.position,
-            "version": version,
+            "version": edited.version,
             "url": url,
         }),
     ))
