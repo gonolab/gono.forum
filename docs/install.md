@@ -158,8 +158,9 @@ server {
   text to merge into the domain root's `robots.txt` (rules with the path prefix and the sitemap line); merge it again
   after changing the rules or the indexing switch.
 
-Static files are served by the application (versioned addresses are cached for a year); the proxy does not need to
-serve them.
+Static files are served by the application; the proxy does not need to serve them. An address with the running build's
+asset version is cached for a year and every other one is revalidated, so while an upgrade rolls across several
+machines, one still on the old build cannot leave its old files cached under the new build's addresses.
 
 ## Redis
 

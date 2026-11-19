@@ -189,16 +189,11 @@ impl AppState {
     }
 }
 
-/// The cache version of the static assets, computed from the file contents once at startup.
-///
-/// Templates write it as `?v=` on every asset address, the largest files (composer.js, fonts.css and the two vendor
-/// scripts) included, so a changed file is never served from an old cache entry. When a file cannot be read it falls
-/// back to the process start time: better to invalidate the cache once more than to serve old assets.
-fn asset_version(files: &crate::static_files::StaticFiles) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    let mut readable = false;
-    for name in [
+/// The assets templates link with `?v=` (`layout/base.html`, `errors/plain.html`), whose bytes make up the asset
+/// version: the core stylesheets and scripts, the vendor scripts and every behavior module a skin may turn on. The
+/// translation catalogs are generated and hashed apart.
+fn versioned_assets() -> Vec<String> {
+    [
         "css/forum.css",
         "css/fonts.css",
         "css/debug.css",
@@ -208,7 +203,29 @@ fn asset_version(files: &crate::static_files::StaticFiles) -> String {
         "js/debug.js",
         "js/vendor/htmx.min.js",
         "js/vendor/head-support.js",
-    ] {
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .chain(
+        crate::skins::manifest::BEHAVIORS
+            .iter()
+            .map(|name| format!("js/behaviors/{name}.js")),
+    )
+    .collect()
+}
+
+/// The cache version of the static assets, computed from the file contents once at startup.
+///
+/// Templates write it as `?v=` on every asset address, the largest files (composer.js, fonts.css and the two vendor
+/// scripts) and the behavior modules included, so a changed file is never served from an old cache entry; the asset
+/// service grants a year's caching only to this version (`static_files`). When a file cannot be read it falls back to
+/// the process start time: better to invalidate the cache once more than to serve old assets.
+fn asset_version(files: &crate::static_files::StaticFiles) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    let mut readable = false;
+    for name in versioned_assets() {
+        let name = name.as_str();
         match files.read(name) {
             Some(bytes) => {
                 readable = true;
@@ -323,9 +340,10 @@ fn build_full(
         global: global.clone(),
     };
     let static_files = crate::static_files::StaticFiles::for_root(root);
+    let assets: Arc<str> = asset_version(&static_files).into();
     let upload_limit = upload_body_limit(&config.media);
     let state = Arc::new(AppState {
-        asset_version: asset_version(&static_files).into(),
+        asset_version: assets.clone(),
         identity: Identity::new(
             db.clone(),
             config.identity.clone(),
@@ -355,7 +373,7 @@ fn build_full(
         views,
     });
     let router = static_files
-        .mount(auth::routes(upload_limit))
+        .mount(auth::routes(upload_limit), assets)
         .merge(api::routes())
         .merge(posting::routes())
         .merge(activities::routes())
@@ -3357,7 +3375,57 @@ async fn render_thread_bodies(
 
 #[cfg(test)]
 mod tests {
-    use super::page_window;
+    use super::{asset_version, page_window, versioned_assets};
+    use crate::static_files::StaticFiles;
+
+    /// A skin's behavior module changed alone still changes the version, so returning visitors fetch it again.
+    #[test]
+    fn the_asset_version_covers_the_behavior_modules() {
+        let before = StaticFiles::Embedded(&[
+            ("js/behaviors/timeline.js", b"// one"),
+            ("js/site.js", b"void 0"),
+        ]);
+        let after = StaticFiles::Embedded(&[
+            ("js/behaviors/timeline.js", b"// two"),
+            ("js/site.js", b"void 0"),
+        ]);
+        assert_ne!(asset_version(&before), asset_version(&after));
+        assert_eq!(asset_version(&before), asset_version(&before));
+    }
+
+    /// Every asset address the templates write with `?v=` is one whose bytes the version hashes (the translation
+    /// catalogs aside, which are generated and hashed apart).
+    #[test]
+    fn every_versioned_address_counts_toward_the_version() {
+        let names = versioned_assets();
+        let mut seen = 0;
+        for template in [
+            include_str!("../templates/layout/base.html"),
+            include_str!("../templates/errors/plain.html"),
+        ] {
+            for (at, _) in template.match_indices("/static/") {
+                let rest = &template[at + "/static/".len()..];
+                let Some(end) = rest.find('?') else { continue };
+                if !rest[end..].starts_with("?v=") || rest.starts_with("i18n/") {
+                    continue;
+                }
+                let path = &rest[..end];
+                let paths: Vec<String> = if path.contains("{{ name }}") {
+                    crate::skins::manifest::BEHAVIORS
+                        .iter()
+                        .map(|name| path.replace("{{ name }}", name))
+                        .collect()
+                } else {
+                    vec![path.to_owned()]
+                };
+                for path in paths {
+                    assert!(names.contains(&path), "{path} is not in versioned_assets");
+                    seen += 1;
+                }
+            }
+        }
+        assert!(seen > 10, "{seen}");
+    }
 
     #[test]
     fn pagination_lists_the_ends_and_two_pages_around_the_current_one() {

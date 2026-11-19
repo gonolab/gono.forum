@@ -277,6 +277,35 @@ async fn serves_static_assets_without_exposing_workspace() {
     services.cleanup().await.unwrap();
 }
 
+/// Pages link assets with this process's asset version; only that `v=` is cached for good. An address with another
+/// build's version, which a process of the old build answers with its old bytes during a rolling release, is
+/// revalidated instead. The script catalogs are served by the application in every build.
+#[tokio::test]
+async fn only_this_processs_asset_version_is_cached_for_good() {
+    let (app, services) = app().await;
+    let (_, _, home) = support::fetch(&app, "/", false).await;
+    let start =
+        home.find("/static/js/site.js?v=").expect("site.js") + "/static/js/site.js?v=".len();
+    let version = &home[start..start + home[start..].find('"').unwrap()];
+    assert!(
+        home.contains(&format!("/static/i18n/en.js?v={version}\"")),
+        "{home}"
+    );
+    for (path, rule) in [
+        (
+            format!("/static/i18n/en.js?v={version}"),
+            "public, max-age=31536000, immutable",
+        ),
+        ("/static/i18n/en.js?v=0123456789ab".to_owned(), "no-cache"),
+        ("/static/i18n/en.js".to_owned(), "no-cache"),
+    ] {
+        let (status, headers, _) = support::fetch(&app, &path, false).await;
+        assert_eq!(status, StatusCode::OK, "{path}");
+        assert_eq!(headers["cache-control"], rule, "{path}");
+    }
+    services.cleanup().await.unwrap();
+}
+
 /// The header forum navigation, with the aria-current that varies with the current page removed.
 fn forum_nav(body: &str) -> String {
     let start = body

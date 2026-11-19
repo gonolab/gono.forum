@@ -29,9 +29,13 @@ instructions, `https://gono.dev/forum.install.sh`, redirects to that file of the
 - **Profile.** `--profile dist`: the release profile plus thin LTO and stripped symbols.
 - **The `bundled` feature.** `build.rs` embeds every file under `apps/web/static/` with `include_bytes!`, and fails if
   the `npm run build` output (`css/forum.css`, `css/debug.css`, `js/composer.js`) is missing. The binary serves these
-  files from memory with a strong ETag and `304 Not Modified`; addresses with `?v=` are cached for a year, others are
-  revalidated. Without the feature, source builds serve `apps/web/static/` from disk, so style changes need no
-  rebuild. Templates, translations and `config/default.toml` are compiled into every build, bundled or not.
+  files from memory with a strong ETag and `304 Not Modified`. Pages link them with `?v=` and the asset version, a
+  hash of the stylesheets, the scripts (the behavior modules included) and the translation catalogs; an address with
+  the version of the build that answers is cached for a year, every other address is revalidated, another build's
+  `?v=` included, so while a rolling release runs, a process still on the old build cannot pin its old files in
+  browsers under the new build's addresses. Without the feature, source builds serve `apps/web/static/` from disk, so
+  style changes need no rebuild. Templates, translations and `config/default.toml` are compiled into every build,
+  bundled or not.
 - **Instance root and configuration.** `GONOF_HOME` sets the instance directory. Without it a bundled binary uses
   the directory it is in, and a source build uses the source tree. Relative paths in the configuration
   (`local_directory`, a relative SQLite file, also one given in `GONOF_DATABASE_URL`) resolve against the instance

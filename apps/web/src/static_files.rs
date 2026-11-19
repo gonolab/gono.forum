@@ -7,7 +7,7 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::OnceLock,
+    sync::{Arc, OnceLock},
 };
 
 use axum::{
@@ -50,15 +50,17 @@ impl StaticFiles {
 
     /// Mounts the asset service at `/static`. `/static/i18n/<language>.js` is generated from the translations
     /// rather than read from a file (docs/architecture.md, "Languages"), in source builds and release packages alike.
-    pub fn mount<S>(&self, router: Router<S>) -> Router<S>
+    /// `version` is this process's asset version (`router::asset_version`), the only `?v=` cached for good.
+    pub fn mount<S>(&self, router: Router<S>, version: Arc<str>) -> Router<S>
     where
         S: Clone + Send + Sync + 'static,
     {
+        let catalogs = version.clone();
         let scripts = Router::new().route(
             "/i18n/{file}",
             get(
-                |UrlPath(file): UrlPath<String>, RawQuery(query): RawQuery| async move {
-                    translations(&file, query.as_deref())
+                move |UrlPath(file): UrlPath<String>, RawQuery(query): RawQuery| async move {
+                    translations(&file, query.as_deref(), &catalogs)
                 },
             ),
         );
@@ -74,7 +76,7 @@ impl StaticFiles {
                         move |UrlPath(path): UrlPath<String>,
                               RawQuery(query): RawQuery,
                               headers: HeaderMap| async move {
-                            serve(files, &path, query.as_deref(), &headers)
+                            serve(files, &path, query.as_deref(), &headers, &version)
                         },
                     ),
                 );
@@ -84,27 +86,37 @@ impl StaticFiles {
     }
 }
 
-/// One language's script catalog; versioned URLs are cached for good like the other assets (the asset version hashes
-/// the catalogs too, see `router::asset_version`).
-fn translations(file: &str, query: Option<&str>) -> Response {
+/// The cache rule of an asset address. Pages link assets with `?v=<this build's asset version>`
+/// (`router::asset_version`), so such an address never changes content and is cached for a year. Any other address
+/// is revalidated: one without `v=` (icons, fonts loaded from CSS), and one with another build's version, which a
+/// process of the old build answers with its old bytes while a rolling release is under way, or one of the new build
+/// with its new bytes for a page of the old one; cached for good, either would outlast the rollout.
+fn cache_rule(query: Option<&str>, version: &str) -> HeaderValue {
+    let current = query.is_some_and(|query| {
+        query
+            .split('&')
+            .any(|part| part.strip_prefix("v=") == Some(version))
+    });
+    HeaderValue::from_static(if current {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-cache"
+    })
+}
+
+/// One language's script catalog; addresses with this build's version are cached for good like the other assets (the
+/// asset version hashes the catalogs too, see `router::asset_version`).
+fn translations(file: &str, query: Option<&str>, version: &str) -> Response {
     let Some(lang) = file.strip_suffix(".js").and_then(crate::i18n::Lang::parse) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let versioned = query.is_some_and(|query| query.split('&').any(|part| part.starts_with("v=")));
     (
         [
             (
                 header::CONTENT_TYPE,
                 HeaderValue::from_static("text/javascript; charset=utf-8"),
             ),
-            (
-                header::CACHE_CONTROL,
-                HeaderValue::from_static(if versioned {
-                    "public, max-age=31536000, immutable"
-                } else {
-                    "no-cache"
-                }),
-            ),
+            (header::CACHE_CONTROL, cache_rule(query, version)),
         ],
         crate::i18n::script(lang),
     )
@@ -171,19 +183,19 @@ fn matches(if_none_match: &HeaderValue, etag: &HeaderValue) -> bool {
     })
 }
 
-fn serve(files: Table, path: &str, query: Option<&str>, headers: &HeaderMap) -> Response {
+fn serve(
+    files: Table,
+    path: &str,
+    query: Option<&str>,
+    headers: &HeaderMap,
+    version: &str,
+) -> Response {
     let Some(bytes) = lookup(files, path) else {
         return StatusCode::NOT_FOUND.into_response();
     };
     let etag = etag(files, path, bytes);
-    // Pages link assets with `?v=<content hash>` (router::asset_version), so a versioned URL never changes content;
-    // other URLs (icons, fonts loaded from CSS) are revalidated with the ETag.
-    let versioned = query.is_some_and(|query| query.split('&').any(|part| part.starts_with("v=")));
-    let cache = HeaderValue::from_static(if versioned {
-        "public, max-age=31536000, immutable"
-    } else {
-        "no-cache"
-    });
+    // Revalidated with the ETag unless the address carries this build's version ([`cache_rule`]).
+    let cache = cache_rule(query, version);
     if headers
         .get(header::IF_NONE_MATCH)
         .is_some_and(|value| matches(value, &etag))
@@ -220,13 +232,16 @@ mod tests {
         ("js/site.js", b"void 0"),
     ];
 
+    /// The asset version the test service was started with.
+    const VERSION: &str = "abc";
+
     async fn get(uri: &str, if_none_match: Option<&str>) -> Response {
         let mut request = Request::get(uri);
         if let Some(value) = if_none_match {
             request = request.header(header::IF_NONE_MATCH, value);
         }
         StaticFiles::Embedded(FILES)
-            .mount(Router::new())
+            .mount(Router::new(), VERSION.into())
             .oneshot(request.body(Body::empty()).unwrap())
             .await
             .unwrap()
@@ -279,6 +294,34 @@ mod tests {
                 .status(),
             StatusCode::OK
         );
+    }
+
+    /// During a rolling release a process of one build can be asked for an address with another build's version:
+    /// it answers with its own bytes, which must not be cached for good under that address.
+    #[tokio::test]
+    async fn only_this_builds_version_is_cached_for_good() {
+        let immutable = "public, max-age=31536000, immutable";
+        for (uri, rule) in [
+            ("/static/js/site.js?v=abc", immutable),
+            ("/static/js/site.js?x=1&v=abc", immutable),
+            ("/static/js/site.js?v=abc&x=1", immutable),
+            ("/static/js/site.js?v=def", "no-cache"),
+            ("/static/js/site.js?v=abcd", "no-cache"),
+            ("/static/js/site.js?v=", "no-cache"),
+            ("/static/js/site.js?x=abc", "no-cache"),
+            ("/static/i18n/en.js?v=abc", immutable),
+            ("/static/i18n/en.js?v=def", "no-cache"),
+            ("/static/i18n/en.js", "no-cache"),
+        ] {
+            let response = get(uri, None).await;
+            assert_eq!(response.status(), StatusCode::OK, "{uri}");
+            assert_eq!(response.headers()[header::CACHE_CONTROL], rule, "{uri}");
+        }
+        // The revalidation of an old version's address keeps that rule too.
+        let etag = get("/static/js/site.js", None).await.headers()[header::ETAG].clone();
+        let response = get("/static/js/site.js?v=def", Some(etag.to_str().unwrap())).await;
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-cache");
     }
 
     #[tokio::test]
