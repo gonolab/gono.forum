@@ -618,20 +618,7 @@ pub fn check(dir: &Path) -> Checked {
     let board_slugs: HashSet<&str> = boards.iter().map(|board| board.slug.as_str()).collect();
     let member_names: HashSet<String> = members.iter().map(|(name, _)| name.clone()).collect();
 
-    let mut files: Vec<String> = match std::fs::read_dir(dir.join(THREADS_DIR)) {
-        Ok(entries) => entries
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
-            .map(|entry| entry.file_name().to_string_lossy().into_owned())
-            .collect(),
-        Err(error) => {
-            report.error(
-                format!("{THREADS_DIR}/"),
-                format!("cannot be read: {error}"),
-            );
-            Vec::new()
-        }
-    };
+    let mut files = thread_files(&mut report, dir);
     files.sort();
     let mut threads = Vec::new();
     let mut keys: HashMap<String, String> = HashMap::new();
@@ -697,6 +684,47 @@ pub fn check(dir: &Path) -> Checked {
     Checked { report, dataset }
 }
 
+/// The names of the files in `threads/`, following symbolic links (a shard linked in from elsewhere is read like any
+/// other); subdirectories are not thread files. An entry that cannot be listed, or a `.jsonl` entry whose target
+/// cannot be read, is an error rather than a file silently left out of the import.
+fn thread_files(report: &mut Report, dir: &Path) -> Vec<String> {
+    let entries = match std::fs::read_dir(dir.join(THREADS_DIR)) {
+        Ok(entries) => entries,
+        Err(error) => {
+            report.error(
+                format!("{THREADS_DIR}/"),
+                format!("cannot be read: {error}"),
+            );
+            return Vec::new();
+        }
+    };
+    let mut files = Vec::new();
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                report.error(
+                    format!("{THREADS_DIR}/"),
+                    format!("cannot be listed: {error}"),
+                );
+                continue;
+            }
+        };
+        let name = entry.file_name().to_string_lossy().into_owned();
+        match std::fs::metadata(entry.path()) {
+            Ok(metadata) if metadata.is_file() => files.push(name),
+            Ok(_) => {}
+            Err(error) if name.ends_with(".jsonl") => report.error(
+                format!("{THREADS_DIR}/{name}"),
+                format!("cannot be read: {error}"),
+            ),
+            // Not a thread file either way; the loop in `check` points it out.
+            Err(_) => files.push(name),
+        }
+    }
+    files
+}
+
 /// Forums, members and threads ready for `seed::import_dataset`.
 pub(crate) struct Plan {
     pub forums: Vec<NewForum>,
@@ -708,13 +736,25 @@ pub(crate) struct Plan {
 /// Threads are numbered in the order they were started, each thread's first post followed by its replies; members are
 /// numbered in the order they joined, each one shortly before their first post. Everything is the same on every run
 /// except for the shift with `now`.
+///
+/// A thread starts at least an hour plus one second per reply before `now`: its replies are at least a second apart
+/// and start five minutes after it, so a long thread started late would otherwise date its last replies after the
+/// import, at the top of every "latest" list.
 pub(crate) fn plan(dataset: &Dataset, now: i64) -> Result<Plan> {
     let mut rng = Rng(SEED);
     let mut order: Vec<(i64, usize)> = dataset
         .threads
         .iter()
         .enumerate()
-        .map(|(index, _)| (now - rng.between(HOUR, PERIOD_DAYS * DAY), index))
+        .map(|(index, thread)| {
+            let latest = now
+                .saturating_sub(HOUR)
+                .saturating_sub(i64::try_from(thread.replies.len()).unwrap_or(i64::MAX));
+            (
+                (now - rng.between(HOUR, PERIOD_DAYS * DAY)).min(latest),
+                index,
+            )
+        })
         .collect();
     order.sort();
     let mut first_post: HashMap<&str, i64> = HashMap::new();
@@ -817,6 +857,9 @@ fn record<'a>(first_post: &mut HashMap<&'a str, i64>, author: &'a str, time: i64
 /// Writes the setup wizard's sample content (`content::sample`) in `lang`, one of `sample::languages()`, as a dataset
 /// in `dir`, which must not exist yet or be empty. Threads are grouped by board, oldest first; keys are the board slug
 /// and a number. Nothing in the files depends on when this runs. Returns the number of threads written.
+///
+/// Every file is created new: of two exports started into the same empty directory, the one that writes the manifest
+/// second stops there, instead of both succeeding with files from each.
 pub fn write_sample(dir: &Path, lang: crate::i18n::Lang) -> Result<usize> {
     if dir.exists() {
         ensure!(
@@ -913,9 +956,16 @@ pub fn write_sample(dir: &Path, lang: crate::i18n::Lang) -> Result<usize> {
     Ok(written)
 }
 
+/// Creates `name` in `dir` and writes `text` to it; refuses a file that already exists.
 fn write_file(dir: &Path, name: &str, text: &str) -> Result<()> {
+    use std::io::Write;
     let path = dir.join(name);
-    std::fs::write(&path, text).with_context(|| format!("cannot write {}", path.display()))
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .and_then(|mut file| file.write_all(text.as_bytes()))
+        .with_context(|| format!("cannot write {}", path.display()))
 }
 
 #[cfg(test)]
@@ -1352,5 +1402,171 @@ mod tests {
             }
         }
         found
+    }
+
+    /// A dataset of `count` threads by one member in one board, with no replies.
+    fn many_threads(count: usize) -> Dataset {
+        Dataset {
+            boards: vec![NewForum {
+                slug: "help".into(),
+                name: "Help".into(),
+                description: "Questions".into(),
+                guidance: String::new(),
+                parent: None,
+            }],
+            members: vec![("nora".into(), String::new())],
+            threads: (0..count)
+                .map(|index| DatasetThread {
+                    board: "help".into(),
+                    author: "nora".into(),
+                    title: format!("thread {index}"),
+                    body: "Body.".into(),
+                    pinned: false,
+                    featured: false,
+                    replies: Vec::new(),
+                })
+                .collect(),
+        }
+    }
+
+    /// A long thread that the random start puts shortly before the import still dates every reply before it: the
+    /// start leaves room for one second per reply, and replies stay after their thread.
+    #[test]
+    fn a_long_thread_started_late_has_no_replies_after_the_import() {
+        let mut dataset = many_threads(2000);
+        // The thread the generator starts last (threads are numbered in time order); its random start does not
+        // depend on the replies.
+        let planned = plan(&dataset, NOW).unwrap();
+        let last = planned.threads.last().unwrap();
+        let (latest, started) = (last.title.clone(), NOW - last.created as i64);
+        let index = dataset
+            .threads
+            .iter()
+            .position(|thread| thread.title == latest)
+            .unwrap();
+        // More replies than seconds between that start and the import.
+        let replies = usize::try_from(started).unwrap() + 10;
+        dataset.threads[index].replies = (0..replies)
+            .map(|_| DatasetReply {
+                author: "nora".into(),
+                body: "Reply.".into(),
+                reply_to: None,
+            })
+            .collect();
+        let planned = plan(&dataset, NOW).unwrap();
+        let thread = planned
+            .threads
+            .iter()
+            .find(|thread| thread.title == latest)
+            .unwrap();
+        assert_eq!(thread.posts.len(), replies);
+        let created = thread.created as i64;
+        let mut previous = created + 5 * super::super::sample::MINUTE - 1;
+        for post in &thread.posts {
+            let dateline = post.dateline as i64;
+            assert!(
+                dateline > previous,
+                "replies are a second apart, after the thread"
+            );
+            assert!(
+                dateline < NOW,
+                "a reply is dated {} s after the import",
+                dateline - NOW
+            );
+            previous = dateline;
+        }
+        assert!((thread.updated as i64) < NOW);
+    }
+
+    /// A shard supplied through a symbolic link is read like any other, and a link that points nowhere is an error
+    /// instead of a shard silently left out.
+    #[test]
+    fn linked_thread_files_are_read_and_broken_ones_reported() {
+        let scratch = Scratch::new();
+        small(&scratch);
+        let elsewhere = Scratch::new();
+        elsewhere.write(
+            "more.jsonl",
+            concat!(
+                r#"{"key":"help-2","board":"help","author":"felix","title":"Linked thread","body":"From a linked file.","replies":[]}"#,
+                "\n"
+            ),
+        );
+        std::os::unix::fs::symlink(
+            elsewhere.0.join("more.jsonl"),
+            scratch.0.join("threads/threads-002.jsonl"),
+        )
+        .unwrap();
+        let checked = check(&scratch.0);
+        assert!(
+            checked.report.errors.is_empty(),
+            "{}",
+            checked.report.render(50)
+        );
+        assert_eq!(checked.report.threads, 3, "the linked shard is counted");
+        assert_eq!(checked.dataset.unwrap().threads.len(), 3);
+
+        std::os::unix::fs::symlink(
+            elsewhere.0.join("missing.jsonl"),
+            scratch.0.join("threads/threads-003.jsonl"),
+        )
+        .unwrap();
+        let checked = check(&scratch.0);
+        assert!(checked.dataset.is_none());
+        assert!(
+            checked
+                .report
+                .errors
+                .iter()
+                .any(|problem| problem.place == "threads/threads-003.jsonl"
+                    && problem.message.starts_with("cannot be read")),
+            "{}",
+            checked.report.render(50)
+        );
+    }
+
+    /// Exports never overwrite a file: two exports into the same empty directory never both succeed, so there is
+    /// never a dataset with files from each language.
+    #[test]
+    fn concurrent_exports_into_one_directory_never_both_succeed() {
+        let (en, zh) = (
+            crate::i18n::Lang::EN,
+            super::super::sample::language("zh-CN").unwrap(),
+        );
+        for _ in 0..30 {
+            let scratch = Scratch::new();
+            std::fs::create_dir_all(&scratch.0).unwrap();
+            let barrier = std::sync::Barrier::new(2);
+            let (first, second) = std::thread::scope(|scope| {
+                let run = |lang| {
+                    let (barrier, dir) = (&barrier, &scratch.0);
+                    scope.spawn(move || {
+                        barrier.wait();
+                        write_sample(dir, lang).is_ok()
+                    })
+                };
+                let (first, second) = (run(en), run(zh));
+                (first.join().unwrap(), second.join().unwrap())
+            });
+            assert!(!(first && second), "both exports reported success");
+            if first || second {
+                let lang = if first { en } else { zh };
+                assert!(fresh_manifest_names(&scratch.0, lang));
+                let checked = check(&scratch.0);
+                assert!(
+                    checked.report.errors.is_empty(),
+                    "{}",
+                    checked.report.render(20)
+                );
+            }
+        }
+        // A file that already exists is never overwritten.
+        let scratch = Scratch::new();
+        scratch.write("threads/threads-001.jsonl", "kept\n");
+        assert!(write_file(&scratch.0, "threads/threads-001.jsonl", "new\n").is_err());
+        assert_eq!(
+            std::fs::read_to_string(scratch.0.join("threads/threads-001.jsonl")).unwrap(),
+            "kept\n"
+        );
     }
 }

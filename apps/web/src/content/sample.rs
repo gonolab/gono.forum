@@ -505,7 +505,8 @@ fn reply_counts(rng: &mut Rng) -> Vec<usize> {
 }
 
 /// Strictly increasing reply times after `created`, within `days` of it: most replies come soon after the thread, the
-/// rest trail off, and all are before `now`.
+/// rest trail off, and all are before `now` when there is room for one per second until a minute before it (callers
+/// start a thread early enough).
 pub(super) fn reply_times(
     rng: &mut Rng,
     created: i64,
@@ -529,6 +530,19 @@ pub(super) fn reply_times(
         if times[index] <= times[index - 1] {
             times[index] = times[index - 1] + 1;
         }
+    }
+    // Spreading ties one second apart can push the last replies past `last` (and so past `now`): pull them back in,
+    // one second apart, without moving any before `first`, so a reply never predates its thread. The caller leaves
+    // room for one second per reply (`dataset::plan`); without it the replies stay after the thread.
+    let mut bound = last;
+    for time in times.iter_mut().rev() {
+        *time = (*time).min(bound);
+        bound = *time - 1;
+    }
+    let mut floor = first;
+    for time in &mut times {
+        *time = (*time).max(floor);
+        floor = *time + 1;
     }
     times
 }

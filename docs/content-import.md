@@ -16,7 +16,9 @@ gono-forum-cli import-content content --members-out=members.json
 ```
 
 - `export-sample` writes into a new or empty directory, in English unless `--language` names another language that
-  has a sample (see [translating.md](translating.md), "Sample content"); the manifest's `language` is that tag. The
+  has a sample (see [translating.md](translating.md), "Sample content"); the manifest's `language` is that tag. It
+  creates every file new and stops at one that already exists, so of two exports into the same directory only one
+  succeeds. The
   same files are in the repository at `examples/content/<tag>/` (`en`, `zh-CN`); a unit test keeps them identical to
   `apps/web/locales/<tag>/sample.json`. The sample's replies are drawn from shared pools, so they show the format, not
   the writing standard below.
@@ -44,7 +46,9 @@ content/
     threads-002.jsonl    any number of *.jsonl files, read in name order; up to 1,000 threads per file is advised
 ```
 
-Files are UTF-8 without a byte order mark, with LF line endings. In `.jsonl` files each line is one complete JSON
+A symbolic link in `threads/` is read like the file it points to; an entry that cannot be listed, or a `.jsonl` entry
+whose file cannot be read, is an error rather than a file left out. Files are UTF-8 without a byte order mark, with LF
+line endings. In `.jsonl` files each line is one complete JSON
 object: no empty lines, comments or commas between lines. Line breaks inside a body are written `\n`. Fields not listed
 below are errors, so a misspelt name is caught.
 
@@ -108,7 +112,9 @@ sends no notifications. Avoid dates and years in the text, since the import choo
 ## What the import generates
 
 - Times: threads start at random during the 365 days before the import and are numbered in that order; replies follow
-  their thread in list order within 30 days, most of them early; each member joins between one and 60 days before
+  their thread in list order within 30 days, most of them early, at least a second apart and never after the import
+  (a thread starts at least an hour plus one second per reply before the import, so a long thread has room); each
+  member joins between one and 60 days before
   their first post (members who never post join at a random time in the period). The same dataset always gives the
   same result apart from the shift with the import time.
 - Ids: members take the next free uids in the order they joined; threads and posts are numbered from 1, each thread's
