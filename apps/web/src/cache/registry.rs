@@ -260,11 +260,15 @@ pub const FLOORS: Entry = anonymous(
 /// - v10: Markdown nesting past `markdown::MAX_NESTING` levels is flattened, and raw HTML after the first
 ///   `markdown::MAX_HTML_TAGS` start tags is shown as text.
 /// - v11: code blocks are plain `pre > code`, without syntax highlighting: no `pre.code-block` or `syn-` spans.
+/// - v12: the value keeps the bodies with their card slots (`markdown::Rendered`), and the cards are filled for each
+///   request, so they show the linked threads as they are now. Only a link to a whole thread becomes a card (no
+///   page number, query string or anchor), and the longest matching site address recognizes it. Raw HTML keeps its
+///   text when its image tags are cut out.
 pub const RENDERED_BODIES: Entry = anonymous(
     "rendered-bodies",
     &[Invalidation::Versioned],
     Lifetime::Page,
-    "rendered-v11",
+    "rendered-v12",
 );
 
 // ---- Data sources (docs/data.md) ----
