@@ -60,12 +60,35 @@
   // The drawer is the navigation from 900px down, and from 1099px down beside side navigation, where the side
   // navigation folds into it (docs/skins.md, "Side navigation").
   const drawerShown = () => matchMedia(document.documentElement.dataset.nav === 'side' ? '(max-width: 1099px)' : '(max-width: 900px)').matches;
+  // While the drawer is open as the navigation, the page it covers is inert: every sibling of the drawer's ancestors
+  // up to <body> (the rest of the header, the main region, the footer), so screen readers and Tab stay in the drawer.
+  // Its own toggle stays reachable. Only the elements made inert here are released again, when the drawer closes,
+  // the window grows past the drawer's width, or a boosted navigation brings a new page.
+  let covered = [];
+  function syncDrawerInert() {
+    const menu = document.querySelector('.mobile-nav');
+    if (!menu?.open || !drawerShown()) {
+      for (const element of covered) element.inert = false;
+      covered = [];
+      return;
+    }
+    if (covered.length) return;
+    for (let node = menu; node !== document.body && node.parentElement; node = node.parentElement) {
+      for (const sibling of node.parentElement.children) {
+        if (sibling === node || sibling.inert) continue;
+        sibling.inert = true;
+        covered.push(sibling);
+      }
+    }
+  }
   document.addEventListener('toggle', event => {
     const menu = event.target;
-    if (menu.matches?.('.mobile-nav') && menu.isConnected && menu.open && drawerShown()) {
-      menu.querySelector('[data-close-menu]').focus();
-    }
+    if (!menu.matches?.('.mobile-nav') || !menu.isConnected) return;
+    syncDrawerInert();
+    if (menu.open && drawerShown()) menu.querySelector('[data-close-menu]').focus();
   }, true);
+  addEventListener('resize', syncDrawerInert);
+  document.addEventListener('htmx:afterSwap', syncDrawerInert);
   document.addEventListener('keydown', (event) => {
     const menu = document.querySelector('.mobile-nav[open]');
     if (event.key === 'Tab' && menu && drawerShown()) {
@@ -133,8 +156,9 @@
 // A boosted navigation swaps the body and merges the head but keeps <html>, whose attributes carry the skin, palette
 // and avatar shape the stylesheets select on (docs/skins.md, "Frame"). Take them from the new page in the same tick
 // as head-support adds its skin stylesheet, so a page with another skin (such as /manage/skins, which always uses
-// the default) never pairs one skin's stylesheet with another's palette name.
-const frameAttributes = ['data-skin', 'data-skin-source', 'data-palette', 'data-nav', 'data-header-boards', 'data-avatar-shape', 'data-behaviors'];
+// the default) never pairs one skin's stylesheet with another's palette name. The language and direction come along:
+// the site language may have changed since this page loaded, and screen readers read the page in <html lang>.
+const frameAttributes = ['lang', 'dir', 'data-skin', 'data-skin-source', 'data-palette', 'data-nav', 'data-header-boards', 'data-avatar-shape', 'data-behaviors'];
 document.addEventListener('htmx:afterSwap', event => {
   if (!event.detail?.boosted) return;
   const tag = (event.detail.xhr?.responseText || '').match(/<html\b[^>]*>/i);
@@ -215,9 +239,19 @@ function stickyTop() {
     const header = stickyTop();
     const floors = replies ? [...replies.querySelectorAll('[id^="floor-"]')] : [];
     // A floor showing only its bottom edge does not count as "being read"; a threshold of about one line of text
-    // avoids jitter at the boundary.
-    anchor = floors.find(floor => floor.getBoundingClientRect().bottom > header + 24)
-      || floors[floors.length - 1] || null;
+    // avoids jitter at the boundary. In the nested view a reply's element encloses its nested replies, so of the
+    // floors across that line the innermost (the last in page order) is the one being read; with none across it
+    // (the line in a gap, or above the first floor) it is the next floor below.
+    const line = header + 24;
+    let across = null;
+    let below = null;
+    for (const floor of floors) {
+      const box = floor.getBoundingClientRect();
+      if (box.bottom <= line) continue;
+      if (box.top <= line) across = floor;
+      else below ??= floor;
+    }
+    anchor = across || below || floors[floors.length - 1] || null;
     offset = anchor ? anchor.getBoundingClientRect().top - header : 0;
   }
   function publish() {
@@ -456,15 +490,16 @@ function renderRecent(card, items) {
   }
   card.querySelector('[data-recent-clear]').hidden = !items.length;
 }
+// A layout may place more than one recent-local block on a page; each is filled.
 function showRecent() {
-  const card = document.querySelector('[data-recent-threads]');
-  if (!card) return;
-  const items = readRecent(card.dataset.recentOwner);
-  // When storage cannot be read (private mode, etc.) or there are no records, the whole block stays hidden, the same
-  // as without JS.
-  if (!items?.length) { card.hidden = true; return; }
-  renderRecent(card, items);
-  card.hidden = false;
+  for (const card of document.querySelectorAll('[data-recent-threads]')) {
+    const items = readRecent(card.dataset.recentOwner);
+    // When storage cannot be read (private mode, etc.) or there are no records, the whole block stays hidden, the
+    // same as without JS.
+    if (!items?.length) { card.hidden = true; continue; }
+    renderRecent(card, items);
+    card.hidden = false;
+  }
 }
 function syncRecent() { recordRecent(); showRecent(); }
 document.addEventListener('DOMContentLoaded', syncRecent);
@@ -474,7 +509,10 @@ document.addEventListener('click', event => {
   const card = button?.closest('[data-recent-threads]');
   if (!card) return;
   writeRecent(card.dataset.recentOwner, []);
-  renderRecent(card, []);
+  // Every block of the page shows the same records.
+  for (const other of document.querySelectorAll('[data-recent-threads]')) {
+    if (!other.hidden) renderRecent(other, []);
+  }
   card.querySelector('.panel__title')?.focus();
 });
 
