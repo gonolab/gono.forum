@@ -32,8 +32,9 @@ let currentBrowser;
 const readKey = (uid) => `gonof:${encodeURIComponent('/')}:read:${uid}`;
 const stored = (page, uid) => page.evaluate((name) => JSON.parse(localStorage.getItem(name) || 'null'), readKey(uid));
 const row = (page, tid) => page.locator(`ul[data-scroll-list] > li[data-thread-id="${tid}"]`);
-// Pages show times to the second, so a post counts as after the starting point only from the next whole second on.
-const pastTheSecond = (since) => new Promise((done) => setTimeout(done, Math.max(0, Math.ceil(since / 1000) * 1000 + 50 - Date.now())));
+// Pages show times to the second, so a post counts as after the starting point only from the next whole second on. The
+// starting point is the server's time, which pages write in whole seconds, so it can fall exactly on one.
+const pastTheSecond = (since) => new Promise((done) => setTimeout(done, Math.max(0, Math.floor(since / 1000) * 1000 + 1050 - Date.now())));
 
 /** The value of a hidden input in the page, with Askama's HTML escaping undone. */
 function hidden(page, name) {
@@ -299,6 +300,40 @@ test('the timeline and progress blocks take in a reply posted in place', async (
     expect(page.url()).toContain(`/thread-${OTHER}`);
     // The timeline of another thread keeps its own floors.
     await expect(page.locator('[data-block="outline-other"] .timeline__handle')).toHaveAttribute('aria-valuemax', '79');
+  } finally {
+    await context.close();
+  }
+});
+
+test('an empty search writes the starting point, so the first new match is unread', async ({ page }) => {
+  const word = `Quokka${Date.now()}`;
+  await page.goto(`${instance.origin}/search?q=${word}`);
+  await expect(page.locator('ul.rows--topics > li[data-thread-id]')).toHaveCount(0);
+  const state = await stored(page, '0');
+  expect(state?.since).toBeGreaterThan(0);
+  await pastTheSecond(state.since);
+  const tid = await startThread(`${word} arrives`);
+  await page.goto(`${instance.origin}/search?q=${word}`);
+  await expect(row(page, tid)).toHaveClass(/is-unread/);
+});
+
+test('a device clock an hour fast still marks a new reply unread', async () => {
+  const context = await currentBrowser.newContext();
+  const page = await context.newPage();
+  try {
+    const hour = 3600 * 1000;
+    await page.clock.setSystemTime(Date.now() + hour);
+    await page.goto(`${instance.origin}/`);
+    const data = await page.evaluate(() => JSON.parse(document.getElementById('gonof-page').textContent));
+    const server = Date.parse(data.now);
+    expect(Math.abs(server - Date.now())).toBeLessThan(60 * 1000);
+    const state = await stored(page, '0');
+    // The starting point is the server's time, not this device's.
+    expect(state.since).toBeLessThan(Date.now() + hour / 2);
+    await pastTheSecond(Math.max(state.since, server));
+    await reply(SHORT, 'A reply after a visit from a fast clock.');
+    await page.goto(`${instance.origin}/`);
+    await expect(row(page, SHORT)).toHaveClass(/is-unread/);
   } finally {
     await context.close();
   }

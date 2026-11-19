@@ -1,7 +1,8 @@
 //! The page data block (docs/skins.md, "Page data"): one `<script type="application/json" id="gonof-page">` in the
 //! head of every page built on `layout/base.html`, for page scripts and skins. It carries only what the page itself
 //! shows (the page's ids, its floors' positions and times, the site's own words, the records of its data-source
-//! blocks as this visitor sees them, the latest threads of the board directory) and nothing personal: no `me.*` source, nothing a page shows only to its viewer.
+//! blocks as this visitor sees them, the latest threads of the board directory, and when it was written) and nothing
+//! personal: no `me.*` source, nothing a page shows only to its viewer.
 //!
 //! Version 1 only grows: a new field is added with a value on every page (`null` where it does not apply), and
 //! removing or changing a field means a new `v`.
@@ -92,6 +93,9 @@ struct Block<'a> {
     /// The boards of the board directory a home page opens with, in its order, with their latest threads; `null` on
     /// every other page.
     directory: Option<Vec<DirectoryBoard>>,
+    /// The server's time as it wrote the page, in UTC to the second (`clock::iso`), so scripts that compare the page's
+    /// times with "now" need not trust the device's clock (docs/skins.md, "Unread").
+    now: String,
 }
 
 /// One board of the board directory, for comparing its latest thread with what the reader saw (docs/skins.md,
@@ -216,6 +220,7 @@ impl PageData {
                     })
                     .collect()
             }),
+            now: crate::clock::iso(crate::identity::now()),
         };
         // Straight to text, not through `serde_json::Value`, so the fields keep the order declared above.
         match serde_json::to_string(&block) {

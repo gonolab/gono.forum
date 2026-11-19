@@ -682,10 +682,10 @@ Every page built on `layout/base.html` has one data block in its `<head>`:
 
 Read it with `JSON.parse(document.getElementById('gonof-page').textContent)`. Like the JSON-LD blocks, it is data and
 not a script, so the Content-Security-Policy allows it without a nonce; `<`, `>` and `&` in values are written as
-JSON escapes (`<`), so no value can end the element. It holds only what the page shows, and nothing personal: no
-`me.*` data source and nothing a page shows only about its viewer. The records of the page's data-source blocks are
-those this visitor sees on the page (filtered by the boards they may read and the members they blocked, like every
-list), so a member's block can differ from an anonymous visitor's there.
+JSON escapes (`<`), so no value can end the element. It holds only what the page shows (and when the server wrote
+it), and nothing personal: no `me.*` data source and nothing a page shows only about its viewer. The records of the
+page's data-source blocks are those this visitor sees on the page (filtered by the boards they may read and the
+members they blocked, like every list), so a member's block can differ from an anonymous visitor's there.
 
 Version 1 has these fields, always all of them, `null` where a field does not apply. It only grows: a new field is
 added to every page, and removing or changing one means a new `v`.
@@ -702,6 +702,7 @@ added to every page, and removing or changing one means a new `v`.
 | `site` | `{"name", "description", "language", "dir", "base", "credit_name", "index_name", "date_format"}`: this site's name (another domain's own name where it has one), its description, the interface language tag, `ltr` or `rtl`, the path prefix of a forum installed under a sub-path (empty at the root), the names of points and of the activity index, and the date style (`locale`, `ymd-dash`, `ymd-cn` or `mdy-slash`). Empty names and the description are filled with the language's defaults, as on the page. |
 | `blocks` | The page's data-source blocks by block id, each the envelope `/data/v1` would answer with these parameters ([data.md](data.md)), `current` resolved: on the home, board and thread pages; `{}` elsewhere. Core blocks are not data sources and are not listed. |
 | `directory` | On a home page that opens with the board directory ("Board directory home"), its boards in order, `{"fid", "last_post"}` each, `last_post` being `{"tid", "at", "max_position"}` of the board's latest thread (its last activity in UTC and its highest floor) or `null`; `null` on every other page. |
+| `now` | The server's time as it wrote the page, in UTC to the second as in `<time datetime>`, for scripts that compare the page's times with the present without trusting the device's clock ("Unread"). |
 
 The block describes the page as the server sent it. A boosted navigation (`hx-boost`) brings the new page's block
 with its head; a fragment swapped into the page, such as a reply posted with HTMX, does not change it.
@@ -732,9 +733,11 @@ is marked.
   accounts of one browser keep separate entries and signing out clears none. The value is
   `{"since": <ms>, "threads": {"<tid>": [<floor>, <ms>]}}`: the starting point, and for each thread opened since then
   the highest floor read and when. At most 1,000 threads are kept; the least recently read go first.
-- **Starting point.** The first list, directory or thread page the reader opens in a browser writes the starting point:
-  now, or the latest time the page shows if this device's clock is behind. Everything before it counts as read, so a
-  new device does not mark the whole forum.
+- **Starting point.** The first list, directory or thread page the reader opens in a browser writes the starting point,
+  a list without rows (a search without results) included: the server's time, the page data block's `now` moved on by
+  as much as this device's clock has moved since the page came, or the latest time the page shows if that is later. A
+  device clock that is fast or slow therefore moves nothing. Everything before it counts as read, so a new device does
+  not mark the whole forum.
 - **Reading.** Opening a thread page records the page data block's `thread.read_through` for the thread, keeping the
   higher of it and the floor already recorded. It is the highest floor such that every floor up to it is on this page
   or an earlier one of the view being read: the page's highest floor in the flat view; in the nested view, which pages

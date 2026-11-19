@@ -22,8 +22,9 @@ const stored = (page, uid) => page.evaluate((name) => JSON.parse(localStorage.ge
 const readerOf = (page) => page.locator('meta[name="gonof-reader"]').getAttribute('content');
 const row = (page, tid) => page.locator(`ul[data-scroll-list] > li[data-thread-id="${tid}"]`);
 const pageData = (page) => page.evaluate(() => JSON.parse(document.getElementById('gonof-page').textContent));
-// Pages show times to the second, so a post counts as after the starting point only from the next whole second on.
-const pastTheSecond = (since) => new Promise((done) => setTimeout(done, Math.max(0, Math.ceil(since / 1000) * 1000 + 50 - Date.now())));
+// Pages show times to the second, so a post counts as after the starting point only from the next whole second on. The
+// starting point is the server's time, which pages write in whole seconds, so it can fall exactly on one.
+const pastTheSecond = (since) => new Promise((done) => setTimeout(done, Math.max(0, Math.floor(since / 1000) * 1000 + 1050 - Date.now())));
 
 async function signIn(context) {
   const page = await context.newPage();
@@ -80,7 +81,9 @@ test('the first visit writes the starting point and marks nothing', async ({ pag
   await page.goto(`${instance.origin}/`);
   expect(await readerOf(page)).toBe('0');
   const state = await stored(page, '0');
-  expect(state.since).toBeGreaterThanOrEqual(before);
+  // The server's time, which the page data block gives in whole seconds.
+  expect(state.since).toBeGreaterThanOrEqual(Math.floor(before / 1000) * 1000);
+  expect(state.since).toBeLessThanOrEqual(Date.now());
   expect(state.threads).toEqual({});
   expect(await page.locator('ul[data-scroll-list] > li[data-thread-id][data-maxposition]').count()).toBeGreaterThan(5);
   await expect(page.locator('.is-unread, .row-unread')).toHaveCount(0);
@@ -177,7 +180,8 @@ test('visitors and members keep separate state; clearing forgets only the member
   // The member starts from their own starting point, with nothing of what the visitor read.
   const fresh = await stored(member, uid);
   expect(fresh.threads).toEqual({});
-  expect(fresh.since).toBeGreaterThan(guestState.since);
+  // Whole seconds of the server's time: the two can fall in the same one.
+  expect(fresh.since).toBeGreaterThanOrEqual(guestState.since);
   await member.goto(`${instance.origin}/thread-${LONG}?view=flat`);
   expect((await stored(member, uid)).threads).toEqual({ [String(LONG)]: [51, expect.any(Number)] });
   expect(await stored(member, '0')).toEqual(guestState);
@@ -209,7 +213,7 @@ test('visitors and members keep separate state; clearing forgets only the member
   expect(await stored(again, '0')).toEqual(guestState);
   await again.goto(`${instance.origin}/`);
   const restarted = await stored(again, uid);
-  expect(restarted.since).toBeGreaterThanOrEqual(cleared);
+  expect(restarted.since).toBeGreaterThanOrEqual(Math.floor(cleared / 1000) * 1000);
   expect(restarted.threads).toEqual({});
   await expect(row(again, LONG)).not.toHaveClass(/is-unread/);
   await context.close();

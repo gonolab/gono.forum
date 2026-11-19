@@ -539,15 +539,29 @@ const floorOf = value => {
 function pageData() {
   try { return JSON.parse(document.getElementById('gonof-page')?.textContent || 'null'); } catch { return null; }
 }
-// The latest time the page shows: a new starting point is never earlier, so a first visit marks nothing unread even
-// when this device's clock is behind the server's.
+// The server's time now, from the page data block's `now` and how far this device's clock moved since the block came
+// (the device's own reading alone when the block has none). Pages compare their times with the starting point, which
+// is the server's, so a device clock that is fast does not push the starting point past posts still to come, nor one
+// that is slow pull it back before posts already shown. The difference is measured once per block, when syncUnread
+// first sees it (the replies section a posted reply swaps in leaves the block as it was), so a starting point written
+// later, after the progress was cleared in another tab, is still the server's present.
+let serverClock = { now: null, offset: 0 };
+function serverNow(data) {
+  const now = typeof data?.now === 'string' ? data.now : null;
+  if (now !== serverClock.now) {
+    const at = Date.parse(now || '');
+    serverClock = { now, offset: Number.isFinite(at) ? at - Date.now() : 0 };
+  }
+  return Date.now() + serverClock.offset;
+}
+// The latest time the page shows: a new starting point is never earlier, so a first visit marks nothing unread.
 function latestShown(data) {
   const times = [
     ...[...document.querySelectorAll('.rows--topics time.row-meta__time')].map(time => time.getAttribute('datetime')),
     ...(Array.isArray(data?.thread?.floors) ? data.thread.floors.map(floor => floor?.at) : []),
     ...(Array.isArray(data?.directory) ? data.directory.map(board => board?.last_post?.at) : []),
   ].map(text => Date.parse(text || '')).filter(Number.isFinite);
-  return Math.max(Date.now(), ...times);
+  return Math.max(serverNow(data), ...times);
 }
 function writeRead(uid, state) {
   try { localStorage.setItem(readKey(uid), JSON.stringify(state)); return true; } catch { return false; }
@@ -612,7 +626,9 @@ function showUnread(data) {
   const rows = [...document.querySelectorAll('.rows--topics > [data-thread-id][data-maxposition]')];
   const boards = Array.isArray(data?.directory) ? data.directory : [];
   const directory = document.querySelector('[data-board-directory]');
-  if (!rows.length && !(directory && boards.length)) return;
+  // A topic list counts even when it is empty (a search without results, a new board): it still writes the starting
+  // point, or the first thread to appear in it would come before a starting point taken later.
+  if (!document.querySelector('.rows--topics') && !(directory && boards.length)) return;
   const state = readRead(reader(), data);
   if (!state) return;
   for (const row of rows) {
@@ -634,6 +650,7 @@ function showUnread(data) {
 }
 function syncUnread() {
   const data = pageData();
+  serverNow(data);
   recordRead(data);
   showUnread(data);
 }

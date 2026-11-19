@@ -416,6 +416,7 @@ async fn the_page_data_block_describes_the_page_and_the_site() {
         showcase,
         ..
     } = site(None).await;
+    let started = gono_forum_web::identity::now();
     let fields = [
         "v",
         "type",
@@ -427,6 +428,7 @@ async fn the_page_data_block_describes_the_page_and_the_site() {
         "site",
         "blocks",
         "directory",
+        "now",
     ];
     let site_part = serde_json::json!({
         "name": "Sample Community",
@@ -452,6 +454,18 @@ async fn the_page_data_block_describes_the_page_and_the_site() {
         assert_eq!(data["v"], 1);
         assert_eq!(data["type"], kind);
         assert_eq!(data["site"], site_part);
+        // The server's time as it wrote the page, to the second, for scripts that must not trust the device's clock.
+        let now = data["now"]
+            .as_str()
+            .unwrap_or_else(|| panic!("now in {data}"));
+        assert!(now.ends_with('Z') && !now.contains('.'), "{now}");
+        let now = chrono::DateTime::parse_from_rfc3339(now)
+            .unwrap_or_else(|error| panic!("{now}: {error}"))
+            .timestamp();
+        assert!(
+            (started..=gono_forum_web::identity::now()).contains(&now),
+            "{now}"
+        );
     };
 
     let home = block(&page(&app, "/page-2", None).await);
