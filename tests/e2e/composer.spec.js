@@ -78,5 +78,73 @@ for (const instance of instances().filter((instance) => instance.content === 'fi
         await expect(body(third)).toHaveValue('Typed in the first tab');
       });
     });
+
+    test.describe('toolbar and menus', () => {
+      test('the code button fences a selection with a longer fence than any inside it', async ({ page }) => {
+        await page.goto(`${instance.origin}/new`);
+        await ready(page);
+        const body = page.locator('textarea[name="body"]');
+        const source = '```\n## Literal heading\n```';
+        await body.fill(source);
+        await body.evaluate((field) => field.setSelectionRange(0, field.value.length));
+        await page.locator('[data-editor-action="code"]').click();
+        await expect(body).toHaveValue(`\n\`\`\`\`\n${source}\n\`\`\`\`\n`);
+        await page.locator('[data-editor-action="preview"]').click();
+        const preview = page.locator('[data-editor-preview]');
+        await expect(preview.locator('pre')).toContainText('## Literal heading');
+        await expect(preview.locator('h2')).toHaveCount(0);
+      });
+
+      test('Escape that closes a menu or full screen leaves the docked reply box open', async ({ page }) => {
+        await page.goto(`${instance.origin}/thread-104`);
+        await ready(page);
+        // The default skin does not dock the reply box: turn the behavior module on for this page only.
+        await page.evaluate(() => { document.documentElement.dataset.behaviors = 'docked-composer'; });
+        await page.addScriptTag({ url: `${instance.origin}/static/js/behaviors/docked-composer.js` });
+        const dock = page.locator('html');
+        const toggle = page.locator('div[data-composer-dock] > button');
+        await toggle.click();
+        await expect(dock).toHaveAttribute('data-composer-dock', 'open');
+        await expect(page.locator('#reply-editor textarea[name="body"]')).toBeFocused();
+        const picker = page.locator('#reply-editor [data-editor-picker]');
+        await page.locator('#reply-editor [data-editor-action="emoji"]').click();
+        await expect(picker).toBeVisible();
+        await page.keyboard.press('Escape');
+        await expect(picker).toBeHidden();
+        await expect(dock).toHaveAttribute('data-composer-dock', 'open');
+        await page.locator('#reply-editor [data-editor-action="fullscreen"]').click();
+        await expect(dock).toHaveClass(/has-write-fullscreen/);
+        await page.keyboard.press('Escape');
+        await expect(dock).not.toHaveClass(/has-write-fullscreen/);
+        await expect(dock).toHaveAttribute('data-composer-dock', 'open');
+        // With nothing of the editor's left open, Escape closes the box.
+        await page.keyboard.press('Escape');
+        await expect(dock).toHaveAttribute('data-composer-dock', 'closed');
+        await expect(toggle).toBeFocused();
+      });
+
+      test('Enter right after changing the mention search inserts a member found for the new term', async ({ page }) => {
+        const members = { camellia: '41', sprout: '42' };
+        await page.route('**/api/mentions?*', async (route) => {
+          const term = new URL(route.request().url()).searchParams.get('q').trim();
+          const found = Object.entries(members).filter(([name]) => name.startsWith(term));
+          await route.fulfill({
+            contentType: 'text/html',
+            body: `<ul>${found.map(([name, uid]) => `<li data-uid="${uid}" data-username="${name}">${name}</li>`).join('')}</ul>`,
+          });
+        });
+        await page.goto(`${instance.origin}/new`);
+        await ready(page);
+        const body = page.locator('textarea[name="body"]');
+        await body.click();
+        await page.locator('[data-editor-action="mention"]').click();
+        const search = page.locator('[data-mention-query]');
+        await search.fill('camellia');
+        await expect(page.locator('.mention-menu button')).toHaveText(['@camellia']);
+        await search.fill('sprout');
+        await search.press('Enter');
+        await expect(body).toHaveValue('[@sprout](member:42) ');
+      });
+    });
   });
 }

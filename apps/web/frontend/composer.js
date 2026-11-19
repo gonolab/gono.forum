@@ -237,7 +237,12 @@ class Composer {
       if (event.clipboardData.files.length) { event.preventDefault(); this.uploadFiles(event.clipboardData.files, this.marker()); }
     });
     this.listen(form, 'keydown', event => {
-      if (event.key === 'Escape') { this.closePicker(); this.fullscreen(false); }
+      // Escape closes the editor's menu and leaves full screen. One it used that way is marked handled, so the box
+      // around the editor (the docked composer, docs/skins.md, "Behavior modules") stays open.
+      if (event.key === 'Escape') {
+        if (!this.picker.hidden || this.form.classList.contains('write-fullscreen')) event.preventDefault();
+        this.closePicker(); this.fullscreen(false);
+      }
       if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
         event.preventDefault();
         event.stopPropagation();
@@ -400,7 +405,14 @@ class Composer {
     this.insert(selected.split('\n').map(line => prefix + line).join('\n'), range);
   }
   action(action) {
-    const wraps = { bold: ['**', '**'], italic: ['*', '*'], strike: ['~~', '~~'], code: ['\n```\n', '\n```\n', t('js-editor-code-text')], spoiler: ['<spoiler>', '</spoiler>', t('js-editor-spoiler-text')], link: ['[', '](https://)', t('js-editor-link-text')] };
+    if (action === 'code') {
+      // The fence is longer than any run of backticks in the selection, so a fence inside it cannot close the block.
+      const { from, to } = this.selection();
+      const ticks = Math.max(0, ...(this.textarea.value.slice(from, to).match(/`+/g) || []).map(run => run.length));
+      const fence = '`'.repeat(Math.max(3, ticks + 1));
+      return this.wrap(`\n${fence}\n`, `\n${fence}\n`, t('js-editor-code-text'));
+    }
+    const wraps = { bold: ['**', '**'], italic: ['*', '*'], strike: ['~~', '~~'], spoiler: ['<spoiler>', '</spoiler>', t('js-editor-spoiler-text')], link: ['[', '](https://)', t('js-editor-link-text')] };
     if (wraps[action]) return this.wrap(...wraps[action]);
     const prefixes = { heading: '## ', quote: '> ', ul: '- ', ol: '1. ' };
     if (prefixes[action]) return this.prefix(prefixes[action]);
@@ -572,16 +584,25 @@ class Composer {
     input.value = query;
     const results = element('div', { class: 'mention-menu', role: 'listbox', 'aria-label': t('js-editor-mention-results') });
     this.picker.append(input, results);
+    // The candidates listed belong to the search term in `shown`. Enter takes the first candidate of the term in the
+    // field: while the list still shows an earlier term, it searches at once and takes the first answer for this one.
+    let shown = null;
+    let choose = false;
+    const term = () => input.value.trim();
     const search = async () => {
+      clearTimeout(this.mentionTimer);
       this.mentionAbort?.abort();
-      if (!input.value.trim()) { results.replaceChildren(); return; }
+      const value = input.value;
+      if (!value.trim()) { results.replaceChildren(); shown = ''; choose = false; return; }
       const controller = this.mentionAbort = new AbortController();
       try {
-        const response = await fetch(`${base()}/api/mentions?q=${encodeURIComponent(input.value)}`, { credentials: 'same-origin', signal: controller.signal });
+        const response = await fetch(`${base()}/api/mentions?q=${encodeURIComponent(value)}`, { credentials: 'same-origin', signal: controller.signal });
         if (!response.ok) throw new Error('mentions');
         const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
-        if (controller.signal.aborted || !results.isConnected) return;
+        // An answer for a term no longer in the field changes nothing; the search for the new term is on its way.
+        if (controller.signal.aborted || !results.isConnected || value.trim() !== term()) return;
         results.replaceChildren();
+        shown = value.trim();
         for (const candidate of doc.querySelectorAll('[data-uid][data-username]')) {
           if (!/^\d+$/.test(candidate.dataset.uid)) continue;
           const control = button(`@${candidate.dataset.username}`, 'insert-mention');
@@ -594,16 +615,23 @@ class Composer {
           results.append(control);
         }
         if (!results.children.length) results.textContent = t('js-editor-mention-none');
-      } catch (error) { if (error.name !== 'AbortError') results.textContent = t('js-editor-mention-error'); }
+        if (choose) { choose = false; results.querySelector('button')?.click(); }
+      } catch (error) {
+        if (error.name !== 'AbortError' && value.trim() === term()) { shown = null; choose = false; results.textContent = t('js-editor-mention-error'); }
+      }
     };
-    input.addEventListener('input', () => { clearTimeout(this.mentionTimer); this.mentionTimer = setTimeout(search, 250); });
+    input.addEventListener('input', () => { choose = false; clearTimeout(this.mentionTimer); this.mentionTimer = setTimeout(search, 250); });
     this.picker.onkeydown = event => {
       const options = [...results.querySelectorAll('button')];
       const index = options.indexOf(document.activeElement);
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault(); options[(index + (event.key === 'ArrowDown' ? 1 : options.length - 1)) % options.length]?.focus();
       }
-      if (event.key === 'Enter' && document.activeElement === input) { event.preventDefault(); options[0]?.click(); }
+      if (event.key === 'Enter' && document.activeElement === input) {
+        event.preventDefault();
+        if (shown === term()) options[0]?.click();
+        else { choose = true; search(); }
+      }
     };
     search(); if (focus) input.focus();
   }

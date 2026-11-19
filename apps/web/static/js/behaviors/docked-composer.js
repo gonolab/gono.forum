@@ -3,8 +3,8 @@
 // that opens and closes it, so a reply can be written while reading any floor. Without it the reply box stays inline at
 // the end of the page. <html data-composer-dock> says whether it is "open" or "closed"; the reply box keeps its place
 // in the markup, so the editor (composer.js) and the forms work as before. Opening focuses the text field; Escape in
-// the box or the button closes it and gives the button focus back. Links to the reply box on the page (the thread
-// head's Reply) open it, a page opened at #reply-editor (Reply and Quote on a floor) starts with it open, and a
+// the box or the button closes it and gives the button focus back, unless the editor used it to close its menu or
+// leave full screen. Links to the reply box on the page (the thread head's Reply) open it, a page opened at #reply-editor (Reply and Quote on a floor) starts with it open, and a
 // published reply closes it.
 (() => {
   if (window.gonofBehaviorDockedComposer) return;
@@ -68,9 +68,10 @@
   });
   document.addEventListener('keydown', event => {
     if (!dock || event.key !== 'Escape' || event.defaultPrevented || root.getAttribute('data-composer-dock') !== 'open') return;
+    // The editor handles Escape first: one that closed its menu (emoji, mentions) or left full screen comes here
+    // with defaultPrevented set.
     const target = event.target instanceof Element ? event.target : null;
-    // The editor's own menus (emoji, mentions) and full screen handle Escape first.
-    if (!target || root.classList.contains('has-write-fullscreen')) return;
+    if (!target) return;
     if (target.closest('#reply-editor') || target.closest('[data-composer-dock]')) setOpen(false, true);
   });
   addEventListener('hashchange', () => { if (dock && location.hash === '#reply-editor') setOpen(true, true); });
