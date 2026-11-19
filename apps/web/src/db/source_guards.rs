@@ -271,6 +271,27 @@ fn only_the_view_counter_writes_views_and_skips_cache_revision() {
     assert_eq!(found.len(), 5, "{found:?}");
 }
 
+/// The leaderboard totals `gonof_rank_member` are written only by `ranks/counts.rs`.
+#[test]
+fn only_the_rank_counts_write_the_leaderboard_totals() {
+    let source = |file: &str, sql: &str| (file.to_owned(), format!("let sql = \"{sql}\";\n"));
+    let statements = [
+        "INSERT INTO gonof_rank_member(uid,threads,replies,likes) VALUES(?,?,?,?)",
+        "UPDATE gonof_rank_member SET likes=likes+1 WHERE uid=?",
+        "DELETE FROM gonof_rank_member",
+    ];
+    assert_eq!(
+        content_breaches(statements.map(|sql| source("ranks/counts.rs", sql))),
+        Vec::<String>::new()
+    );
+    for sql in statements {
+        assert!(
+            !content_breaches([source("content/copies.rs", sql)]).is_empty(),
+            "{sql}"
+        );
+    }
+}
+
 /// Erasure walks a member's posts by author and time (`privacy/worker.rs`), so no statement may give a post another
 /// author or time.
 #[test]
@@ -303,6 +324,8 @@ fn content_breaches(sources: impl IntoIterator<Item = (String, String)>) -> Vec<
     // only through copies.rs.
     const DISPLAYORDER_WRITERS: &[&str] = &[COPIES, "content/edits.rs"];
     const COUNTERS: &[&str] = &["gonof_forum_thread_count", "gonof_common_member_count"];
+    // The leaderboard totals change only through ranks/counts.rs, in the transactions that change what they count.
+    const RANK_COUNTS: &str = "ranks/counts.rs";
     // Posts' like and downvote counts and threads' favorite count, tip count and tip total are written only through
     // interaction/counters.rs; the three detail tables for likes, downvotes and favorites are only inserted into or
     // deleted from in files that call the counter code alongside.
@@ -348,6 +371,7 @@ fn content_breaches(sources: impl IntoIterator<Item = (String, String)>) -> Vec<
                         || (file != "content/seed.rs" && has(&columns, "views"))
                 }
                 table if COUNTERS.contains(&table) => file != COPIES,
+                "gonof_rank_member" => file != RANK_COUNTS,
                 "gonof_forum_post" => {
                     !CONTENT_INSERTERS.contains(&file) || !has(&columns, "first_tid")
                 }
@@ -364,6 +388,7 @@ fn content_breaches(sources: impl IntoIterator<Item = (String, String)>) -> Vec<
                 table if COUNTERS.contains(&table) => {
                     !(file == COPIES || (verb == "delete" && file == "organization.rs"))
                 }
+                "gonof_rank_member" => file != RANK_COUNTS,
                 "gonof_forum_thread" | "gonof_forum_post" => !matches!(verb, "insert" | "update"),
                 "gonof_forum_forum" => {
                     !matches!(verb, "insert" | "update")
@@ -403,6 +428,7 @@ fn content_breaches(sources: impl IntoIterator<Item = (String, String)>) -> Vec<
                         || (file != MARK_COUNTERS && any(POST_MARK_COUNTS))
                 }
                 table if COUNTERS.contains(&table) => file != COPIES,
+                "gonof_rank_member" => file != RANK_COUNTS,
                 "gonof_forum_forum" => file != "organization.rs",
                 "gonof_forum_activity" => has(&assigned, "kind"),
                 "gonof_common_member" => {

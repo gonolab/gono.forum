@@ -259,6 +259,7 @@ pub async fn move_thread(
         result.rows_affected() == 1,
         "thread {tid} changed its version under the lock"
     );
+    crate::ranks::counts::thread_moved(db, tx, tid, before.fid, target_fid).await?;
     if before.listed() && before.fid != target_fid {
         count_thread(
             db,
@@ -410,6 +411,7 @@ pub async fn forum_saved(
     if before == after {
         return Ok(false);
     }
+    crate::ranks::counts::forum_saved(db, tx, fid, before, after).await?;
     if before.parent_fid != after.parent_fid {
         resync_forum(db, tx, fid).await?;
     } else {
@@ -682,6 +684,7 @@ pub async fn rebuild_listing(db: &Database, tx: &mut Tx<'_>) -> Result<()> {
     ] {
         query.execute(db.observe(&mut **tx)).await?;
     }
+    crate::ranks::counts::rebuild(db, tx).await?;
     bump_site(db, tx).await
 }
 

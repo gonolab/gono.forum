@@ -103,6 +103,33 @@ SELECT 'members whose counters disagree with their own posts', COUNT(*)
     OR COALESCE(c.replies, 0) <> COALESCE(a.replies, 0)
     OR COALESCE(c.digests, 0) <> COALESCE(a.digests, 0)
 UNION ALL
+-- The leaderboard totals (`ranks::counts`) hold each member's threads and replies that the all-time boards count
+-- (not hidden, withdrawn or erased, floor not hidden; thread listed and public; board and parent board public and
+-- enabled) and the likes members other than the author gave those posts, counted from the like rows.
+SELECT 'members whose leaderboard totals disagree with their public posts and likes', COUNT(*)
+  FROM gonof_common_member m
+  LEFT JOIN gonof_rank_member c ON c.uid = m.uid
+  LEFT JOIN (
+    SELECT p.authorid AS uid, SUM(p.first = 1) AS threads, SUM(p.first = 0) AS replies, SUM(COALESCE(l.likes, 0)) AS likes
+      FROM gonof_forum_post p
+      JOIN gonof_forum_thread t ON t.tid = p.tid
+      JOIN gonof_forum_forum f ON f.fid = t.fid
+      LEFT JOIN gonof_forum_forum pf ON pf.fid = f.parent_fid
+      LEFT JOIN (
+        SELECT r.pid, COUNT(*) AS likes
+          FROM gonof_forum_post_reaction r JOIN gonof_forum_post rp ON rp.pid = r.pid
+         WHERE r.uid <> rp.authorid
+         GROUP BY r.pid
+      ) l ON l.pid = p.pid
+     WHERE p.authorid IS NOT NULL AND p.invisible = 0 AND p.deleted_at = 0 AND p.erased_at = 0 AND p.root_invisible = 0
+       AND t.displayorder >= 0 AND t.visibility = 'public' AND f.status = 1 AND f.visibility = 'public'
+       AND (pf.fid IS NULL OR (pf.status = 1 AND pf.visibility = 'public'))
+     GROUP BY p.authorid
+  ) a ON a.uid = m.uid
+ WHERE COALESCE(c.threads, 0) <> COALESCE(a.threads, 0)
+    OR COALESCE(c.replies, 0) <> COALESCE(a.replies, 0)
+    OR COALESCE(c.likes, 0) <> COALESCE(a.likes, 0)
+UNION ALL
 -- The like and downvote counts on posts, and the favorite count, tip count and tip total on threads, agree with the
 -- detail rows and the tip ledger.
 SELECT 'posts whose like or dislike count disagrees with the votes', COUNT(*)

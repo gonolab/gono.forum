@@ -448,7 +448,13 @@ async fn run(
                 .await?;
             // The post as the live-reply copies see it, before erasure withdraws it.
             let before = crate::content::ReplyState::read(db, &mut tx, pid).await?;
+            let ranked = crate::ranks::counts::Scope::Post(pid);
+            let ranked_before = crate::ranks::counts::Tally::read(db, &mut tx, ranked).await?;
             db::query("UPDATE gonof_forum_post SET message='',deleted_at=?,erased_at=?,version=version+1 WHERE pid=? AND authorid=? AND erased_at=0").bind(now).bind(now).bind(pid).bind(c.uid).execute(db.observe(&mut *tx)).await?;
+            // Erasure works like withdrawal: the post leaves the leaderboard totals with the likes it had.
+            let ranked_after = crate::ranks::counts::Tally::read(db, &mut tx, ranked).await?;
+            crate::ranks::counts::Tally::apply_change(db, &mut tx, &ranked_before, &ranked_after)
+                .await?;
             // Erasure works like withdrawal: the growth points this post brought are taken back.
             crate::growth::sync_posts(db, &mut tx, &[pid], crate::growth::Cause::Revoke, now)
                 .await?;

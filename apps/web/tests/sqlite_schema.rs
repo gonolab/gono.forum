@@ -377,8 +377,8 @@ async fn both_backends_build_the_same_schema_and_seed_rows() {
         sqlite_schema.keys().collect::<Vec<_>>(),
         "tables on both sides"
     );
-    // 82 tables in the baseline, one more each from 0002 and 0003.
-    assert_eq!(mysql_schema.len(), 84);
+    // 82 tables in the baseline, one more each from 0002, 0003 and 0009.
+    assert_eq!(mysql_schema.len(), 85);
     for (name, mysql) in &mysql_schema {
         assert_eq!(mysql, &sqlite_schema[name], "{name}");
     }
@@ -386,8 +386,8 @@ async fn both_backends_build_the_same_schema_and_seed_rows() {
         .values()
         .map(|table| table.indexes.len())
         .sum();
-    // 171 in the baseline, one more each from 0003 and 0004.
-    assert_eq!(indexes, 173);
+    // 171 in the baseline, one more each from 0003 and 0004, four more from 0009.
+    assert_eq!(indexes, 177);
 
     let mysql_rows = table_rows(&fixture.db).await;
     let sqlite_rows = table_rows(&sqlite).await;

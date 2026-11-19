@@ -111,6 +111,9 @@ pub(crate) async fn set_mark(
         updated.rows_affected() == 1,
         "the marked post or thread does not exist"
     );
+    if mark == Mark::Reaction {
+        crate::ranks::counts::liked(db, tx, target, uid, if desired { 1 } else { -1 }).await?;
+    }
     Ok(true)
 }
 

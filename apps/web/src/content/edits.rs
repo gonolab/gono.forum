@@ -394,7 +394,9 @@ impl ContentEditor {
             .to_string(),
         );
         let owner = self.owner(request.pid).await?;
-        let mut tx = self.db.begin_write().await?;
+        // READ COMMITTED: a visibility change recounts the thread for the leaderboard totals after taking the thread
+        // lock, and must see likes committed while it waited.
+        let mut tx = self.db.begin_content_write().await?;
         let settings = crate::runtime::guard_write(
             &self.db,
             &mut tx,
@@ -576,6 +578,13 @@ impl ContentEditor {
             // The thread row is already locked in `locked_post`. A listable thread whose visibility changed must move
             // from one count slot to another.
             let before = super::copies::ListedThread::load(&self.db, &mut tx, post.tid).await?;
+            // Only public threads count on the leaderboards: a visibility change moves the whole thread in or out.
+            let thread = crate::ranks::counts::Scope::Thread(post.tid);
+            let ranked_before = if before.visibility != visibility {
+                Some(crate::ranks::counts::Tally::read(&self.db, &mut tx, thread).await?)
+            } else {
+                None
+            };
             crate::db::query(
                 "UPDATE gonof_forum_thread SET subject=?,visibility=?,version=?,cache_revision=cache_revision+1 WHERE tid=?",
             )
@@ -585,6 +594,17 @@ impl ContentEditor {
             .bind(post.tid)
             .execute(self.db.observe(&mut *tx))
             .await?;
+            if let Some(ranked_before) = ranked_before {
+                let ranked_after =
+                    crate::ranks::counts::Tally::read(&self.db, &mut tx, thread).await?;
+                crate::ranks::counts::Tally::apply_change(
+                    &self.db,
+                    &mut tx,
+                    &ranked_before,
+                    &ranked_after,
+                )
+                .await?;
+            }
             if before.listed() && before.visibility != visibility {
                 super::copies::count_thread(
                     &self.db,
@@ -941,6 +961,16 @@ impl ContentEditor {
             } else {
                 // The post as the live-reply copies see it, before the change.
                 let live_before = super::ReplyState::read(&self.db, tx, post.pid).await?;
+                // What the leaderboard totals count of the posts this change reaches: hiding a first post unlists the
+                // whole thread, hiding a top-level floor hides its nested replies too.
+                let ranked = if column == "invisible" && post.first {
+                    crate::ranks::counts::Scope::Thread(post.tid)
+                } else if column == "invisible" && post.root_pid.is_none() {
+                    crate::ranks::counts::Scope::Floor(post.pid)
+                } else {
+                    crate::ranks::counts::Scope::Post(post.pid)
+                };
+                let ranked_before = crate::ranks::counts::Tally::read(&self.db, tx, ranked).await?;
                 crate::db::query(&format!(
                     "UPDATE gonof_forum_post SET {column}=?,version=? WHERE pid=?"
                 ))
@@ -994,6 +1024,14 @@ impl ContentEditor {
                     .await?;
                 }
                 super::reply_visibility_changed(&self.db, tx, live_before, nested).await?;
+                let ranked_after = crate::ranks::counts::Tally::read(&self.db, tx, ranked).await?;
+                crate::ranks::counts::Tally::apply_change(
+                    &self.db,
+                    tx,
+                    &ranked_before,
+                    &ranked_after,
+                )
+                .await?;
                 if post.first
                     && matches!(
                         request.action,

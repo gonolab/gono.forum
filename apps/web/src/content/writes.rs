@@ -445,6 +445,7 @@ impl ContentWriter {
         )
         .await?;
         super::copies::count_member(&self.db, &mut tx, Some(uid), (1, 0, 0)).await?;
+        crate::ranks::counts::post_added(&self.db, &mut tx, pid).await?;
         self.bind_attachments(&mut tx, uid, pid, &request.attachment_ids, timestamp)
             .await?;
         // The list thumbnail takes a static image already bound in the first post body.
@@ -696,6 +697,7 @@ impl ContentWriter {
             .await?;
         }
         super::copies::count_member(&self.db, &mut tx, Some(uid), (0, 1, 0)).await?;
+        crate::ranks::counts::post_added(&self.db, &mut tx, pid).await?;
         self.bind_attachments(&mut tx, uid, pid, &request.attachment_ids, timestamp)
             .await?;
         self.finish(

@@ -6,11 +6,15 @@
 //! board only fetches these ≤200 rows by primary key, regardless of the Redis switch.
 //!
 //! Threads, replies and likes received count only public content visible to anonymous visitors, with the same
-//! conditions as the activity index; the growth board ranks by growth value.
+//! conditions as the activity index; the growth board ranks by growth value. The all-time boards read per-member totals
+//! the write paths keep (the growth accounts, and [`counts`] for the other three) through their `(total, uid)` indexes;
+//! the 24-hour and 30-day boards aggregate their window.
 //! Who may appear on a board is decided twice from the member's current state: a refresh keeps only members someone
 //! may see, until both anonymous visitors and signed-in members have [`SNAPSHOT_SIZE`] places, so members with
 //! private profiles cannot crowd out the ones after them; reading filters again, so a privacy change or a freeze
 //! takes effect immediately without waiting for the next refresh.
+pub mod counts;
+
 use crate::db::Tx;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -114,6 +118,10 @@ impl Period {
 
 /// Computes a board's top 100 from current data: (uid, score), score descending, ties by uid ascending.
 ///
+/// The all-time boards read per-member totals kept by the write paths: growth from `gonof_common_growth_account`, the
+/// other three from `gonof_rank_member` ([`counts`]), each through its `(total, uid)` index ([`top_by_index`]), so they
+/// cost the same however much history there is. The 24-hour and 30-day boards aggregate their window.
+///
 /// The 5.7 optimizer always drives the aggregation over posts and likes from the forum table, which has only a few
 /// rows, and never picks the time index by itself; with a time window, `FORCE INDEX` is spelled out and
 /// `STRAIGHT_JOIN` fixes the post or like table as the driving table (measured on a 5.7.44 scratch database: the
@@ -136,6 +144,15 @@ async fn candidates(
     limit: i64,
 ) -> Result<Vec<(i64, i64)>> {
     let since = period.since(now);
+    if since.is_none() {
+        let (table, column) = match board {
+            Board::Growth => ("gonof_common_growth_account", "growth"),
+            Board::Threads => ("gonof_rank_member", "threads"),
+            Board::Replies => ("gonof_rank_member", "replies"),
+            Board::Likes => ("gonof_rank_member", "likes"),
+        };
+        return top_by_index(db, table, column, limit).await;
+    }
     // The readable scope uses the forum IDs readable by anonymous visitors (one read of the forum table; the thread
     // row holds no forum copies), and post visibility looks at the post's own and its parent post's copies; no join
     // with the forum table or first post, and no subquery.
@@ -143,71 +160,37 @@ async fn candidates(
     let public = crate::content::public_threads(&anonymous);
     let post = crate::content::post_visible("p");
     let joins = "JOIN gonof_forum_thread t ON t.tid = p.tid";
+    let since = since.unwrap_or_default();
     let (sql, binds): (String, Vec<i64>) = match board {
-        Board::Growth => match since {
-            Some(since) => (
-                format!(
-                    "SELECT l.uid, CAST(SUM(l.delta) AS SIGNED) AS score
-                     FROM gonof_common_growth_ledger l FORCE INDEX (gonof_growth_window)
-                     WHERE l.dateline >= ? GROUP BY l.uid HAVING score > 0
-                     ORDER BY score DESC, l.uid LIMIT {limit}"
-                ),
-                vec![since],
+        Board::Growth => (
+            format!(
+                "SELECT l.uid, CAST(SUM(l.delta) AS SIGNED) AS score
+                 FROM gonof_common_growth_ledger l FORCE INDEX (gonof_growth_window)
+                 WHERE l.dateline >= ? GROUP BY l.uid HAVING score > 0
+                 ORDER BY score DESC, l.uid LIMIT {limit}"
             ),
-            None => (
-                format!(
-                    "SELECT uid, growth AS score FROM gonof_common_growth_account
-                     WHERE growth > 0 ORDER BY growth DESC, uid LIMIT {limit}"
-                ),
-                vec![],
+            vec![since],
+        ),
+        Board::Threads | Board::Replies => (
+            format!(
+                "SELECT STRAIGHT_JOIN p.authorid AS uid, COUNT(*) AS score
+                 FROM gonof_forum_post p FORCE INDEX (gonof_post_dateline) {joins}
+                 WHERE p.dateline >= ? AND p.first = ? AND p.authorid IS NOT NULL
+                   AND {public} AND {post}
+                 GROUP BY p.authorid ORDER BY score DESC, p.authorid LIMIT {limit}"
             ),
-        },
-        Board::Threads | Board::Replies => {
-            let first = i64::from(board == Board::Threads);
-            match since {
-                Some(since) => (
-                    format!(
-                        "SELECT STRAIGHT_JOIN p.authorid AS uid, COUNT(*) AS score
-                         FROM gonof_forum_post p FORCE INDEX (gonof_post_dateline) {joins}
-                         WHERE p.dateline >= ? AND p.first = ? AND p.authorid IS NOT NULL
-                           AND {public} AND {post}
-                         GROUP BY p.authorid ORDER BY score DESC, p.authorid LIMIT {limit}"
-                    ),
-                    vec![since, first],
-                ),
-                None => (
-                    format!(
-                        "SELECT p.authorid AS uid, COUNT(*) AS score
-                         FROM gonof_forum_post p {joins}
-                         WHERE p.first = ? AND p.authorid IS NOT NULL AND {public} AND {post}
-                         GROUP BY p.authorid ORDER BY score DESC, p.authorid LIMIT {limit}"
-                    ),
-                    vec![first],
-                ),
-            }
-        }
-        Board::Likes => match since {
-            Some(since) => (
-                format!(
-                    "SELECT STRAIGHT_JOIN p.authorid AS uid, COUNT(*) AS score
-                     FROM gonof_forum_post_reaction r FORCE INDEX (gonof_reaction_dateline)
-                     JOIN gonof_forum_post p ON p.pid = r.pid {joins}
-                     WHERE r.dateline >= ? AND r.uid <> p.authorid AND {public} AND {post}
-                     GROUP BY p.authorid ORDER BY score DESC, p.authorid LIMIT {limit}"
-                ),
-                vec![since],
+            vec![since, i64::from(board == Board::Threads)],
+        ),
+        Board::Likes => (
+            format!(
+                "SELECT STRAIGHT_JOIN p.authorid AS uid, COUNT(*) AS score
+                 FROM gonof_forum_post_reaction r FORCE INDEX (gonof_reaction_dateline)
+                 JOIN gonof_forum_post p ON p.pid = r.pid {joins}
+                 WHERE r.dateline >= ? AND r.uid <> p.authorid AND {public} AND {post}
+                 GROUP BY p.authorid ORDER BY score DESC, p.authorid LIMIT {limit}"
             ),
-            None => (
-                format!(
-                    "SELECT p.authorid AS uid, COUNT(*) AS score
-                     FROM gonof_forum_post_reaction r
-                     JOIN gonof_forum_post p ON p.pid = r.pid {joins}
-                     WHERE r.uid <> p.authorid AND {public} AND {post}
-                     GROUP BY p.authorid ORDER BY score DESC, p.authorid LIMIT {limit}"
-                ),
-                vec![],
-            ),
-        },
+            vec![since],
+        ),
     };
     let mut query = crate::db::query(&sql);
     for value in binds {
@@ -219,6 +202,60 @@ async fn candidates(
         .into_iter()
         .map(|row| Ok((row.try_get("uid")?, row.try_get("score")?)))
         .collect()
+}
+
+/// The first `limit` rows of a per-member total with a positive value, by value descending and uid ascending, read
+/// from the table's `(column, uid)` index. MySQL 5.7 has no descending indexes, so the index is read backwards, which
+/// gives equal values in descending uid order: the rows tied at the last value read are read again forwards from the
+/// smallest uid. Both reads stop after `limit` index entries.
+async fn top_by_index(
+    db: &Database,
+    table: &str,
+    column: &str,
+    limit: i64,
+) -> Result<Vec<(i64, i64)>> {
+    let read = |sql: String, bind: Option<i64>| async move {
+        let mut query = crate::db::query(&sql);
+        if let Some(value) = bind {
+            query = query.bind(value);
+        }
+        query
+            .fetch_all(db.executor())
+            .await?
+            .into_iter()
+            .map(|row| Ok((row.try_get("uid")?, row.try_get("score")?)))
+            .collect::<Result<Vec<(i64, i64)>>>()
+    };
+    let mut rows = read(
+        format!(
+            "SELECT uid, {column} AS score FROM {table} WHERE {column} > 0 ORDER BY {column} DESC, uid DESC LIMIT {limit}"
+        ),
+        None,
+    )
+    .await?;
+    let ordered = |rows: &mut Vec<(i64, i64)>| {
+        rows.sort_by(|(a_uid, a), (b_uid, b)| b.cmp(a).then(a_uid.cmp(b_uid)));
+    };
+    if i64::try_from(rows.len())? < limit {
+        ordered(&mut rows);
+        return Ok(rows);
+    }
+    let Some(&(_, last)) = rows.last() else {
+        return Ok(rows);
+    };
+    rows.retain(|(_, score)| *score > last);
+    ordered(&mut rows);
+    let rest = limit - i64::try_from(rows.len())?;
+    rows.extend(
+        read(
+            format!(
+                "SELECT uid, {column} AS score FROM {table} WHERE {column} = ? ORDER BY uid LIMIT {rest}"
+            ),
+            Some(last),
+        )
+        .await?,
+    );
+    Ok(rows)
 }
 
 /// Refreshes all 12 boards and returns how many got a new snapshot. Boards refreshed within the last `min_age` seconds

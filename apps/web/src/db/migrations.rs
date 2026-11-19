@@ -56,6 +56,7 @@ const SOURCES: &[Source] = sources! {
     6 => "0006_friend_link_version.sql", "friend link versions";
     7 => "0007_post_request_version.sql", "the post version an edit request wrote";
     8 => "0008_notification_retention.sql", "site notification retention settings";
+    9 => "0009_rank_member.sql", "per-member leaderboard totals";
 };
 
 /// The latest migration version. Tests read it when asserting "migrated to the latest", so adding a migration does not

@@ -322,6 +322,11 @@ transaction, then update by key in chunks of 500, one statement for both backend
 | --- | --- | --- |
 | `gonof_forum_thread_count (fid, visibility, category, threads)` | listed threads (`displayorder >= 0`) per forum, thread visibility and category | `copies::count_thread`, an upsert by delta: posting a thread (+1); `copies::move_thread` for a listed thread (moving and merging forums use it); editing the first post's visibility moves it between rows; `copies::sync_first_hidden` when hiding or unhiding takes it out or puts it back. An empty forum's rows are deleted with the forum (`organization.rs`). |
 | `gonof_common_member_count (uid, threads, replies, digests)` | the member's own threads and replies that are neither hidden nor withdrawn, and the highlighted threads among them | `copies::count_member` and `copies::post_counted_changed`: posting a thread or reply; hiding, unhiding, withdrawing and restoring (`content/edits.rs`); erasure (`privacy/worker.rs`); highlighting or unhighlighting while the first post counts. Posts without an author are not counted. |
+| `gonof_rank_member (uid, threads, replies, likes)` | what the all-time threads, replies and likes boards count for the member: threads and replies anonymous visitors can read (not hidden, withdrawn or erased, floor not hidden; thread listed and public; board and parent board public and enabled), and the likes members other than the author gave them | `ranks::counts`, by delta, ascending uid when several members move: posting (`post_added`); a like or unlike (`liked`, from `counters::set_mark`); hiding, unhiding, withdrawing and restoring, erasure and a thread visibility edit, as the difference of two tallies of what the change reaches (the post; a top-level floor and its nested replies; the whole thread when the first post is hidden or unhidden); a move between a readable and an unreadable board (`thread_moved`); a board save that changes whether the board or its child boards are readable (`forum_saved`, which tallies their threads). Members with nothing counted have no row. |
+
+The leaderboard totals are read only by the all-time boards ("Leaderboards"). Their writes are an UPDATE of the
+member's row, which exists once anything of theirs has counted; only a member's first counted content inserts it,
+since an insert's foreign-key check share-locks the member row, which the writers otherwise lock before the board path.
 
 The member count is read by the profile page (its numbers and the page totals of its threads and replies tabs) and the
 member card in the home sidebar. Every visitor sees the same number, except that a visitor who blocked the member sees
@@ -348,6 +353,8 @@ on the thread row (`interaction::lock_target`, or the tip transaction), so write
 - **Growth points** read the like counter: a post's likes are `reactions` less the author's own like, found by primary
   key (`growth::sync_posts`, run after likes and after posting, hiding, accepting, highlighting, erasing and the
   rest), instead of counting the post's likes.
+- **Leaderboard totals** move with a like too: `set_mark` adds or takes one from the author's `gonof_rank_member.likes`
+  when the post counts on the boards and the like is not the author's own (`ranks::counts::liked`).
 - **Tips** only grow: after the payment and receipt ledger rows are written, `tips + 1` and `tip_total + amount`.
 - **Account deletion** leaves the member's likes, downvotes and favorites in place, so these counts do not change.
 
@@ -403,6 +410,16 @@ and gives up when the time there changed since the refresh read it, so a refresh
 later never overwrites a newer snapshot. A board that fails does not stop the others, and a round with a failure is
 tried again at the task's next wake-up (10 seconds) instead of a full interval later.
 
+The 24-hour and 30-day boards aggregate their window. The all-time boards read per-member totals kept by the write
+paths instead of aggregating all history: growth from `gonof_common_growth_account`, threads, replies and likes from
+`gonof_rank_member` ("Count tables"), each through its `(total, uid)` index (`gonof_growth_rank`,
+`gonof_rank_member_threads`, `_replies`, `_likes`). MySQL 5.7 has no descending indexes, so `ranks::top_by_index` reads
+the index backwards (`ORDER BY total DESC, uid DESC LIMIT n`), keeps the places above the last total read, and reads
+the members tied at that total forwards (`WHERE total = ? ORDER BY uid LIMIT …`): ties stay in ascending uid order, as
+on the other boards, and each read stops after `n` index entries. On a MySQL 8.4 test database with 932,972 posts by
+100,000 members the all-time threads and replies boards took 2.3–2.5 seconds each when aggregated and 0.01 seconds from the
+totals; the migration that adds the table (0009) fills it in 2.6–3.4 seconds there.
+
 A refresh keeps only members someone may see (active, not frozen, a profile space other than "Only me"), taking
 candidates in board order until anonymous visitors and signed-in members each have 100 places (so a snapshot holds up
 to 200 rows); when the first 400 candidates do not fill them, the aggregation is asked for four times as many. Reading
@@ -420,6 +437,7 @@ source and fails when:
 | `UPDATE gonof_forum_thread` | without `cache_revision`, apart from `content/views.rs`, whose statement must assign `views` and nothing else; `views` anywhere else; `fid` without `family_fid`; `author` or `family_fid` outside `content/copies.rs`; `displayorder` outside `copies.rs` and `content/edits.rs`; `last_reply_author` or `last_reply_uid` outside `content/writes.rs`, `content.rs` and `copies.rs`; `favorites`, `tips`, `tip_total` outside `interaction/counters.rs`; `category` or `authorid` anywhere |
 | `UPDATE gonof_forum_post` | `root_invisible` outside `copies.rs`; `reactions`, `downvotes` outside `counters.rs`; `authorid`, `dateline` or an identity column (`pid`, `tid`, `first`, `position`, …) anywhere (erasure walks a member's posts by author and time) |
 | the two count tables | written outside `copies.rs`, apart from deleting an empty forum's rows in `organization.rs` |
+| `gonof_rank_member` | written outside `ranks/counts.rs` |
 | like, downvote and favorite rows | written outside `interaction.rs`, `interaction/counters.rs` and `growth.rs` |
 | thread and post rows | deleted anywhere |
 
@@ -457,10 +475,12 @@ notification can outlive its period by the time a pass takes.
 - `apps/web/tests/consistency/content.sql` holds read-only checks that must all be 0: the copies (the last replier's
   name and uid against the author of `last_reply_pid` among them), `displayorder`
   against the first post's hidden flag and the reserved states, thread and first-post withdrawal, `root_invisible`,
-  both count tables, the counter columns against the detail rows and the tip ledger, reply counts and post shapes.
+  both count tables, the leaderboard totals against the public posts and like rows, the counter columns against the
+  detail rows and the tip ledger, reply counts and post shapes.
   `test_support::content_drift` runs it (MySQL only); `tests/thread_copies.rs` runs it after every test.
 - A test that writes threads or posts with raw SQL calls `test_support::refresh_listing` (`copies::rebuild_listing`,
-  also used by the development fixture import, plus `counters::rebuild`) or the narrower `resync_thread`,
+  also used by the development fixture import, which also rebuilds the leaderboard totals, plus `counters::rebuild`)
+  or the narrower `resync_thread`,
   `sync_forum_copies` and `sync_member_copies`; after changing process-cached data directly it calls
   `GlobalCache::clear_local`.
 - `tests/thread_list_queries.rs` compares every scope, sort, category, search and viewer page by page, and the totals,
