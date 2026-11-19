@@ -131,6 +131,10 @@ class Composer {
     this.media = new Map();
     this.markers = new Set();
     this.draftKey = storageKey(form.dataset.uid, form.dataset.draft);
+    // Only an editor the author has changed writes the local draft (`touch`): leaving an untouched one, such as a
+    // second tab of the same thread or a new-thread page opened from another forum, must not replace the draft saved
+    // elsewhere with its empty or server-filled fields.
+    this.dirty = false;
     this.lastBody = this.textarea.value;
     this.originalRequired = this.textarea.required;
     this.container = element('div', { class: 'composer-shell' });
@@ -212,9 +216,9 @@ class Composer {
       this.changed();
     });
     this.listen(form, 'input', event => {
-      if (event.target !== this.textarea) { this.invalidateSubmission(); this.scheduleSave(); }
+      if (event.target !== this.textarea) { this.invalidateSubmission(); this.touch(); }
     });
-    this.listen(form, 'change', () => this.scheduleSave());
+    this.listen(form, 'change', () => this.touch());
     this.listen(this.toolbar, 'mousedown', event => { if (event.target.closest('button')) event.preventDefault(); });
     this.listen(this.toolbar, 'click', event => {
       const action = event.target.closest('[data-editor-action]')?.dataset.editorAction;
@@ -420,7 +424,7 @@ class Composer {
     this.published = false;
     this.previewVersion = (this.previewVersion || 0) + 1;
     this.previewAbort?.abort();
-    this.scheduleSave();
+    this.touch();
     if (!this.preview.hidden) { clearTimeout(this.previewTimer); this.previewTimer = setTimeout(() => this.renderPreview(), 350); }
     if (!this.composing) this.completeMention();
   }
@@ -430,8 +434,10 @@ class Composer {
     }
   }
   scheduleSave() { clearTimeout(this.saveTimer); this.saveTimer = setTimeout(() => this.saveDraft(), 400); }
+  touch() { this.dirty = true; this.scheduleSave(); }
   saveDraft() {
-    if (this.published || this.protectedDraft) return;
+    this.attachmentIds.value = [...this.media.values()].filter(item => item.state === 'ready' && item.scanStatus === 'clean' && !item.cancelled).map(item => item.aid).join(',');
+    if (this.published || this.protectedDraft || !this.dirty) return;
     const attachments = [...this.media.values()].filter(item => item.aid && !item.cancelled).map(item => ({ aid: item.aid, name: item.name, state: item.state, markdown: item.markdown || '', bound: Boolean(item.bound), inserted: Boolean(item.inserted), marker: item.marker ? { ...item.marker } : null }));
     const data = { timestamp: Date.now(), body: this.textarea.value, title: this.form.elements.title?.value || '', fid: this.form.elements.fid?.value || '', attachments, request_key: this.form.elements.request_key?.value || '', expected_post_version: this.form.elements.expected_post_version?.value || '', expected_thread_version: this.form.elements.expected_thread_version?.value || '', reason: this.form.elements.reason?.value || '' };
     if (this.form.elements.visibility) data.visibility = this.form.elements.visibility.value;
@@ -442,7 +448,6 @@ class Composer {
     }
     try { localStorage.setItem(this.draftKey, JSON.stringify(data)); }
     catch { this.status.textContent = t('js-editor-draft-blocked'); }
-    this.attachmentIds.value = [...this.media.values()].filter(item => item.state === 'ready' && item.scanStatus === 'clean' && !item.cancelled).map(item => item.aid).join(',');
   }
   restoreDraft() {
     try {
@@ -458,15 +463,20 @@ class Composer {
         const text = element('textarea', { class: 'control', readonly: '', rows: '8', 'aria-label': t('js-editor-draft-old-label') });
         text.value = `${data.title || ''}\n\n${data.body || ''}`;
         const proceed = button(t('js-editor-draft-use-current'), 'accept-current-version');
-        this.listen(proceed, 'click', () => { this.protectedDraft = false; proceed.disabled = true; this.status.textContent = t('js-editor-draft-editing-current'); this.saveDraft(); });
+        this.listen(proceed, 'click', () => { this.protectedDraft = false; this.dirty = true; proceed.disabled = true; this.status.textContent = t('js-editor-draft-editing-current'); this.saveDraft(); });
         panel.append(text, proceed); this.status.after(panel);
         return;
       }
-      // A validation response is authoritative; never replace its submitted contents.
-      if ((!this.textarea.value || editing) && this.form.dataset.restoreDraft !== 'false') {
+      // A validation response is authoritative; never replace its submitted contents. A quote prefills the body with
+      // the quote link; the quote has a draft key of its own, and its draft started from that link too.
+      const quoting = Number(this.form.elements.quote_pid?.value) > 0;
+      if ((!this.textarea.value || editing || quoting) && this.form.dataset.restoreDraft !== 'false') {
         this.textarea.value = typeof data.body === 'string' ? data.body : '';
         if (this.form.elements.title && typeof data.title === 'string') this.form.elements.title.value = data.title;
-        if (this.form.elements.fid instanceof HTMLSelectElement && typeof data.fid === 'string' && [...this.form.elements.fid.options].some(option => option.value === data.fid)) this.form.elements.fid.value = data.fid;
+        // All new threads share one draft: a forum the page already chose (`/new/<forum>`) outranks the draft's.
+        const forum = this.form.elements.fid;
+        if (forum instanceof HTMLSelectElement && ![...forum.options].some(option => option.defaultSelected && option.value)
+          && typeof data.fid === 'string' && [...forum.options].some(option => option.value === data.fid)) forum.value = data.fid;
         // New-thread drafts from older versions did not save the audience, so on restore the author must pick it
         // again, to avoid publishing it as public.
         if (this.form.elements.visibility) {
@@ -633,6 +643,7 @@ class Composer {
   uploadFiles(files, marker = this.marker()) {
     for (const file of files) {
       const entry = this.mediaEntry({ file, name: file.name, marker, key: requestKey() });
+      this.dirty = true;
       this.upload(entry);
     }
   }
@@ -726,7 +737,7 @@ class Composer {
     if (entry.aid) {
       for (const range of attachmentRanges(this.textarea.value, entry.aid)) this.insert('', range);
     }
-    this.media.delete(entry.key); entry.row.remove(); this.scheduleSave();
+    this.media.delete(entry.key); entry.row.remove(); this.touch();
   }
   destroy() {
     if (this.destroyed) return;
