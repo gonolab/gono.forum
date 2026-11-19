@@ -464,6 +464,15 @@ async fn save(
     normalize(&mut candidate)?;
     let candidate =
         settings::check(&candidate).map_err(|error| IdentityError::Validation(error.expected))?;
+    // Checked only when the name changes: reading settings does not apply it, so a site that already uses such a name
+    // keeps working and can still save other settings.
+    if candidate.site.credit_name != before.site.credit_name
+        && !settings::credit_name_fits_prizes(&candidate.site.credit_name)
+    {
+        return Err(IdentityError::Validation(
+            crate::i18n::current().config_check_site_credit_name_prize(),
+        ));
+    }
     // Path prefix changes are only allowed for confirmed admin saves and the command-line rescue.
     let from = crate::site::prefix_of(&before.site.url);
     if from != crate::site::prefix_of(&candidate.site.url) {

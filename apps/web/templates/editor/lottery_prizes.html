@@ -22,7 +22,7 @@
     <button class="button button--small button--secondary prize-setup__add" type="button" data-add-prize>{{ p.t.editor_add_custom_prize() }}</button>
     {#- One prize row; the script takes the first <template> in this block. Rules it relies on: the row is a
         fieldset whose own legend comes first; each type radio sits in a label holding only it and the type name
-        (the label text becomes the third `prizes` column); the amount and the codes each sit in their own label
+        (the radio value becomes the third `prizes` column; the label text is how drafts and the no-script form may write it); the amount and the codes each sit in their own label
         (hidden by type); the remove button is in the row but outside the nested type fieldset. Template rows
         carry no ids because they are cloned. #}
     <template data-prize-template>

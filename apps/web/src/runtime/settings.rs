@@ -1972,6 +1972,27 @@ pub fn check(candidate: &SiteSettings) -> Result<SiteSettings> {
     decode(&rows)
 }
 
+/// The words the lottery prize format (`activities::parse_prize_lines`) reads as the type of a code or another prize:
+/// the identifiers and every language's words for them (`editor-prize-kind-*`).
+pub fn prize_kind_words() -> Vec<String> {
+    let mut words = vec!["code".to_owned(), "item".to_owned()];
+    for lang in crate::i18n::Lang::all() {
+        for word in [lang.editor_prize_kind_code(), lang.editor_prize_kind_item()] {
+            if !words.iter().any(|known| known == word) {
+                words.push(word.to_owned());
+            }
+        }
+    }
+    words
+}
+
+/// Whether the points name can stand for the credit type in the prize format: the name is written in a
+/// `|`-separated column there, so it cannot contain `|` or be the word of another prize type
+/// ([`prize_kind_words`]), which would turn a credit prize into that type or move its amount.
+pub fn credit_name_fits_prizes(name: &str) -> bool {
+    !name.contains('|') && !prize_kind_words().iter().any(|word| word == name)
+}
+
 /// The name of points: the site's own (`settings.site.credit_name`), or the language's default when it is empty.
 pub fn credit_word(name: &str, lang: crate::i18n::Lang) -> String {
     if name.is_empty() {

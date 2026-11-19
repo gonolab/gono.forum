@@ -1020,6 +1020,9 @@ async fn correct_inner(
 #[derive(Clone, Debug)]
 pub struct PrizeItem {
     pub tid: i64,
+    /// Whether the winner can still open the thread; when not, `subject` is empty and the page shows a placeholder
+    /// instead of the title and link. The prize itself stays listed.
+    pub available: bool,
     pub subject: String,
     pub prize: String,
     pub kind: String,
@@ -1033,6 +1036,9 @@ pub struct PrizeItem {
 /// The member's own redemption-code and other prizes, by thread descending; `before` is the last tid of the previous
 /// page (0 = first page). `STRAIGHT_JOIN` pins reading the `(uid, tid)` index in descending order: when the prize table
 /// is very small, 8.4 switches to driving from the prize table and sorting.
+///
+/// A thread the winner can no longer open (moved to a board they cannot read, hidden, withdrawn) keeps its prize on
+/// the list without its current title: the same "can it be opened" check as the favorite and notification lists.
 pub async fn my_prizes(
     db: &Database,
     ring: &TwoFactorConfig,
@@ -1040,7 +1046,12 @@ pub async fn my_prizes(
     before: i64,
 ) -> Result<(Vec<PrizeItem>, Option<i64>)> {
     let before = if before > 0 { before } else { i64::MAX };
-    let rows = crate::db::query("SELECT a.tid,a.prize_no,a.slot_no,a.code_ciphertext,a.assigned_at,a.revised_at,p.name,p.kind,p.note,t.subject FROM gonof_forum_lottery_award a STRAIGHT_JOIN gonof_forum_lottery_prize p ON p.tid=a.tid AND p.prize_no=a.prize_no STRAIGHT_JOIN gonof_forum_thread t ON t.tid=a.tid WHERE a.uid=? AND a.tid<? ORDER BY a.tid DESC LIMIT ?")
+    let available = format!(
+        "{} AND t.deleted_at=0 AND {}",
+        crate::content::thread_visible_by_forum_sql("f", Some(uid)),
+        crate::content::post_visible("firstpost")
+    );
+    let rows = crate::db::query(&format!("SELECT a.tid,a.prize_no,a.slot_no,a.code_ciphertext,a.assigned_at,a.revised_at,p.name,p.kind,p.note,t.subject,CASE WHEN {available} THEN 1 ELSE 0 END AS available FROM gonof_forum_lottery_award a STRAIGHT_JOIN gonof_forum_lottery_prize p ON p.tid=a.tid AND p.prize_no=a.prize_no STRAIGHT_JOIN gonof_forum_thread t ON t.tid=a.tid STRAIGHT_JOIN gonof_forum_forum f ON f.fid=t.fid STRAIGHT_JOIN gonof_forum_post firstpost ON firstpost.first_tid=t.tid WHERE a.uid=? AND a.tid<? ORDER BY a.tid DESC LIMIT ?"))
         .bind(uid)
         .bind(before)
         .bind(PRIZE_PAGE + 1)
@@ -1058,9 +1069,15 @@ pub async fn my_prizes(
                 raw,
             )
         });
+        let available = row.try_get::<i64, _>("available")? == 1;
         items.push(PrizeItem {
             tid,
-            subject: crate::db::text(row, "subject")?,
+            available,
+            subject: if available {
+                crate::db::text(row, "subject")?
+            } else {
+                String::new()
+            },
             prize: crate::db::text(row, "name")?,
             kind: crate::db::text(row, "kind")?,
             note: crate::db::text(row, "note")?,

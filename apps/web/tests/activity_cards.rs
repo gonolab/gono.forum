@@ -411,3 +411,129 @@ async fn the_credits_page_reads_balance_and_history_from_one_snapshot() {
     );
     fixture.cleanup().await.unwrap();
 }
+
+/// "My prizes" keeps a prize whose thread the winner can no longer open, but not the thread's current title: a thread
+/// moved to a board the winner cannot read and renamed, or withdrawn, shows a placeholder instead.
+#[tokio::test]
+async fn prize_history_hides_threads_the_winner_can_no_longer_open() {
+    let fixture = TestFixture::migrated().await.unwrap();
+    let db = &fixture.db;
+    let fid = site(&fixture, 4).await;
+    let ring = fixture.config.identity.two_factor.clone();
+    let lottery = topic(
+        db,
+        fid,
+        ActivitySpec {
+            kind: 3,
+            deadline: NOW + 3600,
+            prizes: vec![activities::PrizeSpec {
+                name: "Signed poster".into(),
+                winners: 1,
+                kind: "item".into(),
+                amount: 0,
+                note: "Sent by post".into(),
+                codes: vec![],
+            }],
+            ..Default::default()
+        },
+    )
+    .await;
+    reply_with(db, 3, lottery.tid, &identity::random_token()).await;
+    activities::process_due(db, NOW + 3601, 100).await.unwrap();
+    let subjects = || async {
+        let (items, _) = activities::my_prizes(db, &ring, 3, 0).await.unwrap();
+        items
+            .into_iter()
+            .map(|item| (item.prize, item.subject))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        subjects().await,
+        [(
+            "Signed poster".to_owned(),
+            "Activity card thread".to_owned()
+        )]
+    );
+    // Renamed after the draw and its board made private.
+    execute(
+        db,
+        &format!(
+            "UPDATE gonof_forum_thread SET subject='Renamed behind closed doors' WHERE tid={}",
+            lottery.tid
+        ),
+    )
+    .await;
+    execute(
+        db,
+        &format!("UPDATE gonof_forum_forum SET visibility='private' WHERE fid={fid}"),
+    )
+    .await;
+    let hidden = subjects().await;
+    assert_eq!(hidden.len(), 1, "the prize stays listed");
+    assert_eq!(hidden[0].0, "Signed poster");
+    assert!(
+        !hidden[0].1.contains("Renamed"),
+        "the new title of a thread the winner cannot read: {hidden:?}"
+    );
+    // Back in a readable board, but withdrawn.
+    execute(
+        db,
+        &format!("UPDATE gonof_forum_forum SET visibility='public' WHERE fid={fid}"),
+    )
+    .await;
+    assert_eq!(subjects().await[0].1, "Renamed behind closed doors");
+    execute(
+        db,
+        &format!(
+            "UPDATE gonof_forum_thread SET deleted_at={} WHERE tid={}",
+            NOW + 3700,
+            lottery.tid
+        ),
+    )
+    .await;
+    assert!(
+        !subjects().await[0].1.contains("Renamed"),
+        "the title of a withdrawn thread"
+    );
+    fixture.cleanup().await.unwrap();
+}
+
+/// The points name stands for the credit type in the lottery prize format, whose columns are separated by `|`: a new
+/// name cannot contain `|` or be a word the format reads as another prize type, while a site that already uses such
+/// a name can still save its other settings.
+#[tokio::test]
+async fn the_points_name_cannot_take_the_place_of_another_prize_type() {
+    let fixture = TestFixture::migrated().await.unwrap();
+    let db = &fixture.db;
+    site(&fixture, 2).await;
+    let global = &fixture.global;
+    let save = |name: &'static str| async move {
+        gono_forum_web::runtime::update(db, global, actor(1), "site.settings.save", |settings| {
+            settings.site.credit_name = name.into()
+        })
+        .await
+    };
+    // "Code" and "Other" are the English words for the code and item types; U+5151 U+6362 U+7801 is the Simplified
+    // Chinese word for a redemption code.
+    for refused in [
+        "item",
+        "code",
+        "credit|7",
+        "Code",
+        "Other",
+        "\u{5151}\u{6362}\u{7801}",
+    ] {
+        assert!(save(refused).await.is_err(), "{refused}");
+    }
+    save("Coins").await.unwrap();
+    // What a site saved before the rule: reading and saving other settings keep working.
+    gono_forum_web::test_support::set_setting(db, "settings.site.credit_name", "item")
+        .await
+        .unwrap();
+    gono_forum_web::runtime::update(db, global, actor(1), "site.settings.save", |settings| {
+        settings.site.description = "Still saves".into()
+    })
+    .await
+    .unwrap();
+    fixture.cleanup().await.unwrap();
+}

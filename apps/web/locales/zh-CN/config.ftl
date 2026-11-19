@@ -402,6 +402,7 @@ config-check-site-description = 站点描述最多 500 个字
 config-check-site-language = 站点语言须为已内置的语言标签（如 en、zh-CN）
 config-check-site-brand-text = 页头品牌文字最多 40 个字、不能换行
 config-check-site-credit-name = 积分名称最多 10 个字、不能换行
+config-check-site-credit-name-prize = 积分名称不能包含 |，也不能是抽奖奖品里表示其他奖品类型的词（code、item 或它们在各站点语言里的叫法）
 config-check-site-index-name = 核心指标名称最多 20 个字、不能换行
 config-check-site-contact-email = 联系邮箱留空，或填写 190 字节以内的邮箱地址
 config-check-site-url = 论坛地址留空，或填写 255 个字符以内的 HTTP(S) 地址（如 https://example.com；挂在子路径下时带上路径，如 https://example.com/bbs，路径每段只用小写字母、数字和 -，不带结尾斜杠）

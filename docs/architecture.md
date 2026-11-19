@@ -216,7 +216,10 @@ language is in [translating.md](translating.md).
   the empty string: the page frame fills its own copy of the settings (`SiteSettings::fill_defaults`), other code
   uses `SiteInfo::display_name`, `credit_word`, `index_word` and the like, and admin forms show the empty field with
   the default as placeholder. Messages take these words as ordinary variables (`{ $site }`, `{ $credit }`,
-  `{ $index }`) that the caller passes (`p.credit()`, `p.index_word()`).
+  `{ $index }`) that the caller passes (`p.credit()`, `p.index_word()`). The name of points also stands for the credit
+  type in the lottery prize format (`name | winners | type | points each | note`), so a new name cannot contain `|` or
+  be a word used there for another prize type (`code`, `item`, or a language's words for them); the prize editor
+  writes the identifiers `credit`, `code` and `item` whatever the site calls its points.
 - **Sample content.** The setup wizard's optional sample content and `gono-forum-cli seed-sample` /
   `export-sample` read `locales/<tag>/sample.json`, compiled in by `build.rs` like the translations. The English
   file is complete; another language's file is a translation of it, matched by member name, board slug and position,

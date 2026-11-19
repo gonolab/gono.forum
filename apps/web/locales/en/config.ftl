@@ -421,6 +421,7 @@ config-check-site-description = The site description can be at most 500 characte
 config-check-site-language = The site language must be the tag of a built-in language (such as en or zh-CN)
 config-check-site-brand-text = The header brand text can be at most 40 characters on one line
 config-check-site-credit-name = The points name can be at most 10 characters on one line
+config-check-site-credit-name-prize = The points name cannot contain | or be a word lottery prizes use for another prize type (code, item, or their name in a site language)
 config-check-site-index-name = The activity index name can be at most 20 characters on one line
 config-check-site-contact-email = Leave the contact email empty, or give an email address of at most 190 bytes
 config-check-site-url = Leave the forum URL empty, or give an HTTP(S) URL of at most 255 characters (such as https://example.com; under a sub-path include the path, such as https://example.com/bbs, each segment only lowercase letters, digits and -, without a trailing slash)

@@ -5,8 +5,9 @@ const t = (key, args) => (window.gonofT ? window.gonofT(key, args) : key);
 const lines = text => text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
 
 // The words the server accepts in the type column, as the page writes them on the prize type radios: the site's name
-// for its points and this language's words for codes and other prizes (editor-prize-kind-*). The identifiers stay the
-// fallback, which the server accepts too.
+// for its points and this language's words for codes and other prizes (editor-prize-kind-*). They are read back from
+// drafts and from text typed into the no-script form; the editor itself writes the identifiers (credit, code, item),
+// which the server reads the same way whatever the site calls its points.
 export function prizeKinds(form) {
   const words = { credit: 'credit', code: 'code', item: 'item' };
   const template = form.querySelector('[data-lottery-prizes] template');
@@ -110,7 +111,7 @@ export function enhanceLotteryPrizes(form, signal) {
         codes.setCustomValidity(codeError(values, Number(winners.value), seenCodes));
         allCodes.push(...values);
       }
-      prizes.push([name.value, winners.value, kinds[kind], kind === 'credit' ? amount.value : '', note.value].join(' | '));
+      prizes.push([name.value, winners.value, kind, kind === 'credit' ? amount.value : '', note.value].join(' | '));
     }
 
     if (rewrite) {
