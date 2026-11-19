@@ -133,11 +133,18 @@ fn block(html: &str) -> Value {
     serde_json::from_str(block_text(html)).unwrap()
 }
 
-/// The page data block without each block's `generated_at`, the second the block was built (docs/data.md, "Common
-/// shapes"): two requests for the same page can fall on either side of a second, so only this field may differ
-/// between them. Every block must still carry it.
+/// The page data block without the page's `now` and each block's `generated_at`, the seconds the page and its blocks
+/// were built (docs/data.md, "Common shapes"): two requests for the same page can fall on either side of a second, so
+/// only these fields may differ between them. The page and every block must still carry them.
 fn timeless_block(html: &str) -> Value {
     let mut data = block(html);
+    let now = data.as_object_mut().unwrap().remove("now");
+    assert!(
+        now.as_ref()
+            .and_then(Value::as_str)
+            .is_some_and(|now| now.ends_with('Z')),
+        "now: {now:?}"
+    );
     for (id, envelope) in data["blocks"].as_object_mut().unwrap() {
         let at = envelope.as_object_mut().unwrap().remove("generated_at");
         assert!(
