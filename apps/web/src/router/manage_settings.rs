@@ -1924,6 +1924,22 @@ static MAINTENANCE: Section = Section {
             debug.panel
         ),
         number!(
+            "maintenance_notification_read_retention_days",
+            Lang::config_field_maintenance_notification_read_retention_days,
+            Lang::config_field_maintenance_notification_read_retention_days_help,
+            maintenance.notification_read_retention_days,
+            1,
+            3650
+        ),
+        number!(
+            "maintenance_notification_unread_retention_days",
+            Lang::config_field_maintenance_notification_unread_retention_days,
+            Lang::config_field_maintenance_notification_unread_retention_days_help,
+            maintenance.notification_unread_retention_days,
+            1,
+            3650
+        ),
+        number!(
             "maintenance_outbox_retention_days",
             Lang::config_field_maintenance_outbox_retention_days,
             Lang::config_field_maintenance_outbox_retention_days_help,

@@ -64,7 +64,11 @@ pub(super) fn builtin_policy(
         ),
         "privacy" => (
             t.frame_footer_privacy().into(),
-            t.policy_privacy_body(settings.username.history_days),
+            t.policy_privacy_body(
+                settings.maintenance.notification_read_retention_days,
+                settings.maintenance.notification_unread_retention_days,
+                settings.username.history_days,
+            ),
         ),
         "verified" => (
             t.policy_verified_title().into(),

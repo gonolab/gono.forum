@@ -34,6 +34,15 @@
 //!   walked like the drafts and any code file older than the same period is removed whatever became of its row: files
 //!   left by earlier versions, which deleted only the rows, and files of codes sent to a number while its account was
 //!   being deleted (account deletion removes the files of the codes it finds, `privacy/worker.rs`).
+//! - Site notifications (`gonof_home_notification`): a read notification is deleted
+//!   `notification_read_retention_days` after it was read (`read_at`), an unread one
+//!   `notification_unread_retention_days` after it arrived (`dateline`). The table's indexes all start with the
+//!   member, so the walk goes member by member, [`MEMBER_SCAN`] members a round in uid order, with a cursor kept from
+//!   round to round (`NotificationCursor`): each round looks the expired rows of those members up through
+//!   `gonof_notification_unread (uid, read_at, dateline, id)`, at most [`BATCH`] of each kind. A round that finds a
+//!   full batch looks at the same members again next time, so a member with many expired rows is emptied before the
+//!   walk moves on. Unread ones are deleted member by member under the member row lock, the lock that marking read
+//!   and new notifications take, and the member's unread count goes down by the rows deleted.
 //!
 //! The steps do not depend on each other: one that fails (an unreadable folder, a database error) is logged and
 //! listed in [`MaintenanceReport::failed`], and the others still run, so a broken mail folder does not keep expired
@@ -68,6 +77,8 @@ pub struct MaintenanceReport {
     pub post_requests: u64,
     pub interaction_requests: u64,
     pub sms_codes: u64,
+    /// Site notifications past their retention period (read and unread together).
+    pub notifications: u64,
     /// Local SMS files removed by the walk over `sms/` (those removed with their rows are not counted).
     pub sms_files: usize,
     /// Temporary mail files left by an interrupted write, removed from `mail/` and `mail/prepared/`.
@@ -79,12 +90,16 @@ pub struct MaintenanceReport {
 /// At most this many entries of one directory, or sent Outbox events, are read per round.
 pub const SCAN: usize = 2_000;
 
+/// At most this many members have their notifications looked at per round.
+pub const MEMBER_SCAN: usize = 1_000;
+
 /// Cleanup state kept from round to round: the local private directory and how far the walks over the sent Outbox
 /// events, the drafts and the SMS files have got. The worker keeps one and runs one round at a time.
 pub struct Maintenance {
     /// `identity.local_directory`: delivered local mail in `mail/`, drafts in `mail/prepared/`, SMS in `sms/`.
     directory: PathBuf,
     outbox: OutboxCursor,
+    notifications: NotificationCursor,
     mail: DirectoryCursor,
     prepared: DirectoryCursor,
     sms: DirectoryCursor,
@@ -95,6 +110,7 @@ impl Maintenance {
         Self {
             directory,
             outbox: OutboxCursor::default(),
+            notifications: NotificationCursor::default(),
             mail: DirectoryCursor::default(),
             prepared: DirectoryCursor::default(),
             sms: DirectoryCursor::default(),
@@ -157,6 +173,19 @@ impl Maintenance {
             "interaction requests",
             purge_requests(database, "gonof_home_interaction_request", cutoff).await,
         );
+        let days = |days: i64| now.saturating_sub(days.saturating_mul(86_400));
+        report.notifications = settle(
+            failed,
+            "notifications",
+            purge_notifications(
+                database,
+                &mut self.notifications,
+                days(config.notification_read_retention_days),
+                days(config.notification_unread_retention_days),
+                MEMBER_SCAN,
+            )
+            .await,
+        );
         let sms_directory = crate::sms::local_folder(&self.directory);
         let sms_cutoff = now.saturating_sub(SMS_CODE_RETENTION);
         report.sms_codes = settle(
@@ -192,6 +221,12 @@ fn settle<T: Default>(failed: &mut Vec<&'static str>, step: &'static str, result
 #[derive(Default)]
 struct OutboxCursor {
     after: Option<(i64, i64, i64)>,
+}
+
+/// How far the walk over the members' notifications has got: the last uid looked at; 0 starts a pass.
+#[derive(Default)]
+struct NotificationCursor {
+    after: i64,
 }
 
 /// A walk over one directory that carries on from round to round: the open directory stream is kept, so each round
@@ -289,6 +324,81 @@ async fn purge_requests(database: &Database, table: &str, cutoff: i64) -> Result
         .execute(database.executor())
         .await?
         .rows_affected())
+}
+
+/// Deletes the notifications of the next `scan` members ([`MEMBER_SCAN`]) that are past their retention period: read ones
+/// whose `read_at` is before `read_cutoff`, unread ones whose `dateline` is before `unread_cutoff`. The candidates are
+/// taken through the `(uid, read_at, dateline, id)` index of the members in the batch and deleted by primary key with
+/// the condition checked once more, so a notification marked read in between is not deleted as unread.
+async fn purge_notifications(
+    database: &Database,
+    cursor: &mut NotificationCursor,
+    read_cutoff: i64,
+    unread_cutoff: i64,
+    scan: usize,
+) -> Result<u64> {
+    let members: Vec<i64> = db::query_scalar(&format!(
+        "SELECT uid FROM gonof_common_member WHERE uid>? ORDER BY uid LIMIT {scan}"
+    ))
+    .bind(cursor.after)
+    .fetch_all(database.executor())
+    .await?;
+    let Some(&last) = members.last() else {
+        cursor.after = 0;
+        return Ok(0);
+    };
+    let read =
+        expired_notifications(database, &members, "read_at>0 AND read_at<?", read_cutoff).await?;
+    let unread = expired_notifications(
+        database,
+        &members,
+        "read_at=0 AND dateline<?",
+        unread_cutoff,
+    )
+    .await?;
+    // A full batch may have left more behind: the next round looks at the same members again.
+    if read.len() < BATCH && unread.len() < BATCH {
+        cursor.after = if members.len() < scan { 0 } else { last };
+    }
+    let read: Vec<i64> = read.into_iter().map(|(_, id)| id).collect();
+    let mut deleted =
+        crate::notifications::record::delete_expired_read(database, &read, read_cutoff).await?;
+    let mut by_member = std::collections::BTreeMap::<i64, Vec<i64>>::new();
+    for (uid, id) in unread {
+        by_member.entry(uid).or_default().push(id);
+    }
+    for (uid, ids) in by_member {
+        deleted +=
+            crate::notifications::record::delete_expired_unread(database, uid, &ids, unread_cutoff)
+                .await?;
+    }
+    Ok(deleted)
+}
+
+/// Up to [`BATCH`] `(uid, id)` of the notifications of `members` matching `condition`, whose one parameter is
+/// `cutoff`: one range of `gonof_notification_unread` per member. The index is named: on a small table MySQL would
+/// rather read the whole index than seek each member's range.
+async fn expired_notifications(
+    database: &Database,
+    members: &[i64],
+    condition: &str,
+    cutoff: i64,
+) -> Result<Vec<(i64, i64)>> {
+    let sql = format!(
+        "SELECT uid,id FROM gonof_home_notification FORCE INDEX (gonof_notification_unread) WHERE uid IN ({}) AND {condition} LIMIT {BATCH}",
+        vec!["?"; members.len()].join(",")
+    );
+    let mut query = db::query(&sql);
+    for uid in members {
+        query = query.bind(*uid);
+    }
+    query
+        .bind(cutoff)
+        .fetch_all(database.executor())
+        .await?
+        .iter()
+        .map(|row| Ok((row.try_get("uid")?, row.try_get("id")?)))
+        .collect()
 }
 
 async fn purge_outbox(
@@ -1186,6 +1296,262 @@ mod tests {
             assert_eq!(report.failed, ["mail drafts"]);
         }
         assert_eq!(report.sms_codes, 1, "{report:?}");
+        services.cleanup().await.unwrap();
+    }
+
+    /// A notification member, its author and a post for notifications to point at.
+    async fn notification_fixture() -> (crate::test_support::TestFixture, i64) {
+        let services = crate::test_support::TestFixture::migrated().await.unwrap();
+        let db = &services.db;
+        crate::content::seed_forums(db).await.unwrap();
+        crate::content::seed_fixture(db).await.unwrap();
+        for uid in 9501..=9506 {
+            db::query("INSERT INTO gonof_common_member(uid,username,regdate) VALUES(?,?,1)")
+                .bind(uid)
+                .bind(format!("retention-{uid}"))
+                .execute(db.executor())
+                .await
+                .unwrap();
+        }
+        let pid = db::query_scalar("SELECT pid FROM gonof_forum_post ORDER BY pid LIMIT 1")
+            .fetch_one(db.executor())
+            .await
+            .unwrap();
+        (services, pid)
+    }
+
+    /// Writes a reply notification for `uid` through the regular insert (which counts it unread), then marks it read
+    /// at `read_at` when that is not 0, taking it off the unread count as marking read does.
+    async fn notification(
+        db: &Database,
+        uid: i64,
+        pid: i64,
+        key: &str,
+        dateline: i64,
+        read_at: i64,
+    ) -> i64 {
+        use crate::notifications::record::{Kind, NewNotice, Target};
+        let id = crate::test_support::insert_notification(
+            db,
+            &NewNotice {
+                uid,
+                authorid: 9506,
+                kind: Kind::Reply,
+                target: Target::Post(pid),
+                event_key: key,
+                reason: "",
+                dateline,
+            },
+        )
+        .await
+        .unwrap();
+        if read_at > 0 {
+            db::query("UPDATE gonof_home_notification SET read_at=? WHERE id=?")
+                .bind(read_at)
+                .bind(id)
+                .execute(db.executor())
+                .await
+                .unwrap();
+            db::query("UPDATE gonof_common_member SET unread_notifications=unread_notifications-1 WHERE uid=?")
+                .bind(uid)
+                .execute(db.executor())
+                .await
+                .unwrap();
+        }
+        id
+    }
+
+    async fn notification_ids(db: &Database) -> Vec<i64> {
+        db::query_scalar("SELECT id FROM gonof_home_notification ORDER BY id")
+            .fetch_all(db.executor())
+            .await
+            .unwrap()
+    }
+
+    async fn unread_of(db: &Database, uid: i64) -> i64 {
+        db::query_scalar("SELECT unread_notifications FROM gonof_common_member WHERE uid=?")
+            .bind(uid)
+            .fetch_one(db.executor())
+            .await
+            .unwrap()
+    }
+
+    /// A read notification goes 30 days (the default) after it was read, however old it is; an unread one 180 days
+    /// after it arrived, and the member's unread count goes down with it.
+    #[tokio::test]
+    async fn notifications_expire_by_when_they_were_read_or_arrived() {
+        let (services, pid) = notification_fixture().await;
+        let db = &services.db;
+        let now = crate::identity::now();
+        let day = 86_400;
+        notification(db, 9501, pid, "a", now - 40 * day, now - 31 * day).await;
+        let read_lately = notification(db, 9501, pid, "b", now - 400 * day, now - 29 * day).await;
+        notification(db, 9501, pid, "c", now - 181 * day, 0).await;
+        let unread_recent = notification(db, 9501, pid, "d", now - 179 * day, 0).await;
+        notification(db, 9502, pid, "e", now - 200 * day, 0).await;
+        assert_eq!(
+            (unread_of(db, 9501).await, unread_of(db, 9502).await),
+            (2, 1)
+        );
+        let config = crate::runtime::read(db).await.unwrap().maintenance;
+        assert_eq!(
+            (
+                config.notification_read_retention_days,
+                config.notification_unread_retention_days
+            ),
+            (30, 180),
+            "the defaults the migration writes"
+        );
+        let mut maintenance = Maintenance::new(services.root.join(".local"));
+        let report = maintenance.run(db, &config, now).await;
+        assert!(report.failed.is_empty(), "{report:?}");
+        assert_eq!(report.notifications, 3);
+        assert_eq!(notification_ids(db).await, [read_lately, unread_recent]);
+        assert_eq!(
+            (unread_of(db, 9501).await, unread_of(db, 9502).await),
+            (1, 0)
+        );
+        assert_eq!(maintenance.run(db, &config, now).await.notifications, 0);
+        services.cleanup().await.unwrap();
+    }
+
+    /// The walk takes a few members a round and carries on from where it stopped; a member with more expired
+    /// notifications than one batch is looked at again until none are left.
+    #[tokio::test]
+    async fn notification_cleanup_walks_members_and_finishes_full_batches() {
+        let (services, pid) = notification_fixture().await;
+        let db = &services.db;
+        let now = crate::identity::now();
+        let old = now - 200 * 86_400;
+        for uid in 9501..=9505 {
+            notification(db, uid, pid, "only", old, 0).await;
+        }
+        let members: i64 = db::query_scalar("SELECT COUNT(*) FROM gonof_common_member")
+            .fetch_one(db.executor())
+            .await
+            .unwrap();
+        let mut cursor = NotificationCursor::default();
+        let mut deleted = 0;
+        let mut rounds = 0;
+        loop {
+            deleted += purge_notifications(db, &mut cursor, now, old + 1, 2)
+                .await
+                .unwrap();
+            rounds += 1;
+            if cursor.after == 0 {
+                break;
+            }
+            assert!(rounds <= members, "the walk does not end");
+        }
+        assert_eq!(deleted, 5);
+        // Two members a round, and one more round that finds the end when the count is even.
+        assert_eq!(rounds, members / 2 + 1);
+        for uid in 9501..=9505 {
+            assert_eq!(unread_of(db, uid).await, 0);
+        }
+        // More than one batch for one member: the next round stays on the same members.
+        let mut values = Vec::new();
+        for n in 0..BATCH + 5 {
+            values.push(format!("(9501,9506,{pid},'reply','bulk-{n}',{old},0)"));
+        }
+        db::query(&format!(
+            "INSERT INTO gonof_home_notification(uid,authorid,pid,type,event_key,dateline,read_at) VALUES {}",
+            values.join(",")
+        ))
+        .execute(db.executor())
+        .await
+        .unwrap();
+        db::query("UPDATE gonof_common_member SET unread_notifications=? WHERE uid=9501")
+            .bind((BATCH + 5) as i64)
+            .execute(db.executor())
+            .await
+            .unwrap();
+        let mut cursor = NotificationCursor::default();
+        assert_eq!(
+            purge_notifications(db, &mut cursor, now, old + 1, MEMBER_SCAN)
+                .await
+                .unwrap(),
+            BATCH as u64
+        );
+        assert_eq!(unread_of(db, 9501).await, 5);
+        assert_eq!(cursor.after, 0, "a full batch keeps the walk where it was");
+        assert_eq!(
+            purge_notifications(db, &mut cursor, now, old + 1, MEMBER_SCAN)
+                .await
+                .unwrap(),
+            5
+        );
+        assert_eq!(unread_of(db, 9501).await, 0);
+        assert!(notification_ids(db).await.is_empty());
+        services.cleanup().await.unwrap();
+    }
+
+    /// The candidate lookups are ranges of `gonof_notification_unread` per member on both backends, not a scan of
+    /// the notification table.
+    #[tokio::test]
+    async fn notification_cleanup_reads_the_unread_index() {
+        let (services, pid) = notification_fixture().await;
+        let db = &services.db;
+        let members = [9501_i64, 9502, 9503];
+        // Enough rows, read and unread, for the planners to weigh the ranges against reading the whole index.
+        let mut values = Vec::new();
+        for uid in 9501..=9505 {
+            for n in 0..400 {
+                let read_at = if n % 2 == 0 { 0 } else { 2000 + n };
+                values.push(format!(
+                    "({uid},9506,{pid},'reply','plan-{n}',{},{read_at})",
+                    1000 + n
+                ));
+            }
+        }
+        db::query(&format!(
+            "INSERT INTO gonof_home_notification(uid,authorid,pid,type,event_key,dateline,read_at) VALUES {}",
+            values.join(",")
+        ))
+        .execute(db.executor())
+        .await
+        .unwrap();
+        db::raw_sql(if db.backend() == db::Backend::Sqlite {
+            "ANALYZE"
+        } else {
+            "ANALYZE TABLE gonof_home_notification"
+        })
+        .execute(&db.pool)
+        .await
+        .unwrap();
+        for condition in ["read_at>0 AND read_at<?", "read_at=0 AND dateline<?"] {
+            // The statement as the cleanup runs it: parameters expanded, and rewritten for SQLite.
+            let profile = std::sync::Arc::new(crate::debug::trace::RequestProfile::new());
+            crate::debug::trace::scope(
+                profile.clone(),
+                expired_notifications(db, &members, condition, 1500),
+            )
+            .await
+            .unwrap();
+            let sql = profile.snapshot().pop().unwrap().expanded_sql;
+            if db.backend() == db::Backend::Sqlite {
+                let plan = crate::test_support::sqlite_plan(db, &sql).await.unwrap();
+                assert!(
+                    plan.iter()
+                        .any(|step| step.contains("gonof_notification_unread")),
+                    "{sql}: {plan:?}"
+                );
+                assert!(
+                    !plan.iter().any(|step| step.starts_with("SCAN")),
+                    "{sql}: {plan:?}"
+                );
+            } else {
+                let rows = db::query(&format!("EXPLAIN FORMAT=JSON {sql}"))
+                    .fetch_all(db.executor())
+                    .await
+                    .unwrap();
+                let plan: String = rows[0].try_get(0).unwrap();
+                let plan: serde_json::Value = serde_json::from_str(&plan).unwrap();
+                let table = &plan["query_block"]["table"];
+                assert_eq!(table["access_type"], "range", "{sql}: {plan}");
+                assert_eq!(table["key"], "gonof_notification_unread", "{sql}: {plan}");
+            }
+        }
         services.cleanup().await.unwrap();
     }
 }

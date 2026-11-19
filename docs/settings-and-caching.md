@@ -14,7 +14,7 @@ migration seeds.
 
 | Table and keys | What it holds | Code |
 | --- | --- | --- |
-| `gonof_common_settings`, `settings.{group}.{field}` | 134 scalar settings, one row each | `apps/web/src/runtime.rs`, `runtime/settings.rs`, `runtime/kv.rs` |
+| `gonof_common_settings`, `settings.{group}.{field}` | 136 scalar settings, one row each | `apps/web/src/runtime.rs`, `runtime/settings.rs`, `runtime/kv.rs` |
 | `gonof_common_settings`, `settings.navigation.{body,title,updated_at}` | the header navigation document | `runtime.rs` |
 | `gonof_common_settings`, `settings.layout.{body,title,updated_at}` and `settings.domain_layout.<domain id>.{body,title,updated_at}` | the site's skin choice, seed colors and places, and each domain's override ([skins.md](skins.md), "Choosing a skin" and "Places and blocks"; [styles.md](styles.md), "Seed colors") | `skins/selection.rs` |
 | `gonof_common_settings`, `settings.layout_draft.site.{body,title,updated_at}` and `settings.layout_draft.<domain id>.…` | the layout editor's unpublished drafts ([skins.md](skins.md), "Editing a layout"); read only by a previewing administrator's page frame | `skins/selection.rs` |
@@ -25,7 +25,7 @@ migration seeds.
 | `gonof_common_credit_rule` | credit reward rules (`reply`, `signin`, `thread`), with a `version` column for optimistic locking | `activities/ledger.rs` |
 
 `gonof_common_settings` has two columns, `skey varchar(190)` (primary key, `utf8mb4_bin`) and `svalue text`. The
-migrations seed 142 rows: the 134 scalar settings, the three navigation rows, the three rows of the layout document and
+migrations seed 144 rows: the 136 scalar settings, the three navigation rows, the three rows of the layout document and
 the two lock rows; the JSON rows are inserted on their first save, a domain's layout document when its own skin is
 first chosen, its colors first set or its places first published (it is deleted with the domain, or when the domain
 follows the site again in all three), and a layout draft by the first change in the layout editor (deleted when it is
@@ -191,7 +191,8 @@ Unit tests fail on any key missing from either list, and an integration test che
 - Pages: at once in the process that saved; elsewhere when the broadcast arrives (Redis on), or after the cache
   lifetime if it is lost. Writes check against the gate, so they follow the new value from the next transaction.
 - Windows computed from a start time and the current setting change for existing items immediately, in both
-  directions: the edit window, the new-member period, the appeal window, the friend-link application rules.
+  directions: the edit window, the new-member period, the appeal window, the friend-link application rules, the
+  notification retention periods (a shorter one deletes older notifications in the next cleanup passes).
 - Periods written as an absolute time when something is issued (invite validity, the old-username protection period)
   only affect what is issued afterwards.
 - Display parameters (items per page, card counts) are part of the cache keys of the content they change, so a change

@@ -186,22 +186,34 @@ async fn contract(db: &Database) {
         .collect();
     assert_eq!(
         reads.len(),
-        3,
-        "the notification page runs three queries: member check, page count, current page"
+        4,
+        "the notification page runs four queries: member check, newest id, page count, current page"
     );
     assert!(reads[0].sql.contains("unread_notifications"));
     assert!(
         reads[1]
             .sql
-            .contains("COUNT(*) AS total,MAX(n.id) AS max_id")
+            .contains("SELECT MAX(id) FROM gonof_home_notification")
     );
     assert!(
-        !reads[1].sql.contains("read_at"),
+        reads[2]
+            .sql
+            .contains("SELECT COUNT(*) FROM (SELECT 1 FROM gonof_home_notification n")
+            && reads[2].sql.contains("LIMIT ?) capped"),
+        "the page count stops at the page cap: {}",
+        reads[2].sql
+    );
+    assert!(
+        !reads[2].sql.contains("read_at"),
         "the unread count comes from the member row"
     );
     assert_eq!((page.total, page.unread, page.items.len()), (2, 2, 2));
     let empty = notifications::list(db, actor(4), 1, 20).await.unwrap();
-    assert_eq!((empty.total, empty.unread, empty.max_id), (0, 0, 0));
+    assert_eq!((empty.total, empty.unread), (0, 0));
+    assert_eq!(
+        empty.max_id, page.max_id,
+        "the bound is the newest notification of the site"
+    );
     assert!(empty.items.is_empty());
     assert!(page.items.iter().all(|n| n.available
         && n.author.starts_with("notify-")
@@ -720,4 +732,63 @@ async fn mysql_notifications_contract() {
         .unwrap();
     contract(&services.db).await;
     services.cleanup().await.unwrap();
+}
+
+// A notification list stops at 100 pages: the count is capped there and later pages are 404, however many
+// notifications the member has.
+#[tokio::test]
+async fn notification_lists_stop_at_the_page_cap() {
+    let fixture = gono_forum_web::test_support::TestFixture::migrated()
+        .await
+        .unwrap();
+    let db = &fixture.db;
+    content::seed_forums(db).await.unwrap();
+    content::seed_fixture(db).await.unwrap();
+    for uid in [9701_i64, 9702] {
+        gono_forum_web::db::query(
+            "INSERT INTO gonof_common_member(uid,username,regdate) VALUES(?,?,1)",
+        )
+        .bind(uid)
+        .bind(format!("capped-{uid}"))
+        .execute(db.executor())
+        .await
+        .unwrap();
+    }
+    let pid = scalar(db, "SELECT pid FROM gonof_forum_post ORDER BY pid LIMIT 1").await;
+    let rows = notifications::MAX_PAGES * notifications::PAGE_SIZE + 15;
+    let values = (0..rows)
+        .map(|n| format!("(9701,9702,{pid},'reply','capped-{n}',{},1)", 1000 + n))
+        .collect::<Vec<_>>();
+    execute(
+        db,
+        &format!(
+            "INSERT INTO gonof_home_notification(uid,authorid,pid,type,event_key,dateline,read_at) VALUES {}",
+            values.join(",")
+        ),
+    )
+    .await;
+    let last = notifications::list(
+        db,
+        actor(9701),
+        notifications::MAX_PAGES,
+        notifications::PAGE_SIZE,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        last.total as usize,
+        notifications::MAX_PAGES * notifications::PAGE_SIZE
+    );
+    assert_eq!(last.items.len(), notifications::PAGE_SIZE);
+    assert!(matches!(
+        notifications::list(
+            db,
+            actor(9701),
+            notifications::MAX_PAGES + 1,
+            notifications::PAGE_SIZE
+        )
+        .await,
+        Err(ContentWriteError::NotFound)
+    ));
+    fixture.cleanup().await.unwrap();
 }

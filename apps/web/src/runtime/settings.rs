@@ -265,6 +265,10 @@ pub struct LinkSettings {
 /// Retention periods (admin "Tools & maintenance › Maintenance").
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MaintenanceSettings {
+    /// Days a read site notification is kept after it was read.
+    pub notification_read_retention_days: i64,
+    /// Days an unread site notification is kept after it arrived; no shorter than the read retention.
+    pub notification_unread_retention_days: i64,
     pub outbox_retention_days: i64,
     pub prepared_mail_retention_days: i64,
     pub request_retention_days: i64,
@@ -1178,6 +1182,18 @@ pub fn decode(r: &Rows) -> Result<SiteSettings> {
             )?,
         },
         maintenance: MaintenanceSettings {
+            notification_read_retention_days: r.int(
+                "settings.maintenance.notification_read_retention_days",
+                1,
+                3650,
+                t.config_check_maintenance_notification_read_retention_days(),
+            )?,
+            notification_unread_retention_days: r.int(
+                "settings.maintenance.notification_unread_retention_days",
+                1,
+                3650,
+                t.config_check_maintenance_notification_unread_retention_days(),
+            )?,
             outbox_retention_days: r.int(
                 "settings.maintenance.outbox_retention_days",
                 1,
@@ -1569,6 +1585,15 @@ fn relations(s: &SiteSettings) -> Result<()> {
             t.config_check_username_history_days(),
         );
     }
+    if s.maintenance.notification_unread_retention_days
+        < s.maintenance.notification_read_retention_days
+    {
+        return fail(
+            "settings.maintenance.notification_unread_retention_days",
+            s.maintenance.notification_unread_retention_days.to_string(),
+            t.config_check_maintenance_notification_unread_retention_days(),
+        );
+    }
     Ok(())
 }
 
@@ -1800,6 +1825,14 @@ pub fn encode(s: &SiteSettings) -> Vec<(&'static str, String)> {
         (
             "settings.links.apply_ip_per_hour",
             int(s.links.apply_ip_per_hour),
+        ),
+        (
+            "settings.maintenance.notification_read_retention_days",
+            int(s.maintenance.notification_read_retention_days),
+        ),
+        (
+            "settings.maintenance.notification_unread_retention_days",
+            int(s.maintenance.notification_unread_retention_days),
         ),
         (
             "settings.maintenance.outbox_retention_days",
@@ -2088,6 +2121,8 @@ pub(crate) mod tests {
             ("settings.links.min_account_days", "30"),
             ("settings.links.apply_per_hour", "5"),
             ("settings.links.apply_ip_per_hour", "20"),
+            ("settings.maintenance.notification_read_retention_days", "30"),
+            ("settings.maintenance.notification_unread_retention_days", "180"),
             ("settings.maintenance.outbox_retention_days", "30"),
             ("settings.maintenance.prepared_mail_retention_days", "7"),
             ("settings.maintenance.request_retention_days", "30"),
@@ -2158,12 +2193,12 @@ pub(crate) mod tests {
         let rows = encode(&settings);
         assert_eq!(
             rows.len(),
-            134,
-            "the encoding writes one row per scalar setting, 134 in all"
+            136,
+            "the encoding writes one row per scalar setting, 136 in all"
         );
         let mut keys: Vec<_> = rows.iter().map(|(key, _)| *key).collect();
         keys.dedup();
-        assert_eq!(keys.len(), 134, "the encoding repeats a key");
+        assert_eq!(keys.len(), 136, "the encoding repeats a key");
         assert!(keys.iter().all(|key| key.starts_with("settings.")));
         for excluded in [
             "settings.mail.",
@@ -2237,6 +2272,21 @@ pub(crate) mod tests {
         assert_eq!(
             check(&value).unwrap_err().key,
             "settings.username.history_days"
+        );
+
+        // An unread notification is kept at least as long as a read one; both stay within 1 to 3650 days.
+        let mut value = seeded();
+        value.maintenance.notification_unread_retention_days = 29;
+        assert_eq!(
+            check(&value).unwrap_err().key,
+            "settings.maintenance.notification_unread_retention_days"
+        );
+        value.maintenance.notification_unread_retention_days = 30;
+        assert!(check(&value).is_ok());
+        value.maintenance.notification_read_retention_days = 0;
+        assert_eq!(
+            check(&value).unwrap_err().key,
+            "settings.maintenance.notification_read_retention_days"
         );
 
         let mut value = seeded();

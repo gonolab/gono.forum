@@ -105,7 +105,7 @@ async fn migrations_seed_every_setting_once_under_settings() {
     let f = fixture().await;
     let stored = settings_rows(&f.db).await;
     // The baseline seeds one row per scalar setting.
-    assert_eq!(stored.len(), 134, "{stored:?}");
+    assert_eq!(stored.len(), 136, "{stored:?}");
     // The gate reads by primary key and locks all scalar settings.
     assert_eq!(
         stored
@@ -182,8 +182,8 @@ async fn migrations_seed_every_setting_once_under_settings() {
     // Policies and mail templates live in gonof_common_localized_text.
     assert_eq!(
         total,
-        134 + 3 + 3 + 2,
-        "134 scalars, 3 navigation rows, 3 layout rows, 2 lock rows"
+        136 + 3 + 3 + 2,
+        "136 scalars, 3 navigation rows, 3 layout rows, 2 lock rows"
     );
     let legacy: i64 = db::query_scalar(
         "SELECT COUNT(*) FROM gonof_common_settings WHERE skey LIKE 'site.%' OR skey LIKE 'credit.%'",
@@ -348,7 +348,7 @@ async fn saving_one_page_leaves_every_other_row_byte_identical() {
     let before = settings_rows(&f.db).await;
     save(&f, |s| s.site.name = "Only the name changes".into()).await;
     let after = settings_rows(&f.db).await;
-    assert_eq!(after.len(), 134, "saving neither adds nor removes rows");
+    assert_eq!(after.len(), 136, "saving neither adds nor removes rows");
     for ((key, old), (_, new)) in before.iter().zip(&after) {
         if key == "settings.site.name" {
             assert_eq!(
@@ -428,7 +428,7 @@ async fn the_page_frame_still_reads_settings_in_a_single_query() {
         assert_eq!(
             explain(&f.db, &queries[0].sql, &[]).await,
             // The domain layout documents' range adds one estimated row even when it is empty.
-            ("range".into(), "PRIMARY".into(), 134 + 3 + 3 + 1)
+            ("range".into(), "PRIMARY".into(), 136 + 3 + 3 + 1)
         );
     }
     let rows: i64 = db::query_scalar(&format!(
@@ -438,7 +438,7 @@ async fn the_page_frame_still_reads_settings_in_a_single_query() {
     .fetch_one(f.db.executor())
     .await
     .unwrap();
-    assert_eq!(rows, 134 + 3 + 3);
+    assert_eq!(rows, 136 + 3 + 3);
     f.cleanup().await.unwrap();
 }
 
@@ -670,7 +670,7 @@ async fn settings_locks_seek_the_primary_key() {
     gono_forum_web::mysql_only!();
     let f = fixture().await;
     let seek = |estimate: u64| ("range".to_owned(), "PRIMARY".to_owned(), estimate);
-    assert_eq!(explain(&f.db, &runtime::GATE_SQL, &[]).await, seek(134));
+    assert_eq!(explain(&f.db, &runtime::GATE_SQL, &[]).await, seek(136));
     let navigation = document_keys("settings.navigation.");
     assert_eq!(
         explain(&f.db, runtime::DOCUMENT_LOCK_SQL, &navigation).await,

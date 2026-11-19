@@ -225,6 +225,63 @@ pub(crate) async fn delete_all(db: &Database, tx: &mut Tx<'_>, uid: i64) -> Resu
 ///
 /// Decreases use a conditional update: a count too small to subtract from means the count and the details are already
 /// inconsistent, so it fails and rolls back, never writing a negative number.
+/// Retention cleanup (`maintenance.rs`): deletes the read notifications among `ids` that were read before `cutoff`,
+/// checking that once more; returns how many went.
+pub(crate) async fn delete_expired_read(db: &Database, ids: &[i64], cutoff: i64) -> Result<u64> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    let sql = format!(
+        "DELETE FROM gonof_home_notification WHERE id IN ({}) AND read_at>0 AND read_at<?",
+        vec!["?"; ids.len()].join(",")
+    );
+    let mut delete = db::query(&sql);
+    for id in ids {
+        delete = delete.bind(*id);
+    }
+    Ok(delete
+        .bind(cutoff)
+        .execute(db.executor())
+        .await?
+        .rows_affected())
+}
+
+/// Retention cleanup: deletes member `uid`'s notifications among `ids` that are still unread and arrived before
+/// `cutoff`, and takes them off the member's unread count, under the member row lock that marking read and new
+/// notifications take. Returns how many went.
+pub(crate) async fn delete_expired_unread(
+    db: &Database,
+    uid: i64,
+    ids: &[i64],
+    cutoff: i64,
+) -> Result<u64> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    let mut tx = db.begin_write().await?;
+    db::query("SELECT uid FROM gonof_common_member WHERE uid=? FOR UPDATE")
+        .bind(uid)
+        .fetch_one(db.observe(&mut *tx))
+        .await?;
+    let sql = format!(
+        "DELETE FROM gonof_home_notification WHERE id IN ({}) AND uid=? AND read_at=0 AND dateline<?",
+        vec!["?"; ids.len()].join(",")
+    );
+    let mut delete = db::query(&sql);
+    for id in ids {
+        delete = delete.bind(*id);
+    }
+    let removed = delete
+        .bind(uid)
+        .bind(cutoff)
+        .execute(db.observe(&mut *tx))
+        .await?
+        .rows_affected();
+    adjust_unread(db, &mut tx, uid, -i64::try_from(removed)?).await?;
+    tx.commit().await?;
+    Ok(removed)
+}
+
 pub(crate) async fn adjust_unread(
     db: &Database,
     tx: &mut Tx<'_>,

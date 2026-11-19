@@ -117,6 +117,12 @@ fn governance_types() -> Vec<&'static str> {
 /// Entries per notification page (a constant, not a setting).
 pub const PAGE_SIZE: usize = 20;
 
+/// The last page a notification list can have (docs/queries.md, "Page totals and the page cap"): the total is a
+/// count capped at this many pages and later pages are 404, so neither the count nor the `OFFSET` of a deep page
+/// reads more than this many pages of a member's notifications. Notifications past their retention period are
+/// deleted by the retention cleanup (`maintenance.rs`).
+pub const MAX_PAGES: usize = 100;
+
 /// All categories, without forum filtering; pages use [`list_in_category`].
 pub async fn list(
     db: &Database,
@@ -151,19 +157,28 @@ pub async fn list_in_category(
             crate::i18n::current().my_error_notification_page(),
         ));
     }
-    let count = crate::db::query(&format!(
-        "SELECT COUNT(*) AS total,MAX(n.id) AS max_id FROM gonof_home_notification n WHERE n.uid=?{}",
-        type_filter(category)
+    // What the page lists and "Mark all as read" marks: the notifications that existed when the page was read, up to
+    // the newest notification id of the site, a primary key lookup (no index gives a member's own newest id).
+    let max_id =
+        crate::db::query_scalar::<Option<i64>>("SELECT MAX(id) FROM gonof_home_notification")
+            .fetch_one(db.executor())
+            .await?
+            .unwrap_or(0);
+    let filter = type_filter(category);
+    let cap = MAX_PAGES
+        .checked_mul(page_size)
+        .context("notification page limit out of range")?;
+    let total: i64 = crate::db::query_scalar(&format!(
+        "SELECT COUNT(*) FROM (SELECT 1 FROM gonof_home_notification n WHERE n.uid=? AND n.id<=?{filter} LIMIT ?) capped"
     ))
     .bind(actor.uid)
+    .bind(max_id)
+    .bind(i64::try_from(cap).map_err(anyhow::Error::from)?)
     .fetch_one(db.executor())
     .await?;
-    let total: i64 = count.try_get("total")?;
-    let max_id = count.try_get::<Option<i64>, _>("max_id")?.unwrap_or(0);
-    if page > (total as usize).div_ceil(page_size).max(1) {
+    if page > (total as usize).div_ceil(page_size).clamp(1, MAX_PAGES) {
         return Err(ContentWriteError::NotFound);
     }
-    let filter = type_filter(category);
     let category_unread = if filter.is_empty() {
         unread > 0
     } else {
@@ -196,8 +211,7 @@ pub async fn list_in_category(
          LEFT JOIN gonof_forum_forum f ON f.fid=t.fid
          LEFT JOIN gonof_common_member actor ON actor.uid=n.authorid
          LEFT JOIN gonof_home_member_block blocked ON blocked.uid=n.uid AND blocked.blocked_uid=n.authorid
-         WHERE n.uid=? AND n.id<=?{} ORDER BY n.dateline DESC,n.id DESC LIMIT ? OFFSET ?",
-        type_filter(category),
+         WHERE n.uid=? AND n.id<=?{filter} ORDER BY n.dateline DESC,n.id DESC LIMIT ? OFFSET ?",
         governance = quoted(&governance_types()),
     ))
     .bind(actor.uid)

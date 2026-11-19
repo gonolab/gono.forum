@@ -139,6 +139,13 @@ their total from `gonof_common_member_count` and show it as it is, but stop at p
 member's own lists (`/my/threads`, `/my/posts`) count with the capped `SELECT COUNT(*) FROM (SELECT 1 … LIMIT ?)`,
 so their total reads at most 1,000 pages of the member's posts and shows at most that many.
 
+Notification lists (`notifications::list_in_category`) stop at `notifications::MAX_PAGES`, 100 pages of 20: the total
+is the capped `SELECT COUNT(*) FROM (SELECT 1 … LIMIT ?)` over the member's notifications of the category, and later
+pages are 404. What a page lists and "Mark all as read" marks is bounded by the site's newest notification id, read
+from the primary key when the page is read (no index gives a member's own newest id). Whether the listed category has
+anything unread, which decides whether "Mark all as read" is shown, is one `LIMIT 1` lookup on
+`gonof_notification_unread`. Old notifications are deleted by the retention cleanup ("Notification retention" below).
+
 ## Sidebars, the pinned block and feeds
 
 The asides of the home and board pages show hot and latest threads as `threads` blocks of their layout ([data.md](data.md);
@@ -418,6 +425,23 @@ export flushes the member's own session time first (`Identity::flush_presence`).
 
 On MySQL the session table uses the MEMORY engine: a database restart empties it, and last-online times from up to
 15 minutes before the restart are lost.
+
+## Notification retention
+
+Site notifications are kept for a time and then deleted by the retention cleanup (`maintenance.rs`, once a minute): a
+read notification `settings.maintenance.notification_read_retention_days` (30 by default) after it was read
+(`read_at`), an unread one `settings.maintenance.notification_unread_retention_days` (180 by default, never shorter
+than the read period) after it arrived (`dateline`). Both are set under Tools & maintenance › Maintenance, and the
+built-in privacy notice states them.
+
+Every index of `gonof_home_notification` starts with the member, so the cleanup walks the members: each round takes
+the next 1,000 uids from `gonof_common_member` in key order and looks up their expired notifications with
+`FORCE INDEX (gonof_notification_unread)`, one `(uid, read_at, dateline)` range per member, at most 500 of each kind.
+Read ones are deleted by primary key with the condition checked again. Unread ones are deleted member by member under
+the member row lock (the lock that marking read and new notifications take), with `read_at=0` checked again, and the
+member's `unread_notifications` goes down by the rows deleted. A round that finds a full batch stays on the same
+members; otherwise the next round carries on after the last uid, and a pass starts again at the beginning, so a
+notification can outlive its period by the time a pass takes.
 
 ## Checking consistency
 

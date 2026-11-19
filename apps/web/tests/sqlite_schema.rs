@@ -414,9 +414,9 @@ async fn both_backends_build_the_same_schema_and_seed_rows() {
         );
         assert_eq!(mysql.len(), sqlite.len(), "seed row count of {table}");
     }
-    // 143 seed rows in the baseline (settings 139, credit rules 3, content version 1) and the layout document's three
-    // settings rows from 0003.
-    assert_eq!(mysql_rows.values().map(Vec::len).sum::<usize>(), 146);
+    // 143 seed rows in the baseline (settings 139, credit rules 3, content version 1), the layout document's three
+    // settings rows from 0003 and the two notification retention settings from 0008.
+    assert_eq!(mysql_rows.values().map(Vec::len).sum::<usize>(), 148);
 
     let objects: i64 =
         db::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type IN ('trigger', 'view')")

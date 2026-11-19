@@ -895,7 +895,7 @@ mod tests {
             .into_iter()
             .map(|(key, _)| key.to_owned())
             .collect();
-        assert_eq!(scalars.len(), 134);
+        assert_eq!(scalars.len(), 136);
         assert_eq!(
             listed(&READ_SQL),
             scalars,

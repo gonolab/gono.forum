@@ -355,6 +355,31 @@ async fn built_in_privacy_text_follows_the_username_history_days() {
     f.f.cleanup().await.unwrap();
 }
 
+/// The built-in privacy notice states how long site notifications are kept, from the two retention settings of
+/// Tools & maintenance › Maintenance.
+#[tokio::test]
+async fn built_in_privacy_text_states_the_notification_retention() {
+    let f = Fixture::new().await;
+    let (status, html) = f.get("/privacy", false).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        html.contains("Site notifications are deleted 30 days after you read them, and those you never read 180 days after they arrived."),
+        "{html}"
+    );
+    f.update(|s| {
+        s.maintenance.notification_read_retention_days = 14;
+        s.maintenance.notification_unread_retention_days = 365;
+    })
+    .await;
+    let (_, html) = f.get("/privacy", false).await;
+    assert!(
+        html.contains(
+            "deleted 14 days after you read them, and those you never read 365 days after"
+        )
+    );
+    f.f.cleanup().await.unwrap();
+}
+
 /// The built-in bodies of sanction emails are written with the current appeal window and handling time; the three
 /// sanction email templates get two more variables `{{appeal_window_days}}` and `{{appeal_handling_days}}`, which the
 /// admin listing, preview and delivery all recognise (9.18 item 4).
