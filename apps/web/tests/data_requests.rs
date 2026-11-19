@@ -3146,3 +3146,105 @@ async fn an_erasure_resumed_from_a_pid_cursor_still_reaches_every_post() {
     );
     f.services.cleanup_ref().await.unwrap();
 }
+
+/// Closing an account finds the member's Outbox events through `gonof_outbox_aggregate (aggregate_type,
+/// aggregate_id)`: the update that empties and stops them, and the walk that removes their mail files, read the
+/// member's rows only, not the whole table (media and data request events are never cleaned up, so it only grows).
+#[tokio::test]
+async fn closing_finds_the_members_outbox_events_by_aggregate() {
+    let f = Fixture::new().await;
+    let now = identity::now();
+    let uid = f.user.member.uid;
+    gono_forum_web::test_support::outbox_backlog(&f.db, &["notification.email"], now)
+        .await
+        .unwrap();
+    for (key, status) in [("erase:sent", "sent"), ("erase:pending", "pending")] {
+        db::query("INSERT INTO gonof_common_outbox(event_key,event_type,aggregate_type,aggregate_id,payload,dateline,available_at,status) VALUES(?,'notification.email','member',?,'{\"to\":\"x\"}',?,?,?)")
+            .bind(key)
+            .bind(uid)
+            .bind(now + 86_400)
+            .bind(now + 86_400)
+            .bind(status)
+            .execute(f.db.executor())
+            .await
+            .unwrap();
+    }
+    privacy::submit(&f.db, &f.access(), f.request("close", "erase"), now)
+        .await
+        .unwrap();
+    let profile = Arc::new(RequestProfile::new());
+    trace::scope(
+        profile.clone(),
+        Box::pin(f.work(now + privacy::COOLING_SECONDS)),
+    )
+    .await;
+    for (key, status) in [("erase:sent", "sent"), ("erase:pending", "failed")] {
+        let row = db::query("SELECT status,payload FROM gonof_common_outbox WHERE event_key=?")
+            .bind(key)
+            .fetch_one(f.db.executor())
+            .await
+            .unwrap();
+        assert_eq!(db::text(&row, "status").unwrap(), status, "{key}");
+        assert_eq!(db::text(&row, "payload").unwrap(), "{}", "{key}");
+    }
+    let reads: Vec<_> = profile
+        .snapshot()
+        .into_iter()
+        .filter(|r| {
+            r.source == QuerySource::Application
+                && r.sql.contains("gonof_common_outbox")
+                && r.sql.contains("aggregate_type='member' AND aggregate_id=?")
+                && !r.sql.contains("eventid=?")
+        })
+        .collect();
+    assert!(
+        reads.iter().any(|r| r.sql.starts_with("UPDATE"))
+            && reads.iter().any(|r| r.sql.starts_with("SELECT")),
+        "the update and the mail file walk: {:?}",
+        reads.iter().map(|r| &r.sql).collect::<Vec<_>>()
+    );
+    for record in reads {
+        if f.db.backend() == db::Backend::Sqlite {
+            let plan = gono_forum_web::test_support::sqlite_plan(&f.db, &record.expanded_sql)
+                .await
+                .unwrap();
+            assert!(
+                plan.iter().any(|step| step.contains(
+                    "INDEX gonof_common_outbox__gonof_outbox_aggregate (aggregate_type=? AND aggregate_id=?"
+                )),
+                "{}\n{plan:?}",
+                record.sql
+            );
+            assert!(
+                !plan.iter().any(|step| step.contains("TEMP B-TREE")),
+                "{}\n{plan:?}",
+                record.sql
+            );
+            continue;
+        }
+        let plan = db::query(&format!("EXPLAIN {}", record.expanded_sql))
+            .fetch_all(f.db.executor())
+            .await
+            .unwrap();
+        let row = &plan[0];
+        let text = |column: &str| {
+            let ordinal = row
+                .columns()
+                .iter()
+                .position(|c| c.name() == column)
+                .unwrap();
+            row.try_get::<Option<Vec<u8>>, _>(ordinal)
+                .unwrap()
+                .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+                .unwrap_or_default()
+        };
+        assert_eq!(text("key"), "gonof_outbox_aggregate", "{}", record.sql);
+        assert!(
+            !text("Extra").contains("filesort"),
+            "{}\n{}",
+            record.sql,
+            text("Extra")
+        );
+    }
+    f.services.cleanup_ref().await.unwrap();
+}

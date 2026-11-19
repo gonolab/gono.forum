@@ -489,6 +489,11 @@ status, due time and lease again, since another process may have claimed it mean
 a few times at most. The media worker's turn among uploaders is a condition in each branch (`a.uid NOT IN (…)`).
 Looking up the forum merges in progress reads the same index, on type and status.
 
+Closing an account finds the member's events through `gonof_outbox_aggregate (aggregate_type, aggregate_id)`: the
+update that empties their payloads and stops the unsent ones, and the walk, by `eventid` in batches of 100 with the
+hint, that removes their mail files. Media and data request events are never cleaned up, so without the index both
+would read the whole table (`tests/data_requests.rs` checks both plans).
+
 `gonof_outbox_delivery (status, available_at, lease_until, eventid)` stays for the cleanup of sent events, which walks
 it in index order (`maintenance.rs`), and for the size of the queue on the admin home page.
 

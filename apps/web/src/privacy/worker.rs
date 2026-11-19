@@ -780,6 +780,7 @@ async fn close_account(
         .bind(uid)
         .execute(db.observe(&mut **tx))
         .await?;
+    // The member's events, found through `gonof_outbox_aggregate` (both planners pick it for the two equalities).
     db::query("UPDATE gonof_common_outbox SET payload='{}',status=IF(status='sent','sent','failed'),lease_token=NULL,lease_until=0,last_error=NULL WHERE aggregate_type='member' AND aggregate_id=?").bind(uid).execute(db.observe(&mut **tx)).await?;
     db::query("DELETE FROM gonof_common_log WHERE uid=? AND type LIKE 'identity.%' AND type<>'identity.role.assign'").bind(uid).execute(db.observe(&mut **tx)).await?;
     // Registration sources are deleted together with the registration log; the admin registration-source
@@ -938,7 +939,9 @@ async fn scrub_attachment(
 async fn cleanup_mail(db: &Database, uid: i64, mail_dir: &Path) -> anyhow::Result<()> {
     let mut before = 0;
     loop {
-        let ids:Vec<i64>=db::query_scalar("SELECT eventid FROM gonof_common_outbox WHERE aggregate_type='member' AND aggregate_id=? AND eventid>? ORDER BY eventid LIMIT 100").bind(uid).bind(before).fetch_all(db.executor()).await?;
+        // `gonof_outbox_aggregate` ends with the primary key, so the member's events come in eventid order; the hint
+        // keeps MySQL from walking the primary key for ORDER BY eventid LIMIT.
+        let ids:Vec<i64>=db::query_scalar("SELECT eventid FROM gonof_common_outbox FORCE INDEX (gonof_outbox_aggregate) WHERE aggregate_type='member' AND aggregate_id=? AND eventid>? ORDER BY eventid LIMIT 100").bind(uid).bind(before).fetch_all(db.executor()).await?;
         if ids.is_empty() {
             break;
         }
