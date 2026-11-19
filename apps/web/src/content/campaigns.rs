@@ -156,17 +156,9 @@ async fn run_plan_in_site(db: &Database, founder_uid: i64, path: &Path) -> Resul
     let mut credits_granted = 0usize;
     for grant in &plan.credits {
         let key = crate::identity::token_hash(&format!("seed-grant:{}", grant.uid));
-        activities::adjust(
-            db,
-            founder,
-            grant.uid,
-            grant.amount,
-            &key,
-            crate::i18n::current().activity_reason_seed(),
-            timestamp,
-        )
-        .await
-        .with_context(|| format!("granting points failed: uid={}", grant.uid))?;
+        activities::seed_grant(db, founder, grant.uid, grant.amount, &key, timestamp)
+            .await
+            .with_context(|| format!("granting points failed: uid={}", grant.uid))?;
         credits_granted += 1;
     }
 
@@ -336,6 +328,73 @@ mod tests {
             .unwrap(),
             1
         );
+        services.cleanup().await.unwrap();
+    }
+
+    /// A plan whose credit grant went through, run again after the site language changed, finds that grant again and
+    /// goes on with the rest (#123): the grant is a system `seed_grant` row, compared by kind, not by its reason text.
+    #[tokio::test]
+    async fn a_plan_resumes_after_the_site_language_changed() {
+        let services = crate::test_support::TestFixture::migrated().await.unwrap();
+        let db = &services.db;
+        crate::content::seed_forums(db).await.unwrap();
+        crate::test_support::raise_posting_quotas(db).await.unwrap();
+        for (uid, adminid) in [(9841, 1), (9842, 0)] {
+            crate::db::query("INSERT INTO gonof_common_member(uid,username,password,email,emailstatus,adminid,regdate) VALUES(?,?,'synthetic-hash',?,1,?,1)")
+                .bind(uid)
+                .bind(format!("plan-{uid}"))
+                .bind(format!("plan-{uid}@example.test"))
+                .bind(adminid)
+                .execute(db.executor())
+                .await
+                .unwrap();
+        }
+        let slug: String =
+            crate::db::query_scalar("SELECT slug FROM gonof_forum_forum ORDER BY fid LIMIT 1")
+                .fetch_one(db.executor())
+                .await
+                .unwrap();
+        let plan = |forum: &str| {
+            serde_json::json!({
+                "credits": [{"uid": 9842, "amount": 300}],
+                "campaigns": [
+                    {"label": "language-poll", "owner_uid": 9842, "forum_slug": forum, "title": "Language poll",
+                     "body": "Pick one", "kind": 4, "deadline_offset_seconds": 86_400, "options": ["Yes", "No"]},
+                ],
+            })
+            .to_string()
+        };
+        let path = services.root.join("plan.json");
+        std::fs::create_dir_all(&services.root).unwrap();
+        std::fs::write(&path, plan("no-such-forum")).unwrap();
+        assert!(run_plan(db, 9841, &path).await.is_err());
+        crate::test_support::set_setting(db, "settings.site.language", "zh-CN")
+            .await
+            .unwrap();
+        std::fs::write(&path, plan(&slug)).unwrap();
+        let summary = run_plan(db, 9841, &path).await.unwrap();
+        assert_eq!(summary.credits_granted, 1);
+        assert_eq!(summary.campaigns_published.len(), 1);
+        let row = crate::db::query(
+            "SELECT COUNT(*) AS grants,MAX(kind) AS kind,MAX(reason) AS reason FROM gonof_common_credit_ledger WHERE uid=9842 AND available_delta=300",
+        )
+        .fetch_one(db.executor())
+        .await
+        .unwrap();
+        assert_eq!(row.try_get::<i64, _>("grants").unwrap(), 1);
+        assert_eq!(crate::db::text(&row, "kind").unwrap(), "seed_grant");
+        // Stored in the language of the first run, shown in the reader's language.
+        assert_eq!(
+            crate::db::text(&row, "reason").unwrap(),
+            crate::i18n::Lang::EN.activity_reason_seed()
+        );
+        let available: i64 = crate::db::query_scalar(
+            "SELECT available FROM gonof_common_credit_account WHERE uid=9842",
+        )
+        .fetch_one(db.executor())
+        .await
+        .unwrap();
+        assert_eq!(available, 300);
         services.cleanup().await.unwrap();
     }
 }

@@ -162,6 +162,7 @@ async fn credits(Page(state): Page, Query(query): Query<CreditQuery>) -> Respons
                 "thread" => lang.activity_ledger_thread_reward().into(),
                 "reply" => lang.activity_ledger_reply_reward().into(),
                 "admin_adjust" => lang.activity_ledger_adjust().into(),
+                "seed_grant" => lang.activity_ledger_seed().into(),
                 "activity_reserve" => lang.activity_ledger_reserve(activity),
                 "activity_refund" => lang.activity_ledger_refund(activity),
                 "activity_payout" => lang.activity_ledger_payout(activity),

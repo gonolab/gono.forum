@@ -15,7 +15,7 @@ pub use campaign::{
 pub use ledger::{
     CreditPage, CreditReconciliation, LedgerItem, Rule, SigninState, adjust, check_in,
     check_in_live, credit_page, reconcile_credits, reward_content, reward_content_live, rules,
-    signin_state, system_reason, update_rule,
+    seed_grant, signin_state, system_reason, update_rule,
 };
 pub use lottery::{
     CODE_MAX_CHARS, CodeBoard, CodePrize, CodeRekeyReport, CodeSlot, ENTRY_PAGE,

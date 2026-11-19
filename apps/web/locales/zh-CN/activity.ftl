@@ -150,6 +150,7 @@ activity-ledger-signin = 签到奖励
 activity-ledger-thread-reward = 主题奖励
 activity-ledger-reply-reward = 回复奖励
 activity-ledger-adjust = 管理员调整
+activity-ledger-seed = 初始积分
 activity-ledger-reserve = { $activity }冻结
 activity-ledger-refund = { $activity }退款
 activity-ledger-payout = { $activity }发奖

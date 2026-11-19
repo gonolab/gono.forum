@@ -214,6 +214,7 @@ activity-ledger-signin = Check-in reward
 activity-ledger-thread-reward = Thread reward
 activity-ledger-reply-reward = Reply reward
 activity-ledger-adjust = Adjusted by an administrator
+activity-ledger-seed = Initial points
 activity-ledger-reserve = { $activity } budget frozen
 activity-ledger-refund = { $activity } refund
 activity-ledger-payout = { $activity } payout
@@ -354,7 +355,8 @@ activity-error-tip-withdrawn = The thread was withdrawn and cannot be tipped
 activity-error-tip-blocked = This thread cannot be tipped right now
 activity-error-tipped = You have already tipped this thread
 activity-error-tip-daily = You have reached today's tipping limit
-# The reason of the points granted to test accounts by the command-line activity plan (shown like an administrator's).
+# The reason of the points granted to test accounts by the command-line activity plan, shown in the reader's
+# language like the other system reasons.
 activity-reason-seed = Initial points for the test environment
 # The points page of the admin area; $credit is the site's name for its points.
 activity-manage-heading = { $credit } rules and adjustments

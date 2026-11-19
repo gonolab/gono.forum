@@ -61,6 +61,7 @@ pub fn system_reason(kind: &str, lang: crate::i18n::Lang) -> Option<&'static str
         "activity_refund" => lang.activity_reason_refund(),
         "tip_out" => lang.activity_reason_tip_out(),
         "tip_in" => lang.activity_reason_tip_in(),
+        "seed_grant" => lang.activity_reason_seed(),
         _ => return None,
     })
 }
@@ -369,15 +370,37 @@ pub async fn adjust(
     reason: &str,
     now: i64,
 ) -> Result<()> {
-    retry_transaction(|| adjust_inner(db, actor, uid, amount, key, reason, now)).await
+    retry_transaction(|| adjust_inner(db, actor, uid, amount, key, ("admin_adjust", reason), now))
+        .await
 }
+
+/// The initial points an activity plan grants (`gono-forum-cli run-campaign-plan`): an administrator's adjustment
+/// with the system kind `seed_grant`, whose reason is the system text in the language of the moment. A plan run
+/// again after a failure finds its earlier grants by event key and compares the kind and amounts only, so changing
+/// the site language in between does not make them look like a different operation. The event key is the
+/// adjustment's, so a grant is never booked twice.
+pub async fn seed_grant(
+    db: &Database,
+    actor: Actor,
+    uid: i64,
+    amount: i64,
+    key: &str,
+    now: i64,
+) -> Result<()> {
+    retry_transaction(|| {
+        let reason = system_reason("seed_grant", crate::i18n::current()).unwrap_or_default();
+        adjust_inner(db, actor, uid, amount, key, ("seed_grant", reason), now)
+    })
+    .await
+}
+
 async fn adjust_inner(
     db: &Database,
     actor: Actor,
     uid: i64,
     amount: i64,
     key: &str,
-    reason: &str,
+    (kind, reason): (&str, &str),
     now: i64,
 ) -> Result<()> {
     valid(
@@ -406,7 +429,7 @@ async fn adjust_inner(
         &format!("adjust:{}:{key}", actor.uid),
         amount,
         0,
-        "admin_adjust",
+        kind,
         None,
         None,
         Some(actor.uid),

@@ -373,6 +373,7 @@ pub(super) fn credit_gain_label(kind: &str) -> &'static str {
         "thread" => crate::i18n::current().activity_ledger_thread_reward(),
         "reply" => crate::i18n::current().activity_ledger_reply_reward(),
         "admin_adjust" => crate::i18n::current().activity_ledger_adjust(),
+        "seed_grant" => crate::i18n::current().activity_ledger_seed(),
         "activity_reward" => crate::i18n::current().activity_gain_reward(),
         "activity_refund" => crate::i18n::current().activity_gain_refund(),
         _ => crate::i18n::current().activity_gain_other(),
