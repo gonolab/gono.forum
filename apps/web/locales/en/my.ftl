@@ -132,6 +132,8 @@ my-error-request-invalid = Invalid request
 my-error-recipient-deleted = This member's account has been deleted; you can no longer send them private messages
 my-error-message-key-used = This send request was already used for other content; refresh the page and send again
 my-error-member-not-found = Member not found
+# A message started from a profile whose username, left as prefilled, now names someone else.
+my-error-recipient-renamed = This username now belongs to a different member than the one you started writing to. Check the recipient and send again
 my-error-too-many-attempts = Too many attempts, please try again later
 # A report result or sanction notification addressed to someone else (asserted by tests, so it stays a message).
 my-error-notification-owner = The notification's recipient is not the reporter or the sanctioned member

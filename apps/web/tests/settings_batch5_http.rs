@@ -278,9 +278,10 @@ async fn topic_list_times_follow_the_relative_time_settings() {
     f.f.cleanup().await.unwrap();
 }
 
-/// Form limits are derived from server constants, choosing the conservative limit: title 255 and private message
-/// 2000 counted in characters, and the browser's UTF-16 count is never less than the character count; search is 300
-/// bytes divided by 3.
+/// Form limits are derived from server constants, choosing the conservative limit: title 255 counted in characters,
+/// and the browser's UTF-16 count is never less than the character count; search is 300 bytes divided by 3. The
+/// private message field has no browser limit: it would cut a pasted message of 2,000 characters with emoji in it,
+/// which the server accepts, so only the hint states the limit.
 #[tokio::test]
 async fn form_limits_come_from_the_server_constants() {
     let f = Fixture::new().await;
@@ -299,10 +300,8 @@ async fn form_limits_come_from_the_server_constants() {
     assert!(html.contains("type=\"search\" name=\"q\" placeholder=\"Search\" maxlength=\"100\""));
     let (status, html) = f.get("/my/messages/new", true).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(html.contains(&format!(
-        "name=\"body\" rows=\"5\" maxlength=\"{}\"",
-        messages::BODY_MAX
-    )));
+    assert!(html.contains("name=\"body\" rows=\"5\" required>"));
+    assert_eq!(messages::BODY_MAX, 2000);
     assert!(html.contains("Up to 2,000 characters"), "{html}");
     // The search box's 100 UTF-16 units are at most 300 bytes: the server still only blocks more than 300 bytes.
     // "\u{6587}" is a Chinese character: one UTF-16 unit and 3 bytes in UTF-8, so 100 of them are exactly 300 bytes.

@@ -105,6 +105,7 @@ my-error-request-invalid = 请求标识无效
 my-error-recipient-deleted = 对方账号已注销，不能再发送私信
 my-error-message-key-used = 此发送请求已用于其他内容，请刷新页面后重新发送
 my-error-member-not-found = 找不到该会员
+my-error-recipient-renamed = 这个用户名现在属于另一位会员，不是你开始写信时的那位。请核对收件人后再发送
 my-error-too-many-attempts = 尝试次数较多，请稍后再试
 my-error-notification-owner = 通知的收件人不是举报人或受罚人本人
 my-message-entry-read-only = 站点只读期间不能发私信

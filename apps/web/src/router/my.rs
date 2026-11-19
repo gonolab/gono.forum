@@ -886,6 +886,8 @@ struct ConversationTemplate<'a> {
     p: PageMeta<'a>,
     frame: Frame,
     thread: ThreadView,
+    /// Why a reply cannot be sent to the active counterpart (`posting::message_refusal`); empty shows the form.
+    refusal: &'static str,
     request_key: String,
     message: String,
     body: String,
@@ -902,6 +904,25 @@ struct ComposeTemplate<'a> {
     message: String,
     username: String,
     body: String,
+    addressed: Option<Addressed>,
+}
+
+/// The member a new message was started for (`?to=`): the form carries their uid and the name it was prefilled with,
+/// so a submission that left the name alone is checked against that member (`compose`).
+struct Addressed {
+    uid: i64,
+    name: String,
+}
+
+/// What the new message form is rendered with.
+#[derive(Default)]
+struct ComposeDraft {
+    message: String,
+    username: String,
+    body: String,
+    addressed: Option<Addressed>,
+    /// The request key of the submission being refilled; empty generates a new one.
+    request_key: String,
 }
 
 #[derive(Deserialize)]
@@ -918,6 +939,11 @@ struct ComposeForm {
     request_key: String,
     username: String,
     body: String,
+    /// The uid and name of [`Addressed`], present when the form was prefilled from `?to=`.
+    #[serde(default)]
+    to: Option<i64>,
+    #[serde(default)]
+    to_name: String,
 }
 crate::router::extract::csrf_forms!(ComposeForm);
 
@@ -992,6 +1018,23 @@ fn message_error(state: &AppState, error: crate::content::writes::ContentWriteEr
     error_page(state, status, &message)
 }
 
+/// The request key a refilled form carries: the submitted one while it is still free (`messages::keeps_request_key`),
+/// so sending the refilled form cannot deliver a second copy of a message that did go out; otherwise a new one.
+fn refill_key(
+    submitted: &str,
+    error: Option<&crate::content::writes::ContentWriteError>,
+) -> String {
+    if crate::identity::valid_request_key(submitted)
+        && error.is_none_or(crate::messages::keeps_request_key)
+    {
+        submitted.to_owned()
+    } else {
+        crate::identity::random_token()
+    }
+}
+
+/// `request_key` is the key of the reply being refilled ([`refill_key`]); empty generates a new one.
+#[allow(clippy::too_many_arguments)]
 async fn conversation_view(
     state: &AppState,
     actor: crate::identity::Actor,
@@ -999,6 +1042,7 @@ async fn conversation_view(
     page: Option<usize>,
     message: String,
     body: String,
+    request_key: String,
     status: StatusCode,
 ) -> Response {
     let thread = match crate::messages::conversation(
@@ -1024,6 +1068,20 @@ async fn conversation_view(
     if let Some(error) = fill_shell(state, &mut p).await {
         return error;
     }
+    let refusal = match (&state.viewer.session, thread.counterpart_state.as_str()) {
+        (Some(session), "active") => match crate::router::posting::message_refusal(
+            state,
+            &session.member,
+            thread.counterpart_uid,
+            true,
+        )
+        .await
+        {
+            Ok(refusal) => refusal,
+            Err(error) => return database_error(state, error),
+        },
+        _ => "",
+    };
     let last = (thread.total as usize)
         .div_ceil(crate::messages::PAGE_SIZE)
         .max(1);
@@ -1046,7 +1104,12 @@ async fn conversation_view(
         p,
         frame: frame("messages"),
         thread: view,
-        request_key: crate::identity::random_token(),
+        refusal,
+        request_key: if request_key.is_empty() {
+            crate::identity::random_token()
+        } else {
+            request_key
+        },
         message,
         body,
         previous: if page > 1 {
@@ -1080,6 +1143,7 @@ async fn conversation(
         query.page,
         String::new(),
         String::new(),
+        String::new(),
         StatusCode::OK,
     )
     .await
@@ -1110,6 +1174,7 @@ async fn reply(
                 None,
                 crate::i18n::current().my_error_message_rate().into(),
                 form.body,
+                refill_key(&form.request_key, None),
                 StatusCode::TOO_MANY_REQUESTS,
             )
             .await;
@@ -1119,16 +1184,17 @@ async fn reply(
     match crate::messages::send(&state.db, actor, target, &form.body, &form.request_key).await {
         Ok(_) => auth::redirect(&format!("/my/messages/{id}")),
         Err(error) => {
+            let key = refill_key(&form.request_key, Some(&error));
             let (status, message) = crate::router::posting::write_error(error);
-            conversation_view(&state, actor, id, None, message, form.body, status).await
+            conversation_view(&state, actor, id, None, message, form.body, key, status).await
         }
     }
 }
 
 #[derive(Default, Deserialize)]
 struct ComposeQuery {
-    /// The other party's uid brought by the "Messages" entry on a member's home page, only used to prefill the
-    /// username; submission still finds the recipient by the username in the form.
+    /// The other party's uid brought by the "Messages" entry on a member's home page. It prefills the username, and
+    /// the form carries it along ([`Addressed`]) so the name cannot quietly lead to someone else on submission.
     to: Option<i64>,
 }
 
@@ -1136,36 +1202,43 @@ async fn compose_page(
     PageState(state): PageState,
     query: Result<Query<ComposeQuery>, axum::extract::rejection::QueryRejection>,
 ) -> Response {
-    let actor = match signed_in(&state, "/my/messages/new") {
+    // A malformed parameter is not an error and is treated as absent: this is only a prefill.
+    let to = query
+        .ok()
+        .and_then(|Query(query)| query.to)
+        .filter(|uid| *uid > 0);
+    // Signing in again comes back to the same recipient.
+    let path = to.map_or_else(
+        || "/my/messages/new".to_owned(),
+        |uid| format!("/my/messages/new?to={uid}"),
+    );
+    let actor = match signed_in(&state, &path) {
         Ok(actor) => actor,
         Err(response) => return response,
     };
-    // A malformed parameter is not an error and is treated as absent: this is only a prefill.
-    let to = query.ok().and_then(|Query(query)| query.to);
-    let username = match to.filter(|uid| *uid > 0 && *uid != actor.uid) {
+    let addressed = match to.filter(|uid| *uid != actor.uid) {
         Some(uid) => match crate::messages::recipient_name(&state.db, uid).await {
-            Ok(name) => name.unwrap_or_default(),
+            Ok(name) => name.map(|name| Addressed { uid, name }),
             Err(error) => return database_error(&state, error),
         },
-        None => String::new(),
+        None => None,
     };
     compose_view(
         &state,
-        String::new(),
-        username,
-        String::new(),
+        ComposeDraft {
+            username: addressed
+                .as_ref()
+                .map(|addressed| addressed.name.clone())
+                .unwrap_or_default(),
+            addressed,
+            ..ComposeDraft::default()
+        },
         StatusCode::OK,
     )
     .await
 }
 
-async fn compose_view(
-    state: &AppState,
-    message: String,
-    username: String,
-    body: String,
-    status: StatusCode,
-) -> Response {
+async fn compose_view(state: &AppState, draft: ComposeDraft, status: StatusCode) -> Response {
     let mut p = meta(
         state,
         crate::i18n::current().my_compose_title().into(),
@@ -1180,10 +1253,15 @@ async fn compose_view(
     let mut response = render(&ComposeTemplate {
         p,
         frame: frame("messages"),
-        request_key: crate::identity::random_token(),
-        message,
-        username,
-        body,
+        request_key: if draft.request_key.is_empty() {
+            crate::identity::random_token()
+        } else {
+            draft.request_key
+        },
+        message: draft.message,
+        username: draft.username,
+        body: draft.body,
+        addressed: draft.addressed,
     });
     *response.status_mut() = status;
     response
@@ -1194,21 +1272,63 @@ async fn compose(PageState(state): PageState, CsrfForm(form): CsrfForm<ComposeFo
         Ok(actor) => actor,
         Err(response) => return response,
     };
+    // A refilled form keeps the member it was started for, as long as its name is still the one prefilled.
+    let addressed = form.to.filter(|uid| *uid > 0).map(|uid| Addressed {
+        uid,
+        name: form.to_name.clone(),
+    });
+    let refill =
+        |message: String, error: Option<&crate::content::writes::ContentWriteError>| ComposeDraft {
+            message,
+            username: form.username.clone(),
+            body: form.body.clone(),
+            addressed: addressed.as_ref().map(|addressed| Addressed {
+                uid: addressed.uid,
+                name: addressed.name.clone(),
+            }),
+            request_key: refill_key(&form.request_key, error),
+        };
     let target = match crate::messages::find_member(&state.db, &form.username).await {
         Ok(uid) => uid,
         Err(error) => {
+            let draft = refill(String::new(), Some(&error));
             let (status, message) = crate::router::posting::write_error(error);
-            return compose_view(&state, message, form.username, form.body, status).await;
+            return compose_view(&state, ComposeDraft { message, ..draft }, status).await;
         }
     };
+    // The name was prefilled for one member and left as it was, yet it now leads to another: that member changed
+    // their name and someone else took the old one. Ask instead of delivering to the new owner; the field shows the
+    // intended member's current name when they can still receive messages.
+    if let Some(intended) = addressed.as_ref().filter(|addressed| {
+        crate::messages::normalized_username(&form.username)
+            == crate::messages::normalized_username(&addressed.name)
+    }) && intended.uid != target
+    {
+        let current = match crate::messages::recipient_name(&state.db, intended.uid).await {
+            Ok(name) => name,
+            Err(error) => return database_error(&state, error),
+        };
+        let uid = intended.uid;
+        return compose_view(
+            &state,
+            ComposeDraft {
+                username: current.clone().unwrap_or_default(),
+                addressed: current.map(|name| Addressed { uid, name }),
+                ..refill(
+                    crate::i18n::current().my_error_recipient_renamed().into(),
+                    None,
+                )
+            },
+            StatusCode::CONFLICT,
+        )
+        .await;
+    }
     match message_send_allowed(&state, actor.uid, target).await {
         Ok(true) => {}
         Ok(false) => {
             return compose_view(
                 &state,
-                crate::i18n::current().my_error_message_rate().into(),
-                form.username,
-                form.body,
+                refill(crate::i18n::current().my_error_message_rate().into(), None),
                 StatusCode::TOO_MANY_REQUESTS,
             )
             .await;
@@ -1218,8 +1338,9 @@ async fn compose(PageState(state): PageState, CsrfForm(form): CsrfForm<ComposeFo
     match crate::messages::send(&state.db, actor, target, &form.body, &form.request_key).await {
         Ok(thread_id) => auth::redirect(&format!("/my/messages/{thread_id}")),
         Err(error) => {
+            let draft = refill(String::new(), Some(&error));
             let (status, message) = crate::router::posting::write_error(error);
-            compose_view(&state, message, form.username, form.body, status).await
+            compose_view(&state, ComposeDraft { message, ..draft }, status).await
         }
     }
 }

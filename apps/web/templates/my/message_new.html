@@ -9,13 +9,17 @@
     <form class="fields" method="post" action="{{ crate::site::base() }}/my/messages/new">
       <input type="hidden" name="_csrf" value="{{ p.csrf }}">
       <input type="hidden" name="request_key" value="{{ request_key }}">
+      {%- if let Some(addressed) = addressed %}
+      <input type="hidden" name="to" value="{{ addressed.uid }}">
+      <input type="hidden" name="to_name" value="{{ addressed.name }}">
+      {%- endif %}
       <div class="field">
         <label class="field__label" for="compose-username">{{ p.t.my_compose_recipient() }}</label>
         <input id="compose-username" name="username" value="{{ username }}" maxlength="50" required>
       </div>
       <div class="field">
         <label class="field__label" for="compose-body">{{ p.t.my_compose_body() }}</label>
-        <textarea id="compose-body" aria-describedby="compose-body-hint" name="body" rows="5" maxlength="{{ crate::messages::BODY_MAX }}" required>{{ body }}</textarea>
+        <textarea id="compose-body" aria-describedby="compose-body-hint" name="body" rows="5" required>{{ body }}</textarea>
         <p class="field__hint" id="compose-body-hint">{{ p.t.my_compose_body_hint(crate::messages::BODY_MAX) }}</p>
       </div>
       <button class="button button--block" type="submit">{{ p.t.my_send() }}</button>

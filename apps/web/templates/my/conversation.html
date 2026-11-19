@@ -9,14 +9,27 @@
   {% else %}<li class="empty">{{ p.t.my_conversation_empty() }}</li>{% endfor %}
   </ol>
   <nav class="form-actions" aria-label="{{ p.t.common_pagination() }}">{% if !previous.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(previous) }}">{{ p.t.my_conversation_older() }}</a>{% endif %}{% if !next.is_empty() %}<a class="button button--secondary" href="{{ crate::site::href(next) }}">{{ p.t.my_conversation_newer() }}</a>{% endif %}</nav>
-  {%- if thread.counterpart_state == "active" %}
+  {%- if thread.counterpart_state == "active" && !refusal.is_empty() %}
+  {%- if message != refusal %}
+  <p class="intro" data-reply-refused>{{ refusal }}</p>
+  {%- endif %}
+  {%- if !body.is_empty() %}
+  {#- A refused reply keeps its text on the page to copy, outside any form. #}
+  <section class="panel">
+    <div class="field">
+      <label class="field__label" for="reply-body">{{ p.t.my_conversation_reply() }}</label>
+      <textarea id="reply-body" rows="4" readonly>{{ body }}</textarea>
+    </div>
+  </section>
+  {%- endif %}
+  {%- else if thread.counterpart_state == "active" %}
   <section class="panel">
     <form class="fields" method="post" action="{{ crate::site::base() }}/my/messages/{{ thread.thread_id }}/replies">
       <input type="hidden" name="_csrf" value="{{ p.csrf }}">
       <input type="hidden" name="request_key" value="{{ request_key }}">
       <div class="field">
         <label class="field__label" for="reply-body">{{ p.t.my_conversation_reply() }}</label>
-        <textarea id="reply-body" name="body" rows="4" maxlength="{{ crate::messages::BODY_MAX }}" required>{{ body }}</textarea>
+        <textarea id="reply-body" name="body" rows="4" required>{{ body }}</textarea>
       </div>
       <button class="button button--block" type="submit">{{ p.t.my_send() }}</button>
     </form>

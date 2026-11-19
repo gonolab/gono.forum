@@ -390,6 +390,11 @@ pub fn recipient_refuses() -> &'static str {
     crate::i18n::current().my_error_recipient_refuses()
 }
 
+/// CRLF and lone CR line breaks become LF: the form of a textarea's value that the page counts (its API value).
+fn normalize_line_breaks(body: &str) -> String {
+    body.replace("\r\n", "\n").replace('\r', "\n")
+}
+
 /// Send a private message, creating the conversation if it does not exist. Returns the conversation id.
 ///
 /// When blocked by the recipient the hint is always "This member does not accept your private messages", without
@@ -424,6 +429,14 @@ pub async fn send(
     unreachable!("the final attempt returns its result")
 }
 
+/// Whether a failed send leaves its request key free, so the form refilled after the failure can carry the same key:
+/// if an earlier submission with that key was in fact delivered (its response lost), sending the refilled form returns
+/// that message instead of a second copy. Only a key already used for another body has to be replaced.
+pub fn keeps_request_key(error: &ContentWriteError) -> bool {
+    !matches!(error, ContentWriteError::Conflict(message)
+        if *message == crate::i18n::current().my_error_message_key_used())
+}
+
 /// Mapping when locking sender and recipient fails: only a nonexistent account is a 404; database errors (deadlocks
 /// included) are passed through as is, for the caller to judge whether to retry.
 fn lock_failure(error: anyhow::Error) -> ContentWriteError {
@@ -444,6 +457,9 @@ async fn send_once(
     body: &str,
     request_key: &str,
 ) -> Result<i64, ContentWriteError> {
+    // Browsers send a textarea's line breaks as CRLF but count each as one character, and the hint promises
+    // characters as typed: count and store with LF line breaks, so a message that fits on the page fits here.
+    let body = normalize_line_breaks(body);
     let body = body.trim();
     if body.is_empty() || body.chars().count() > BODY_MAX {
         return Err(ContentWriteError::Validation(
@@ -682,13 +698,17 @@ pub async fn recipient_name(db: &Database, uid: i64) -> anyhow::Result<Option<St
         .transpose()
 }
 
+/// The same normalization as address resolution: NFKC, then lowercase, with surrounding whitespace trimmed.
+pub fn normalized_username(username: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    username.trim().nfkc().collect::<String>().to_lowercase()
+}
+
 /// Find the recipient by username; not found or deleted both count as nonexistent. Accounts in the deletion cooling-off
 /// period are found as usual and the send transaction says plainly "This member is closing their account …", the same
 /// sentence as the profile page's message entry.
 pub async fn find_member(db: &Database, username: &str) -> Result<i64, ContentWriteError> {
-    // The same normalization as address resolution: NFKC, then lowercase, with surrounding whitespace trimmed.
-    use unicode_normalization::UnicodeNormalization;
-    let normalized = username.trim().nfkc().collect::<String>().to_lowercase();
+    let normalized = normalized_username(username);
     let row =
         crate::db::query("SELECT uid,account_state FROM gonof_common_member WHERE username=?")
             .bind(&normalized)

@@ -1561,25 +1561,39 @@ async fn message_entry(
     if viewer.uid == member.uid {
         return Ok(None);
     }
-    let reason = if state.frame.settings.site.read_only {
+    let reason = message_refusal(state, viewer, member.uid, member.active).await?;
+    Ok(Some(MessageEntry {
+        href: format!("/my/messages/new?to={}", member.uid),
+        reason,
+    }))
+}
+
+/// Why `viewer` cannot send a private message to `recipient` right now, or an empty string when they can: the rules
+/// of the send transaction (`messages::send`) that a page can tell in advance, in the sentences the refused send
+/// would give. `active` is whether the recipient's account is normal (a deleted one has no profile, so not active
+/// means closing). Shared by the profile's message entry and the reply form of a conversation, so a conversation
+/// does not offer a reply that sending would refuse.
+pub(super) async fn message_refusal(
+    state: &AppState,
+    viewer: &identity::Member,
+    recipient: i64,
+    active: bool,
+) -> anyhow::Result<&'static str> {
+    Ok(if state.frame.settings.site.read_only {
         crate::i18n::current().my_message_entry_read_only()
     } else if !viewer.can_contribute() {
         crate::login::Participation::current()
             .message(crate::i18n::current().my_message_entry_verify_email())
-    } else if !member.active {
+    } else if !active {
         crate::messages::recipient_deleting()
-    } else if !crate::interaction::social::blocked_uids(&state.db, member.uid, &[viewer.uid])
+    } else if !crate::interaction::social::blocked_uids(&state.db, recipient, &[viewer.uid])
         .await?
         .is_empty()
     {
         crate::messages::recipient_refuses()
     } else {
         ""
-    };
-    Ok(Some(MessageEntry {
-        href: format!("/my/messages/new?to={}", member.uid),
-        reason,
-    }))
+    })
 }
 
 /// The reverse of `parse_deadline`: writes a timestamp as the text the datetime-local control expects.

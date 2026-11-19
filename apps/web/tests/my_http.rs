@@ -1126,3 +1126,312 @@ async fn unregistered_my_paths_stay_out_of_the_public_member_route() {
         }
     }
 }
+
+async fn add_member(db: &Database, uid: i64, username: &str) {
+    gono_forum_web::db::query("INSERT INTO gonof_common_member(uid,username,password,email,emailstatus,regdate) VALUES(?,?,'synthetic-hash',?,1,1)")
+        .bind(uid)
+        .bind(username)
+        .bind(format!("member-{uid}@example.test"))
+        .execute(db.executor())
+        .await
+        .unwrap();
+}
+
+/// The value of the hidden request key field of a rendered form.
+fn request_key_in(html: &str) -> &str {
+    html.split_once("name=\"request_key\" value=\"")
+        .expect("the form carries a request key")
+        .1
+        .split_once('"')
+        .unwrap()
+        .0
+}
+
+async fn message_count(db: &Database) -> i64 {
+    gono_forum_web::db::query_scalar("SELECT COUNT(*) FROM gonof_home_message")
+        .fetch_one(db.executor())
+        .await
+        .unwrap()
+}
+
+// The page counts a textarea's characters with LF line breaks and the server counts what it receives: the fields
+// carry no browser limit counted in UTF-16 units, and the server counts a CRLF from the browser as one character.
+#[tokio::test]
+async fn message_fields_hold_what_the_server_accepts() {
+    let fixture = Fixture::new().await;
+    add_member(&fixture.db, 9401, "line-breaks").await;
+    let (status, _, html) = fixture.get("/my/messages/new", true).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        !html.contains("maxlength=\"2000\""),
+        "the new message field must not cut what the server accepts"
+    );
+    // 1,000 lines as a browser submits them: 1,999 characters as typed, 2,998 with CRLF counted as two.
+    let body = "x\r\n".repeat(1000);
+    let (status, location, html) = fixture
+        .post(
+            "/my/messages/new",
+            &[
+                ("username", "line-breaks".into()),
+                ("body", body),
+                ("request_key", "a".repeat(64)),
+            ],
+        )
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let stored: String = gono_forum_web::db::query_scalar("SELECT body FROM gonof_home_message")
+        .fetch_one(fixture.db.executor())
+        .await
+        .unwrap();
+    assert_eq!(stored, ["x"; 1000].join("\n"));
+    let (status, _, html) = fixture.get(&location, true).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        !html.contains("maxlength=\"2000\""),
+        "the reply field must not cut what the server accepts"
+    );
+    fixture._services.cleanup_ref().await.unwrap();
+}
+
+// A send refused by the rate limit may be the replay of one that went out: the refilled form keeps its request key,
+// so sending it later returns that message instead of a second copy.
+#[tokio::test]
+async fn refused_sends_refill_their_request_key() {
+    let fixture = Fixture::new().await;
+    add_member(&fixture.db, 9401, "replayed").await;
+    let me = identity::Actor {
+        uid: 9301,
+        credentials_version: 1,
+        api_key: None,
+    };
+    gono_forum_web::db::query("UPDATE gonof_common_member SET adminid=1 WHERE uid=9301")
+        .execute(fixture.db.executor())
+        .await
+        .unwrap();
+    gono_forum_web::runtime::update(
+        &fixture.db,
+        &fixture._services.global,
+        me,
+        "site.settings.save",
+        |s| s.limit.message_peer_per_minute = 1,
+    )
+    .await
+    .unwrap();
+    let key = "b".repeat(64);
+    let fields = |key: &str| {
+        vec![
+            ("username", "replayed".to_owned()),
+            ("body", "Delivered, but the answer was lost".to_owned()),
+            ("request_key", key.to_owned()),
+        ]
+    };
+    let (status, location, _) = fixture.post("/my/messages/new", &fields(&key)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (status, _, html) = fixture.post("/my/messages/new", &fields(&key)).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(request_key_in(&html), key);
+    // Sending the refilled form once the window has passed.
+    gono_forum_web::messages::send(
+        &fixture.db,
+        me,
+        9401,
+        "Delivered, but the answer was lost",
+        request_key_in(&html),
+    )
+    .await
+    .unwrap();
+    assert_eq!(message_count(&fixture.db).await, 1);
+    let reply_key = "c".repeat(64);
+    let (status, _, html) = fixture
+        .post(
+            &format!("{location}/replies"),
+            &[
+                ("body", "A reply over the limit".into()),
+                ("request_key", reply_key.clone()),
+            ],
+        )
+        .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(request_key_in(&html), reply_key);
+    // A key already used for another body cannot be sent again, so that refill gets a new one.
+    gono_forum_web::runtime::update(
+        &fixture.db,
+        &fixture._services.global,
+        me,
+        "site.settings.save",
+        |s| s.limit.message_peer_per_minute = 10,
+    )
+    .await
+    .unwrap();
+    let (status, _, html) = fixture
+        .post(
+            "/my/messages/new",
+            &[
+                ("username", "replayed".into()),
+                ("body", "Another body under a used key".into()),
+                ("request_key", key.clone()),
+            ],
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let fresh = request_key_in(&html);
+    assert!(fresh != key && identity::valid_request_key(fresh));
+    fixture._services.cleanup_ref().await.unwrap();
+}
+
+// Signing in again from a profile's message link comes back to the same recipient.
+#[tokio::test]
+async fn signing_in_from_a_message_link_keeps_the_recipient() {
+    let fixture = Fixture::new().await;
+    let (status, location, _) = fixture.get("/my/messages/new?to=9401", false).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        location,
+        "/login?return_to=%2Fmy%2Fmessages%2Fnew%3Fto%3D9401"
+    );
+    let (_, location, _) = fixture.get("/my/messages/new?to=nonsense", false).await;
+    assert_eq!(location, "/login?return_to=%2Fmy%2Fmessages%2Fnew");
+    fixture._services.cleanup_ref().await.unwrap();
+}
+
+// A message started from a profile names its recipient by uid. When the name left in the form has since passed to
+// someone else, the send asks again instead of reaching the new owner.
+#[tokio::test]
+async fn a_prefilled_recipient_cannot_pass_to_the_next_owner_of_the_name() {
+    let fixture = Fixture::new().await;
+    add_member(&fixture.db, 9401, "first-owner").await;
+    add_member(&fixture.db, 9403, "someone-else").await;
+    let (status, _, html) = fixture.get("/my/messages/new?to=9401", true).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("name=\"to\" value=\"9401\""), "{html}");
+    assert!(html.contains("name=\"to_name\" value=\"first-owner\""));
+    // The member changes their name and another account takes the old one while the form is open.
+    gono_forum_web::db::query(
+        "UPDATE gonof_common_member SET username='renamed-owner' WHERE uid=9401",
+    )
+    .execute(fixture.db.executor())
+    .await
+    .unwrap();
+    add_member(&fixture.db, 9402, "first-owner").await;
+    let fields = |username: &str, to_name: &str, key: char| {
+        vec![
+            ("username", username.to_owned()),
+            (
+                "body",
+                "For the member whose profile I came from".to_owned(),
+            ),
+            ("request_key", key.to_string().repeat(64)),
+            ("to", "9401".to_owned()),
+            ("to_name", to_name.to_owned()),
+        ]
+    };
+    let (status, _, html) = fixture
+        .post(
+            "/my/messages/new",
+            &fields("first-owner", "first-owner", 'd'),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(html.contains("now belongs to a different member"), "{html}");
+    assert!(html.contains("value=\"renamed-owner\""));
+    assert!(html.contains("For the member whose profile I came from</textarea>"));
+    assert_eq!(message_count(&fixture.db).await, 0);
+    // The refilled form names the intended member by their current name.
+    let (status, location, _) = fixture
+        .post(
+            "/my/messages/new",
+            &fields("renamed-owner", "renamed-owner", 'd'),
+        )
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let thread: i64 = location.rsplit('/').next().unwrap().parse().unwrap();
+    let counterpart: i64 = gono_forum_web::db::query_scalar(
+        "SELECT counterpart_uid FROM gonof_home_message_member WHERE thread_id=? AND uid=9301",
+    )
+    .bind(thread)
+    .fetch_one(fixture.db.executor())
+    .await
+    .unwrap();
+    assert_eq!(counterpart, 9401);
+    // A name the member typed over the prefilled one is their choice of recipient.
+    let (status, _, _) = fixture
+        .post(
+            "/my/messages/new",
+            &fields("someone-else", "first-owner", 'e'),
+        )
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    fixture._services.cleanup_ref().await.unwrap();
+}
+
+// The reply form follows the rules of the send: after the counterpart blocks the member, or while the site is
+// read-only, the conversation says why instead of offering a reply that would be refused.
+#[tokio::test]
+async fn a_conversation_offers_no_reply_that_sending_would_refuse() {
+    let fixture = Fixture::new().await;
+    add_member(&fixture.db, 9401, "blocks-later").await;
+    let me = identity::Actor {
+        uid: 9301,
+        credentials_version: 1,
+        api_key: None,
+    };
+    let thread = gono_forum_web::messages::send(&fixture.db, me, 9401, "Hello", &"f".repeat(64))
+        .await
+        .unwrap();
+    let path = format!("/my/messages/{thread}");
+    let form = format!("action=\"/my/messages/{thread}/replies\"");
+    let (status, _, html) = fixture.get(&path, true).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(&form));
+    gono_forum_web::db::query(
+        "INSERT INTO gonof_home_member_block(uid,blocked_uid,dateline) VALUES(9401,9301,1)",
+    )
+    .execute(fixture.db.executor())
+    .await
+    .unwrap();
+    let (status, _, html) = fixture.get(&path, true).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!html.contains(&form), "the reply form is still offered");
+    assert!(html.contains("This member does not accept your private messages"));
+    assert!(html.contains("Hello"), "the messages are still shown");
+    // A reply sent from a page opened before the block is refused; its text stays on the page to copy, the reason
+    // is given once and no form is offered.
+    let (status, _, html) = fixture
+        .post(
+            &format!("/my/messages/{thread}/replies"),
+            &[
+                ("body", "Written before the block".into()),
+                ("request_key", "e".repeat(64)),
+            ],
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(!html.contains(&form));
+    assert!(html.contains("readonly>Written before the block</textarea>"));
+    assert_eq!(
+        html.matches("This member does not accept your private messages")
+            .count(),
+        1
+    );
+    gono_forum_web::db::query("DELETE FROM gonof_home_member_block")
+        .execute(fixture.db.executor())
+        .await
+        .unwrap();
+    gono_forum_web::db::query("UPDATE gonof_common_member SET adminid=1 WHERE uid=9301")
+        .execute(fixture.db.executor())
+        .await
+        .unwrap();
+    gono_forum_web::runtime::update(
+        &fixture.db,
+        &fixture._services.global,
+        me,
+        "site.settings.save",
+        |s| s.site.read_only = true,
+    )
+    .await
+    .unwrap();
+    let (_, _, html) = fixture.get(&path, true).await;
+    assert!(!html.contains(&form));
+    assert!(html.contains("Private messages are unavailable while the site is read-only"));
+    fixture._services.cleanup_ref().await.unwrap();
+}
