@@ -1096,3 +1096,34 @@ async fn mysql_content_notifications_contract() {
         .await;
     services.cleanup().await.unwrap();
 }
+
+/// A mention the page shows as plain text, because it is nested past `markdown::MAX_NESTING`, notifies no one; one
+/// in the same post within the limit still does.
+#[tokio::test]
+async fn mentions_flattened_past_the_nesting_limit_notify_no_one() {
+    let services = gono_forum_web::test_support::TestFixture::new()
+        .await
+        .unwrap();
+    let db = &services.db;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            db.migrate().await.unwrap();
+            content::seed_forums(db).await.unwrap();
+            for uid in 1..=3 {
+                member(db, uid).await;
+            }
+            let fid = scalar(db, "SELECT MIN(fid) FROM gonof_forum_forum").await;
+            let body = format!(
+                "[@shown](member:2)\n\n{} [@flattened](member:3)",
+                "> ".repeat(34)
+            );
+            let post = publish(db, 1, fid, &body).await;
+            drain(db, NOW).await;
+            assert_eq!(
+                rows(db, post.pid).await,
+                BTreeMap::from([(2, "mention".into())])
+            );
+        })
+        .await;
+    services.cleanup().await.unwrap();
+}

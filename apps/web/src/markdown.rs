@@ -111,11 +111,14 @@ fn reference(url: &str, prefix: &str) -> Result<Option<i64>> {
     );
     Ok(value)
 }
+/// The attachments, members and quotes a body references, from the same events rendering uses
+/// ([`bounded_events`]): a link flattened past [`MAX_NESTING`] shows as text, so it binds no attachment and notifies
+/// no one.
 pub fn references(source: &str) -> Result<References> {
     let source = spoilers(source);
     let mut result = References::default();
     let mut image_depth = 0;
-    for event in Parser::new_ext(&source, options()) {
+    for event in bounded_events(&source) {
         match event {
             Event::Start(Tag::Image { dest_url, .. }) => {
                 image_depth += 1;
@@ -1989,5 +1992,26 @@ mod tests {
             "Green 2304"
         );
         assert_eq!(card_excerpt(source, 100), "Product SKU Green 2304");
+    }
+
+    /// References come from the events rendering shows: a mention, quote or attachment link flattened past
+    /// [`MAX_NESTING`] shows as text and references nothing.
+    #[test]
+    fn references_skip_links_flattened_past_the_nesting_limit() {
+        let deep = format!(
+            "{} [@someone](member:4) [quote](post:12) [file](attachment:9)",
+            "> ".repeat(34)
+        );
+        let html = render(&deep, &BTreeMap::from([(4, "someone".into())]), None);
+        assert!(!html.contains("href"), "{html}");
+        let refs = references(&deep).unwrap();
+        assert!(refs.members.is_empty(), "{refs:?}");
+        assert!(refs.quotes.is_empty(), "{refs:?}");
+        assert!(refs.attachments.is_empty(), "{refs:?}");
+        // Within the limit they still count.
+        let shallow = format!("{} [@someone](member:4) [quote](post:12)", "> ".repeat(10));
+        let refs = references(&shallow).unwrap();
+        assert_eq!(refs.members, BTreeSet::from([4]));
+        assert_eq!(refs.quotes, BTreeSet::from([12]));
     }
 }
