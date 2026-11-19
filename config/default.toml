@@ -64,7 +64,9 @@ previous_keys = []
 max_attachments = 20
 
 # Private isolated directory and image processing limits (file_max_bytes is the limit for GIFs converted from
-# animations); the S3 connection is managed at /manage/storage.
+# animations); the S3 connection is managed at /manage/storage. daily_max_bytes is a soft daily quota per member: an
+# upload is admitted while its original size fits in what is left, then counts at its processed size if that is larger,
+# so one upload can go past it (docs/architecture.md, "Side effects and background work").
 [media]
 local_directory = ".local/media"
 image_max_bytes = 10485760

@@ -155,6 +155,12 @@ Uploads land in a private staging directory first, are checked and re-encoded in
 outside any transaction, and are stored in a private S3-compatible bucket. Images are served through the forum
 (`/media/<aid>`, `/thumb/<tid>/<aid>`), which checks permissions on every request.
 
+Each member may upload `[media] daily_max_bytes` a day (200 MiB by default), counted by calendar day in the site time
+zone. The quota is soft. An upload is admitted while its original size fits in what is left of the day; once
+processed it counts at the larger of its original and processed size, so growth from re-encoding (a small PNG can come
+out many times larger) is charged too, and a single upload can take the day past the limit. Further uploads that day
+are refused. Rejected uploads count at their original size, and deleting, restoring and cleanup give nothing back.
+
 Re-encoding drops metadata, the ICC profile included, and browsers read an image without a profile as sRGB. An image
 with an RGB profile other than sRGB (Display P3 and the like) is therefore converted to sRGB first, with moxcms; the
 list thumbnail is scaled from the converted image, and every frame of an animation is converted the same way. A
