@@ -423,3 +423,253 @@ async fn the_member_list_is_created_before_the_import_and_removed_when_it_fails(
     assert!(!again.exists(), "a failed import removes the member list");
     f.cleanup().await.unwrap();
 }
+
+/// A small dataset: one board, the given members, and one thread per member with one reply by the next member.
+fn write_small_dataset(dir: &Path, board: &str, members: &[String]) {
+    std::fs::write(
+        dir.join("manifest.json"),
+        "{\"format\": \"gono-forum-content\", \"version\": 1, \"language\": \"en\"}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("boards.json"),
+        format!(
+            r#"[{{"slug": "{board}", "name": "Board {board}", "description": "About {board}"}}]"#
+        ),
+    )
+    .unwrap();
+    let users: String = members
+        .iter()
+        .map(|name| format!("{{\"username\":\"{name}\"}}\n"))
+        .collect();
+    std::fs::write(dir.join("users.jsonl"), users).unwrap();
+    let threads: String = members
+        .iter()
+        .enumerate()
+        .map(|(index, name)| {
+            let other = &members[(index + 1) % members.len()];
+            format!(
+                "{{\"key\":\"{board}-{index}\",\"board\":\"{board}\",\"author\":\"{name}\",\"title\":\"Thread {index}\",\"body\":\"Body {index}.\",\"replies\":[{{\"id\":1,\"author\":\"{other}\",\"body\":\"Reply {index}.\"}}]}}\n"
+            )
+        })
+        .collect();
+    std::fs::write(dir.join("threads/threads-001.jsonl"), threads).unwrap();
+}
+
+fn checked(dir: &Path) -> dataset::Dataset {
+    let checked = dataset::check(dir);
+    assert!(
+        checked.report.errors.is_empty(),
+        "{}",
+        checked.report.render(20)
+    );
+    checked.dataset.unwrap()
+}
+
+/// Two imports into the same empty site go one at a time: the second finds the first one's boards and writes
+/// nothing, instead of both committing their boards and members and one of them then failing on thread 1.
+#[tokio::test]
+async fn concurrent_imports_leave_only_the_one_that_went_first() {
+    let f = TestFixture::migrated().await.unwrap();
+    let (first, second) = (Scratch::new(), Scratch::new());
+    let names =
+        |prefix: &str| -> Vec<String> { (0..300).map(|n| format!("{prefix}{n}")).collect() };
+    write_small_dataset(&first.0, "alpha", &names("alpha-"));
+    write_small_dataset(&second.0, "beta", &names("beta-"));
+    let (first, second) = (checked(&first.0), checked(&second.0));
+    let now = gono_forum_web::identity::now();
+    let (a, b) = tokio::join!(
+        content::import_dataset(&f.db, &first, now, |_, _| {}),
+        content::import_dataset(&f.db, &second, now, |_, _| {}),
+    );
+    let (winner, error) = match (a, b) {
+        (Ok(_), Err(error)) => ("alpha", error),
+        (Err(error), Ok(_)) => ("beta", error),
+        (a, b) => panic!(
+            "exactly one import goes in: {:?} {:?}",
+            a.map(|m| m.len()),
+            b.map(|m| m.len())
+        ),
+    };
+    assert!(
+        error
+            .to_string()
+            .contains("only goes into a site without forums"),
+        "{error:#}"
+    );
+    let slugs: Vec<String> = db::query_scalar("SELECT slug FROM gonof_forum_forum")
+        .fetch_all(f.db.executor())
+        .await
+        .unwrap();
+    assert_eq!(slugs, [winner], "the refused import left no board behind");
+    assert_eq!(
+        count(&f, "SELECT COUNT(*) FROM gonof_common_member").await,
+        300,
+        "the refused import left no member behind"
+    );
+    assert_eq!(
+        count(&f, "SELECT COUNT(*) FROM gonof_forum_thread").await,
+        300
+    );
+    assert_consistent(&f).await;
+    f.cleanup().await.unwrap();
+}
+
+/// A valid 50-character name that the site already uses gets a number within the 50-character limit, instead of
+/// stopping the import.
+#[tokio::test]
+async fn a_taken_name_at_the_length_limit_is_shortened_for_its_number() {
+    let f = TestFixture::migrated().await.unwrap();
+    let long = "n".repeat(50);
+    Identity::new(
+        f.db.clone(),
+        f.config.identity.clone(),
+        f.root.clone(),
+        detached_global(),
+    )
+    .setup_admin(&long, None, PASSWORD)
+    .await
+    .unwrap();
+    let scratch = Scratch::new();
+    write_small_dataset(&scratch.0, "help", &[long.clone(), "felix".to_owned()]);
+    let members = content::import_dataset(
+        &f.db,
+        &checked(&scratch.0),
+        gono_forum_web::identity::now(),
+        |_, _| {},
+    )
+    .await
+    .unwrap();
+    let mut names: Vec<&str> = members.iter().map(|m| m.username.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["felix", &format!("{}2", "n".repeat(49))]);
+    assert_consistent(&f).await;
+    f.cleanup().await.unwrap();
+}
+
+/// Imported posts earn no growth points for being imported, but the likes and highlights they get afterwards count
+/// as usual (D6); the import's own highlight never does.
+#[tokio::test]
+async fn imported_posts_earn_growth_only_for_what_they_receive_afterwards() {
+    use gono_forum_web::{
+        content::{
+            edits::{ChangeRequest, ContentAction, ContentEditor},
+            writes::WriteConfig,
+        },
+        growth,
+        identity::Actor,
+        interaction::Interaction,
+    };
+    let f = TestFixture::migrated().await.unwrap();
+    let owner = Identity::new(
+        f.db.clone(),
+        f.config.identity.clone(),
+        f.root.clone(),
+        detached_global(),
+    )
+    .setup_admin("Owner", None, PASSWORD)
+    .await
+    .unwrap();
+    db::query("INSERT INTO gonof_common_member(uid,username,password,email,emailstatus,regdate) VALUES(9001,'reader','synthetic-hash','reader@example.test',1,1)")
+        .execute(f.db.executor())
+        .await
+        .unwrap();
+    let scratch = Scratch::new();
+    write_dataset(&scratch.0);
+    let now = gono_forum_web::identity::now();
+    content::import_dataset(&f.db, &checked(&scratch.0), now, |_, _| {})
+        .await
+        .unwrap();
+    assert_eq!(
+        count(&f, "SELECT COUNT(*) FROM gonof_common_growth_post").await,
+        count(&f, "SELECT COUNT(*) FROM gonof_forum_post").await,
+        "every imported post has a growth record"
+    );
+    assert_eq!(
+        count(&f, "SELECT COUNT(*) FROM gonof_common_growth_ledger").await,
+        0,
+        "the import itself earns nothing"
+    );
+    let points = gono_forum_web::runtime::read(&f.db).await.unwrap().growth;
+    let uid = |name: &'static str| {
+        let f = &f;
+        async move {
+            count(
+                f,
+                &format!("SELECT uid FROM gonof_common_member WHERE username = '{name}'"),
+            )
+            .await
+        }
+    };
+    let actor = |uid: i64| Actor {
+        uid,
+        credentials_version: 1,
+        api_key: None,
+    };
+
+    // A real like on an imported reply.
+    let reply = count(
+        &f,
+        "SELECT pid FROM gonof_forum_post WHERE message = 'Yes, it keeps your changes.'",
+    )
+    .await;
+    Interaction::new(f.db.clone())
+        .set_reaction(
+            actor(9001),
+            reply,
+            true,
+            &gono_forum_web::identity::random_token(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        growth::growth(&f.db, uid("felix").await).await.unwrap(),
+        points.like
+    );
+
+    // A highlight a moderator gives counts; the highlight the dataset brought does not, even when given again.
+    let editor = ContentEditor::new(f.db.clone(), WriteConfig::default(), 86_400);
+    let change = |pid: i64, action: ContentAction| {
+        let editor = &editor;
+        async move {
+            let post = editor.editable_at(actor(owner), pid, now).await.unwrap();
+            editor
+                .change_at(
+                    actor(owner),
+                    ChangeRequest {
+                        pid,
+                        expected_post_version: post.version,
+                        expected_thread_version: post.thread_version,
+                        request_key: gono_forum_web::identity::random_token(),
+                        reason: "growth after import".into(),
+                        action,
+                    },
+                    now,
+                )
+                .await
+                .unwrap();
+        }
+    };
+    let opening = |subject: &'static str| {
+        let f = &f;
+        async move {
+            count(
+                f,
+                &format!("SELECT p.pid FROM gonof_forum_post p JOIN gonof_forum_thread t ON t.tid = p.tid WHERE p.first = 1 AND t.subject = '{subject}'"),
+            )
+            .await
+        }
+    };
+    change(opening("Question number 3").await, ContentAction::Feature).await;
+    let nora = uid("nora").await;
+    assert_eq!(growth::growth(&f.db, nora).await.unwrap(), points.digest);
+    let imported_feature = opening("Git: undo the last commit?").await;
+    change(imported_feature, ContentAction::Unfeature).await;
+    change(imported_feature, ContentAction::Feature).await;
+    assert_eq!(growth::growth(&f.db, nora).await.unwrap(), points.digest);
+
+    let reconciled = growth::reconcile(&f.db).await.unwrap();
+    assert!(reconciled.is_consistent(), "{reconciled:?}");
+    assert_consistent(&f).await;
+    f.cleanup().await.unwrap();
+}

@@ -205,6 +205,37 @@ pub async fn record_post(
     sync_posts(db, tx, &[pid], Cause::Publish, now).await
 }
 
+/// Called by the content import (`content::seed`) for each post it writes: a growth row without base points and with
+/// nothing credited, so the import itself earns nothing, while likes, highlights and accepted answers the post gets
+/// later count as usual ([`sync_posts`] skips posts without a row). A thread imported as featured leaves out the
+/// highlight points too: the import's highlight is not one a moderator gave. No ledger entry or account is written.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn record_imported_post(
+    db: &Database,
+    tx: &mut Tx<'_>,
+    config: &crate::runtime::GrowthSettings,
+    uid: i64,
+    pid: i64,
+    first: bool,
+    featured: bool,
+    dateline: i64,
+) -> Result<()> {
+    let points = config.points(first);
+    crate::db::query(
+        "INSERT INTO gonof_common_growth_post(pid,uid,points_base,points_like,points_digest,points_accept,dateline) VALUES(?,?,?,?,?,?,?)",
+    )
+    .bind(pid)
+    .bind(uid)
+    .bind(0_i64)
+    .bind(points.like)
+    .bind(if featured { 0 } else { points.digest })
+    .bind(points.accept)
+    .bind(dateline)
+    .execute(db.observe(&mut **tx))
+    .await?;
+    Ok(())
+}
+
 /// Locks this post's growth row and returns whether it exists. Liking and unliking must call it before writing the like
 /// relation.
 pub async fn lock_post(db: &Database, tx: &mut Tx<'_>, pid: i64) -> Result<bool> {

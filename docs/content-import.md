@@ -115,6 +115,10 @@ sends no notifications. Avoid dates and years in the text, since the import choo
   first post followed by its replies. Keys and reply ids are not stored.
 - View counts from the reply counts; text-tile avatars; reply counts, last replies, board and member counts recomputed
   by the same code as the development fixture. Likes, favorites and tips are not imported.
+- Growth points: the import earns none. Each imported post gets a growth record without base points, so the likes,
+  highlights and accepted answers it receives afterwards count as usual (see [roles.md](roles.md), "Growth levels").
+  A thread imported as `featured` earns no highlight points for that highlight, not even if it is taken off and given
+  again.
 
 The code is in `apps/web/src/content/dataset.rs` (reading, checking and planning) and `seed::import_dataset`
 (writing).

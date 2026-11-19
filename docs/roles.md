@@ -182,8 +182,9 @@ settings are on Security › Anti-spam & governance.
 Growth points are a reputation value separate from the site's points: they come only from a member's own posts and
 cannot be spent or transferred. By default a thread gives 3, a reply or nested reply 1, each like received 1, a
 featured thread 10 and a reply accepted for a bounty 5 (`settings.growth.*`, Global settings › Points). Hiding,
-withdrawing or erasing a post takes its points back; unhiding or restoring gives them back. Administrators can adjust
-a member's points with a reason. Levels come from `settings.growth.levels` (1 to 20 thresholds, default
+withdrawing or erasing a post takes its points back; unhiding or restoring gives them back. Imported posts (the
+sample content, a content dataset: see [content-import.md](content-import.md)) earn no points for being posted, only
+for what they receive afterwards. Administrators can adjust a member's points with a reason. Levels come from `settings.growth.levels` (1 to 20 thresholds, default
 `0,20,80,200,500,1200,3000,8000`) and `settings.growth.level_names` (empty shows "Level N" in the site language); they
 are computed when read and shown as "Lv3 (Level 3)" on profiles and the leaderboard.
 

@@ -177,9 +177,18 @@ pub async fn sample_fits(db: &Database) -> Result<bool> {
 }
 
 /// Refuses, inside the import's first transaction, a site that already has forums, threads or posts.
+///
+/// Imports go one at a time: the administrators' lock row comes first (as for other one-at-a-time saves), then reads
+/// of the latest committed rows. Without it two MySQL imports into an empty site both found it empty, both committed
+/// their forums and members, and the one that then lost the race for thread 1 left all of them behind.
 async fn ensure_no_content(db: &Database, transaction: &mut Tx<'static>, what: &str) -> Result<()> {
+    crate::db::query(
+        "SELECT skey FROM gonof_common_settings WHERE skey='identity.bootstrap_admin' FOR UPDATE",
+    )
+    .fetch_one(db.observe(&mut **transaction))
+    .await?;
     for table in CONTENT_TABLES {
-        let row = crate::db::query(&format!("SELECT 1 FROM {table} LIMIT 1"))
+        let row = crate::db::query(&format!("SELECT 1 FROM {table} LIMIT 1 LOCK IN SHARE MODE"))
             .fetch_optional(db.observe(&mut **transaction))
             .await?;
         ensure!(
@@ -199,6 +208,9 @@ pub(crate) struct NewForum {
     pub guidance: String,
     pub parent: Option<String>,
 }
+
+/// The username limit of `identity::rules::check_username`, in characters.
+const USERNAME_MAX_CHARS: usize = 50;
 
 /// A synthetic author for [`import_sample`] or [`import_dataset`]: no password, e-mail or role, so nobody can sign in
 /// as them. `username` is the preferred name in stored form (lowercase).
@@ -283,8 +295,8 @@ async fn insert_forums(
 }
 
 /// Creates `members` in order; they take the next free uids after the existing members. A preferred name that is
-/// already taken (say, by the administrator) gets the lowest free number appended. Returns the members as written,
-/// in the same order.
+/// already taken (say, by the administrator) gets the lowest free number appended, shortened first when the name and
+/// the number would pass the username limit. Returns the members as written, in the same order.
 async fn insert_members(
     db: &Database,
     transaction: &mut Tx<'static>,
@@ -306,7 +318,7 @@ async fn insert_members(
         {
             suffix += 1;
             ensure!(suffix < 1000, "no free name for member {preferred}");
-            username = format!("{preferred}{suffix}");
+            username = numbered(&preferred, suffix);
         }
         // Member row rules, checked in code (there is no validation trigger): the username, and no password, e-mail
         // or role for a synthetic author.
@@ -330,6 +342,13 @@ async fn insert_members(
         });
     }
     Ok(written)
+}
+
+/// `name` with `number` appended, the name shortened so the result stays within the username limit.
+fn numbered(name: &str, number: usize) -> String {
+    let number = number.to_string();
+    let room = USERNAME_MAX_CHARS.saturating_sub(number.len());
+    format!("{}{number}", name.chars().take(room).collect::<String>())
 }
 
 /// Looks up uids by the preferred names the threads were written with.
@@ -399,7 +418,8 @@ pub async fn import_dataset(
 /// Writes `threads` with their posts. Authors are looked up in `member_ids` by their normalized name and forums by
 /// slug; threads and posts keep the ids they carry. A thread with `first_pid` set uses it for its first post; the
 /// others take the free PIDs after the highest reply PID. Hidden state, counts and the parent-floor copy of nested
-/// replies are left to the caller's `copies::rebuild_listing` once everything is written.
+/// replies are left to the caller's `copies::rebuild_listing` once everything is written. Every post gets a growth row
+/// that earns nothing for the import itself (`growth::record_imported_post`).
 async fn write_threads(
     db: &Database,
     transaction: &mut Tx<'static>,
@@ -412,6 +432,7 @@ async fn write_threads(
         .into_iter()
         .map(|row| Ok((row.try_get("slug")?, row.try_get("fid")?)))
         .collect::<Result<_>>()?;
+    let growth = crate::runtime::read_in(db, transaction).await?.growth;
     // Versioned reply IDs stay unchanged; first posts use the unallocated global PIDs after them.
     let mut next_first_pid = threads
         .iter()
@@ -510,19 +531,27 @@ async fn write_threads(
             0,
         )
         .await?;
+        crate::growth::record_imported_post(
+            db,
+            transaction,
+            &growth,
+            uid,
+            i64::try_from(first_pid)?,
+            true,
+            thread.featured,
+            i64::try_from(thread.created)?,
+        )
+        .await?;
         let mut posts: Vec<_> = thread.posts.iter().collect();
         posts.sort_by_key(|post| post.position);
         let mut root_ordinal = 0_i64;
         let mut children_ordinals = HashMap::<u64, i64>::new();
+        let children_counts = nested_counts(&thread.posts);
         for post in posts {
             let uid = *member_ids.get(&normalize(&post.author)).with_context(|| {
                 format!("post {} has an unknown author {}", post.pid, post.author)
             })?;
-            let children = thread
-                .posts
-                .iter()
-                .filter(|child| child.root_pid == Some(post.pid))
-                .count();
+            let children = children_counts.get(&post.pid).copied().unwrap_or(0);
             let mut post = post.clone();
             if let Some(root) = post.root_pid {
                 let ordinal = children_ordinals.entry(root).or_default();
@@ -533,10 +562,31 @@ async fn write_threads(
                 post.root_position = root_ordinal as usize;
             }
             insert_post(db, transaction, fid, tid, uid, false, &post, children).await?;
+            crate::growth::record_imported_post(
+                db,
+                transaction,
+                &growth,
+                uid,
+                i64::try_from(post.pid)?,
+                false,
+                false,
+                i64::try_from(post.dateline)?,
+            )
+            .await?;
         }
         super::recount_effective_replies(db, transaction, tid).await?;
     }
     Ok(())
+}
+
+/// The number of nested replies under each floor's first reply, counted in one pass: a thread with 10,000 replies
+/// would otherwise be scanned once per reply inside the write transaction.
+fn nested_counts(posts: &[Post]) -> HashMap<u64, usize> {
+    let mut counts = HashMap::new();
+    for root in posts.iter().filter_map(|post| post.root_pid) {
+        *counts.entry(root).or_default() += 1;
+    }
+    counts
 }
 
 fn normalize(value: &str) -> String {
@@ -605,4 +655,55 @@ async fn insert_post(
         .execute(db.observe(&mut **transaction))
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Nested replies are counted in one pass over the thread: the import used to scan the whole thread once per
+    /// reply, so one floor with 60,000 nested replies took billions of comparisons inside the write transaction.
+    #[test]
+    fn nested_replies_are_counted_in_one_pass() {
+        let mut posts = vec![Post {
+            pid: 1,
+            ..Post::default()
+        }];
+        posts.extend((2..=60_001).map(|pid| Post {
+            pid,
+            root_pid: Some(1),
+            ..Post::default()
+        }));
+        posts.push(Post {
+            pid: 70_000,
+            ..Post::default()
+        });
+        posts.push(Post {
+            pid: 70_001,
+            root_pid: Some(70_000),
+            ..Post::default()
+        });
+        let started = std::time::Instant::now();
+        let counts = nested_counts(&posts);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(1),
+            "took {:?}",
+            started.elapsed()
+        );
+        assert_eq!(counts.get(&1), Some(&60_000));
+        assert_eq!(counts.get(&70_000), Some(&1));
+        assert_eq!(counts.get(&2), None, "a nested reply opens no floor");
+        assert_eq!(counts.len(), 2);
+    }
+
+    /// A taken name with a number appended stays within the username limit.
+    #[test]
+    fn numbered_names_are_shortened_to_the_username_limit() {
+        let long = "n".repeat(USERNAME_MAX_CHARS);
+        assert_eq!(numbered(&long, 2), format!("{}2", "n".repeat(49)));
+        assert_eq!(numbered(&long, 999), format!("{}999", "n".repeat(47)));
+        assert_eq!(numbered("nora", 2), "nora2");
+        let wide = "名".repeat(USERNAME_MAX_CHARS);
+        assert_eq!(numbered(&wide, 12).chars().count(), USERNAME_MAX_CHARS);
+    }
 }
