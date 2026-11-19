@@ -288,6 +288,20 @@ fn plain_settings_error(error: crate::identity::IdentityError) -> Response {
 struct SitemapQuery {
     page: Option<i64>,
 }
+
+/// A sitemap index lists at most this many sitemaps, and a sitemap at most this many addresses (the protocol's
+/// limits).
+const SITEMAP_LIMIT: i64 = 50_000;
+/// Thread ids per sitemap page while the ids fit in [`SITEMAP_LIMIT`] pages.
+const SITEMAP_SPAN: i64 = 5_000;
+
+/// Thread ids per sitemap page: 5,000, and more once the largest id would need more than [`SITEMAP_LIMIT`] pages, so
+/// the newest threads always have a page however few of the ids before them survive. Past 2.5 billion ids (50,000
+/// pages of 50,000) the newest are left out, as the protocol cannot list more.
+fn sitemap_span(max_tid: i64) -> i64 {
+    let needed = (max_tid.max(0) + SITEMAP_LIMIT - 1) / SITEMAP_LIMIT;
+    needed.clamp(SITEMAP_SPAN, SITEMAP_LIMIT)
+}
 async fn sitemap(
     State(state): State<Arc<AppState>>,
     auth::RequestOrigin(origin): auth::RequestOrigin,
@@ -351,11 +365,10 @@ async fn sitemap(
         "FROM gonof_forum_thread t JOIN gonof_forum_post firstpost ON firstpost.first_tid=t.tid WHERE {}{thread_scope} AND t.deleted_at = 0 AND firstpost.deleted_at = 0",
         content::public_threads(&readable)
     );
-    // Segmented by thread id: page N covers tid ∈ ((N-1)·5000, N·5000]. Indexing and paging need only
+    // Segmented by thread id: page N covers tid ∈ ((N-1)·span, N·span]. Indexing and paging need only
     // MAX(tid) and primary-key range scans, with no full-table COUNT each time and no OFFSET that gets deeper
-    // and deeper; the cost is that some pages have fewer than 5000 entries or are even empty, which the
+    // and deeper; the cost is that some pages have fewer entries than the span or are even empty, which the
     // protocol allows.
-    const SPAN: i64 = 5000;
     let max_tid =
         match crate::db::query_scalar::<Option<i64>>("SELECT MAX(tid) FROM gonof_forum_thread")
             .fetch_one(state.db.executor())
@@ -364,7 +377,8 @@ async fn sitemap(
             Ok(n) => n.unwrap_or(0),
             Err(e) => return database_error(&state, e.into()),
         };
-    let pages = ((max_tid + SPAN - 1) / SPAN).clamp(1, 50000);
+    let span = sitemap_span(max_tid);
+    let pages = ((max_tid + span - 1) / span).clamp(1, SITEMAP_LIMIT);
     let mut xml = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
     if query.page.is_none() {
         xml.push_str("<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">");
@@ -391,8 +405,8 @@ async fn sitemap(
         let rows = match crate::db::query(&format!(
             "SELECT t.tid,t.lastpost,firstpost.edited_at {clause} AND t.tid > ? AND t.tid <= ? ORDER BY t.tid"
         ))
-        .bind((page - 1) * SPAN)
-        .bind(page * SPAN)
+        .bind((page - 1) * span)
+        .bind(page * span)
         .fetch_all(state.db.executor())
         .await
         {
@@ -871,6 +885,18 @@ async fn forum_icon(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_sitemap_span_grows_so_every_id_has_a_page() {
+        assert_eq!(sitemap_span(0), 5_000);
+        assert_eq!(sitemap_span(250_000_000), 5_000);
+        assert_eq!(sitemap_span(250_000_001), 5_001);
+        for max_tid in [250_000_001, 1_000_000_007, 2_500_000_000] {
+            let span = sitemap_span(max_tid);
+            assert!((max_tid + span - 1) / span <= SITEMAP_LIMIT, "{max_tid}");
+        }
+        assert_eq!(sitemap_span(i64::MAX / 2), SITEMAP_LIMIT);
+    }
 
     #[test]
     fn robots_rules_get_the_path_prefix() {

@@ -153,8 +153,9 @@ The asides of the home and board pages show hot and latest threads as `threads` 
   again in that statement, so a stale index can only make a new pin appear late.
 - **Feeds** (`content/feeds.rs`): two single-table statements on the scope's `*_created` index, joined to the first
   post for the body: `displayorder = 0` in index order, and `displayorder > 0` (a handful, sorted). The code merges
-  them by post time and keeps the first N. Withdrawn threads are left out; personal feeds add the owner's blocks,
-  excluded forums and, when chosen, members-only threads.
+  them by post time and keeps the first N. Both run in one read-only snapshot, so a thread pinned or unpinned in
+  between is in one of them, and the merge keeps a thread once. Withdrawn threads are left out; personal feeds add
+  the owner's blocks, excluded forums and, when chosen, members-only threads.
 - **Statistics** (`content::statistics_in`, `content::forum_statistics_at`) are aggregate counts over public content,
   cached by time period, not count-table reads; their thread counts leave out withdrawn threads.
 

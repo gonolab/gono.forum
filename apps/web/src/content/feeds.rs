@@ -106,19 +106,43 @@ async fn fetch(
     filter: &str,
     limit: usize,
 ) -> Result<Vec<FeedItem>> {
+    let rows = segments(db, scope, filter, limit, || async {}).await?;
+    finish(db, merge(rows, limit)).await
+}
+
+/// The two segments, read in one read-only snapshot: a thread pinned or unpinned between the two statements is then
+/// in exactly one of them, as of the snapshot, instead of in both or in neither. `between` runs after the first
+/// statement (a test changes a pin there).
+async fn segments<F, Fut>(
+    db: &Database,
+    scope: &ListScope,
+    filter: &str,
+    limit: usize,
+    between: F,
+) -> Result<Vec<Row>>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
     let segment = segment(scope);
+    let mut tx = db.begin_read_only().await?;
     let mut rows = Vec::new();
+    let mut between = Some(between);
     for pinned in [false, true] {
         let sql = sql(&segment, pinned, filter, limit);
         let mut query = crate::db::query(&sql);
         if let Some((_, fid)) = segment.1 {
             query = query.bind(fid);
         }
-        for row in query.fetch_all(db.executor()).await? {
+        for row in query.fetch_all(db.observe(&mut *tx)).await? {
             rows.push(decode(row)?);
         }
+        if let Some(between) = between.take() {
+            between().await;
+        }
     }
-    finish(db, merge(rows, limit)).await
+    tx.commit().await?;
+    Ok(rows)
 }
 
 struct Row {
@@ -143,9 +167,11 @@ fn decode(row: DbRow) -> Result<Row> {
     })
 }
 
-/// Both segments are already sorted by publish time descending; after merging, take the first `limit`.
+/// Both segments are already sorted by publish time descending; after merging, take the first `limit`. A thread is
+/// kept once even if both segments returned it, so it cannot push another one out.
 fn merge(mut rows: Vec<Row>, limit: usize) -> Vec<Row> {
     rows.sort_by_key(|row| std::cmp::Reverse((row.published, row.tid)));
+    rows.dedup_by_key(|row| row.tid);
     rows.truncate(limit);
     rows
 }
@@ -289,6 +315,55 @@ mod tests {
         // Same time: by tid descending.
         let tie = merge(vec![row(5, 7), row(9, 7)], 30);
         assert_eq!(tie.iter().map(|r| r.tid).collect::<Vec<_>>(), [9, 5]);
+    }
+
+    #[test]
+    fn merge_keeps_a_thread_both_segments_returned_once() {
+        let rows = vec![row(3, 30), row(2, 20), row(1, 10), row(3, 30)];
+        let merged = merge(rows, 3);
+        assert_eq!(merged.iter().map(|r| r.tid).collect::<Vec<_>>(), [3, 2, 1]);
+    }
+
+    /// A thread unpinned between the two statements is still in the feed (as the pinned thread the snapshot saw),
+    /// and one pinned between them is in it once.
+    #[tokio::test]
+    async fn both_segments_read_one_snapshot() {
+        let fixture = crate::test_support::TestFixture::migrated().await.unwrap();
+        let db = &fixture.db;
+        super::super::seed_fixture(db).await.unwrap();
+        let forums = super::super::anonymous_forums(db).await.unwrap();
+        let filter = filter(&forums, true);
+        let tids = |rows: &[Row]| rows.iter().map(|row| row.tid).collect::<Vec<_>>();
+        let listed = tids(
+            &segments(db, &ListScope::All, &filter, 100, || async {})
+                .await
+                .unwrap(),
+        );
+        let (unpinned, pinned) = (listed[0], listed[1]);
+        let set = |tid: i64, order: i64| async move {
+            crate::db::query("UPDATE gonof_forum_thread SET displayorder=? WHERE tid=?")
+                .bind(order)
+                .bind(tid)
+                .execute(db.executor())
+                .await
+                .unwrap();
+        };
+        set(unpinned, 1).await;
+        let rows = segments(db, &ListScope::All, &filter, 100, || async {
+            set(unpinned, 0).await;
+            set(pinned, 1).await;
+        })
+        .await
+        .unwrap();
+        let seen = tids(&rows);
+        for tid in [unpinned, pinned] {
+            assert_eq!(
+                seen.iter().filter(|seen| **seen == tid).count(),
+                1,
+                "{tid} in {seen:?}"
+            );
+        }
+        fixture.cleanup().await.unwrap();
     }
 
     #[test]

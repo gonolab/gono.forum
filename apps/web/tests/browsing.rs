@@ -416,3 +416,48 @@ fn navigation_script_stays_synchronous_and_before_htmx() {
         "navigation.js must not have defer/async: {tag}"
     );
 }
+
+/// Sitemap pages split the thread ids; with a large id and few threads before it, the span grows so that the thread
+/// still has a page within the 50,000 the index may list.
+#[tokio::test]
+async fn a_thread_past_250_million_ids_is_in_the_sitemap() {
+    const FAR: i64 = 250_000_001;
+    let services = database().await;
+    let db = services.db.clone();
+    content::seed_fixture(&db).await.unwrap();
+    gono_forum_web::test_support::set_setting(&db, "settings.seo.indexing", "true")
+        .await
+        .unwrap();
+    let pid: i64 =
+        gono_forum_web::db::query_scalar("SELECT MAX(pid) + 1 FROM gonof_forum_post_tableid")
+            .fetch_one(db.executor())
+            .await
+            .unwrap();
+    for sql in [
+        format!(
+            "INSERT INTO gonof_forum_thread (tid,fid,authorid,subject,dateline,lastpost,visibility,author,family_fid,maxposition)
+             SELECT {FAR},fid,authorid,'Far away',dateline,lastpost,visibility,author,family_fid,1 FROM gonof_forum_thread WHERE tid=103"
+        ),
+        format!("INSERT INTO gonof_forum_post_tableid (pid) VALUES ({pid})"),
+        format!(
+            "INSERT INTO gonof_forum_post (pid,fid,tid,authorid,first,first_tid,position,message,dateline)
+             SELECT {pid},fid,{FAR},authorid,1,{FAR},1,message,dateline FROM gonof_forum_post WHERE first_tid=103"
+        ),
+    ] {
+        gono_forum_web::db::query(&sql)
+            .execute(db.executor())
+            .await
+            .unwrap_or_else(|error| panic!("{sql}: {error}"));
+    }
+    let app = router::build(services.config.clone(), &project_root(), db);
+    let (status, _, index) = support::fetch(&app, "/sitemap.xml", false).await;
+    assert_eq!(status, StatusCode::OK);
+    let pages = index.matches("<sitemap>").count();
+    assert!(pages <= 50_000, "{pages} sitemaps");
+    let last = format!("/sitemap.xml?page={pages}<");
+    assert!(index.contains(&last), "the index ends at page {pages}");
+    let (status, _, xml) = support::fetch(&app, &format!("/sitemap.xml?page={pages}"), false).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(xml.contains(&format!("/thread-{FAR}<")), "{xml}");
+    services.cleanup().await.unwrap();
+}
