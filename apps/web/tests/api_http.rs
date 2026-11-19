@@ -2457,3 +2457,66 @@ async fn activity_flags_follow_mutes_and_participation_requirements() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     f.services.cleanup_ref().await.unwrap();
 }
+
+/// The website still allows favorites and the check-in in read-only mode, but the API refuses every write then. When
+/// read-only mode takes effect after the request passed the API's entry check (here: the process cache still holds
+/// the old settings), the write transaction itself refuses it.
+#[tokio::test]
+async fn read_only_mode_reached_after_the_entry_check_still_refuses_api_favorites_and_check_ins() {
+    let f = Fixture::new(&[]).await;
+    let (_, secret) = f.key(MEMBER).await;
+    f.execute(
+        "UPDATE gonof_common_credit_rule SET enabled=1,amount=1,daily_limit=1 WHERE rule_key='signin'",
+    )
+    .await;
+    let tid = f
+        .scalar(&format!(
+            "SELECT tid FROM gonof_forum_post WHERE pid={}",
+            f.first_pid
+        ))
+        .await;
+    // Warm the process cache, then switch the database alone to read-only.
+    let (status, ..) = f.api("GET", "/api/v1/me", Some(&secret), None, &[]).await;
+    assert_eq!(status, StatusCode::OK);
+    f.execute(
+        "UPDATE gonof_common_settings SET svalue='true' WHERE skey='settings.site.read_only'",
+    )
+    .await;
+    let (status, _, body) = f
+        .api("POST", "/api/v1/check-in", Some(&secret), None, &[])
+        .await;
+    assert_eq!(
+        (status, body["code"].as_str()),
+        (StatusCode::FORBIDDEN, Some("read_only")),
+        "{body}"
+    );
+    let (status, _, body) = f
+        .api(
+            "PUT",
+            &format!("/api/v1/threads/{tid}/favorite"),
+            Some(&secret),
+            None,
+            &[],
+        )
+        .await;
+    assert_eq!(
+        (status, body["code"].as_str()),
+        (StatusCode::FORBIDDEN, Some("read_only")),
+        "{body}"
+    );
+    assert_eq!(
+        f.scalar(&format!(
+            "SELECT COUNT(*) FROM gonof_common_credit_ledger WHERE uid={MEMBER} AND kind='signin'"
+        ))
+        .await,
+        0
+    );
+    assert_eq!(
+        f.scalar(&format!(
+            "SELECT COUNT(*) FROM gonof_home_favorite WHERE uid={MEMBER}"
+        ))
+        .await,
+        0
+    );
+    f.services.cleanup_ref().await.unwrap();
+}

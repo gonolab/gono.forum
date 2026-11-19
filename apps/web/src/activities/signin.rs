@@ -1,6 +1,7 @@
 //! Check-in statistics: current streak, longest streak, this month, total, and this month's calendar.
 //!
-//! Check-in records are simply the credit ledger rows with `kind='signin'` (`event_key = signin:{uid}:{site day}`).
+//! Check-in records are simply the credit ledger rows with `kind='signin'` (`event_key = signin:{uid}:{site day}`, with
+//! `:{offset minutes}` appended when a check-in made before a time zone change already holds that key).
 //! Check-in itself is refused when the check-in reward is off or the account has a pending account-deletion or
 //! content-erasure request (cooling-off period), so "checked in but left no record" cannot happen; these rows are
 //! therefore the complete check-in history and no separate table is needed. Days are split by calendar days in the
@@ -118,7 +119,8 @@ pub fn signin_stats_from_days(days: &[i64], today: i64) -> SigninStats {
 /// and the rows read equal the member's total check-in days (at most 366 a year). Uses
 /// `gonof_credit_rule_daily (uid, kind, dateline)` as an index-only read without table lookups; sorting and
 /// deduplication happen in code, and the SQL has no `ORDER BY`.
-/// Days are split in the site time zone (`offset_minutes`); past check-ins are also regrouped by the current time zone.
+/// Days are split in the site time zone (`offset_minutes`); past check-ins are also regrouped by the current time zone,
+/// the same way the check-in itself and the credits page decide whether today is checked in.
 pub async fn signin_stats(
     db: &Database,
     uid: i64,

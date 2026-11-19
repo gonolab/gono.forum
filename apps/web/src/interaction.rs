@@ -278,7 +278,13 @@ impl Interaction {
         );
         let mut tx = self.db.begin_write().await?;
         // Read-only mode only blocks public content: like counts are publicly visible, so they are blocked; favorites
-        // are only visible to the member, so they are allowed.
+        // are only visible to the member, so the website allows them. The member API refuses every write in read-only
+        // mode (docs/api.md, "Account and site rules"), so an API favorite reads the switch under the gate lock too.
+        if favorite && actor.api_key.is_some() {
+            crate::runtime::guard_write(&self.db, &mut tx, false)
+                .await
+                .map_err(|error| ContentWriteError::Internal(error.into()))?;
+        }
         if !favorite {
             crate::runtime::guard_write(&self.db, &mut tx, false)
                 .await

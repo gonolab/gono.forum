@@ -283,3 +283,131 @@ async fn a_deleted_winner_is_listed_without_name_or_uid() {
     assert!(!serde_json::to_string(&card).unwrap().contains("deleted-3"));
     fixture.cleanup().await.unwrap();
 }
+
+/// Check-in days follow the site's current time zone everywhere: a check-in counts for the day its time falls on
+/// now, as on the calendar, not for the day stored in its key, so after a time zone change the credits page, the
+/// sidebar button and the check-in itself agree with the calendar.
+#[tokio::test]
+async fn check_in_days_follow_the_current_time_zone_like_the_calendar() {
+    let fixture = TestFixture::migrated().await.unwrap();
+    let db = &fixture.db;
+    site(&fixture, 3).await;
+    execute(
+        db,
+        "UPDATE gonof_common_credit_rule SET enabled=1,amount=1,daily_limit=1 WHERE rule_key='signin'",
+    )
+    .await;
+    let set_offset = |minutes: &'static str| async move {
+        gono_forum_web::test_support::set_setting(db, "settings.time.offset_minutes", minutes)
+            .await
+            .unwrap();
+    };
+    let rules = &activities::rules(db).await.unwrap();
+    let today = |at: i64, offset: i64| async move {
+        let page = activities::credit_page(db, 3, 0, at, offset).await.unwrap();
+        let calendar = activities::signin_stats(db, 3, at, offset).await.unwrap();
+        let cell = calendar
+            .weeks
+            .iter()
+            .flatten()
+            .flatten()
+            .find(|day| day.today)
+            .unwrap()
+            .checked;
+        let sidebar = activities::signin_state(db, 3, at, offset, rules)
+            .await
+            .unwrap()
+            .checked_in;
+        (page.checked_in, sidebar, cell)
+    };
+    let midnight = NOW - NOW.rem_euclid(86_400);
+    // 16:30 UTC is 00:30 the next day in UTC+8: the check-in is stored with the key of that next day.
+    set_offset("480").await;
+    let first = midnight + 16 * 3600 + 1800;
+    assert!(activities::check_in(db, actor(3), first).await.unwrap());
+    // The site moves to UTC: the same check-in now falls on the UTC day it was made.
+    set_offset("0").await;
+    let evening = midnight + 17 * 3600;
+    assert_eq!(
+        today(evening, 0).await,
+        (true, true, true),
+        "credits page, sidebar and calendar"
+    );
+    assert!(
+        !activities::check_in(db, actor(3), evening).await.unwrap(),
+        "already checked in today"
+    );
+    // The next UTC day has no check-in yet, although its key is the one the UTC+8 check-in took.
+    let next = midnight + 86_400 + 10 * 3600;
+    assert_eq!(today(next, 0).await, (false, false, false));
+    assert!(
+        activities::check_in(db, actor(3), next).await.unwrap(),
+        "a day the calendar shows unchecked can be checked in"
+    );
+    assert_eq!(today(next, 0).await, (true, true, true));
+    let day = midnight / 86_400;
+    let keys: Vec<String> = db::query_scalar(
+        "SELECT event_key FROM gonof_common_credit_ledger WHERE uid=3 AND kind='signin' ORDER BY id",
+    )
+    .fetch_all(db.executor())
+    .await
+    .unwrap();
+    assert_eq!(
+        keys,
+        [
+            format!("signin:3:{}", day + 1),
+            format!("signin:3:{}:0", day + 1)
+        ]
+    );
+    fixture.cleanup().await.unwrap();
+}
+
+/// The credits page reads the balance and the history in one snapshot: while entries commit, the newest entry on the
+/// page always ends at the balance shown above it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_credits_page_reads_balance_and_history_from_one_snapshot() {
+    const ENTRIES: i64 = 150;
+    let fixture = TestFixture::migrated().await.unwrap();
+    let db = fixture.db.clone();
+    site(&fixture, 3).await;
+    let crediting = {
+        let db = db.clone();
+        tokio::spawn(async move {
+            for n in 0..ENTRIES {
+                activities::adjust(
+                    &db,
+                    actor(1),
+                    3,
+                    1,
+                    &identity::random_token(),
+                    "snapshot check",
+                    NOW + n,
+                )
+                .await
+                .unwrap();
+            }
+        })
+    };
+    let mut reads = 0;
+    let mut torn = Vec::new();
+    while !crediting.is_finished() {
+        let page = activities::credit_page(&db, 3, 0, NOW + ENTRIES, 0)
+            .await
+            .unwrap();
+        if let Some(newest) = page.entries.first()
+            && newest.available_after != page.available
+        {
+            torn.push((page.available, newest.available_after));
+        }
+        reads += 1;
+    }
+    crediting.await.unwrap();
+    assert!(reads > 0);
+    assert!(
+        torn.is_empty(),
+        "{} of {reads} pages mixed two moments (balance, newest entry): {:?}",
+        torn.len(),
+        &torn[..torn.len().min(5)]
+    );
+    fixture.cleanup().await.unwrap();
+}

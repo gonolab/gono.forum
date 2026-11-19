@@ -271,9 +271,19 @@ async fn credits_require_login_csrf_and_admin_while_signin_is_idempotent() {
     f.post("/api/check-in", &f.member, &fields)
         .await
         .redirect("/my/credits?done=signin");
+    assert!(
+        f.get("/my/credits?done=signin", Some(&f.member))
+            .await
+            .html
+            .contains("Check-in processed.")
+    );
+    // A second check-in the same day records nothing, and the page says so instead of reporting a check-in.
     f.post("/api/check-in", &f.member, &fields)
         .await
-        .status(StatusCode::SEE_OTHER);
+        .redirect("/my/credits?done=signin-none");
+    let again = f.get("/my/credits?done=signin-none", Some(&f.member)).await;
+    assert!(again.html.contains("No check-in was recorded"));
+    assert!(!again.html.contains("Check-in processed."));
     assert_eq!(
         f.scalar("SELECT available FROM gonof_common_credit_account WHERE uid=2")
             .await,

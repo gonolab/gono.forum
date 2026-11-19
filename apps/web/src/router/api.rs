@@ -909,8 +909,12 @@ async fn submit_reply(
 }
 
 /// The activity transaction rejects all rules on author, status, deadline, options, balance and so on with
-/// `ActivityFailure`, mapped to 422 `activity_rejected`; other errors are database failures.
+/// `ActivityFailure`, mapped to 422 `activity_rejected`; read-only mode found by the check-in transaction is
+/// 403 `read_only`; other errors are database failures.
 fn activity_error(error: anyhow::Error) -> ApiError {
+    if let Some(IdentityError::Suspended(message)) = error.downcast_ref::<IdentityError>() {
+        return ApiError::new(StatusCode::FORBIDDEN, "read_only", message.clone());
+    }
     match error.downcast_ref::<activities::ActivityFailure>() {
         Some(failure) => ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,

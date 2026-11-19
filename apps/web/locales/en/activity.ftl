@@ -167,6 +167,7 @@ activity-credits-today = Earned today
 activity-credits-none = None
 activity-credits-day-note = Counted by calendar day in the site time zone { $zone }.{" "}
 activity-credits-signed-in = Check-in processed. The points history shows the reward.
+activity-credits-signin-none = No check-in was recorded: you have already checked in today, or today's check-in reward limit is reached.
 activity-signin-stats = Check-in stats
 activity-signin-streak = Current streak
 activity-signin-longest = Longest streak

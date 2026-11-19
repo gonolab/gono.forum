@@ -115,6 +115,7 @@ activity-credits-today = 今日获得
 activity-credits-none = 暂无
 activity-credits-day-note = 按站点时区 { $zone } 的自然日统计。
 activity-credits-signed-in = 签到已处理，奖励以积分流水为准。
+activity-credits-signin-none = 没有记录签到：今天已经签到过，或已达到今天的签到奖励上限。
 activity-signin-stats = 签到统计
 activity-signin-streak = 连续签到
 activity-signin-longest = 最长连续

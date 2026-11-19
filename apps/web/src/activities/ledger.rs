@@ -247,7 +247,7 @@ pub(super) async fn refund(
 /// enabled and its reward amount.
 ///
 /// The logic matches the credits page, but only the single `signin` rule is fetched by primary key instead of the
-/// whole rule table. Both are point lookups, each run once per member-card render; once per-member state caching lands
+/// whole rule table. Both read at most one row, each once per member-card render; once per-member state caching lands
 /// the cache takes this over, so the queries themselves are not changed here.
 pub struct SigninState {
     pub checked_in: bool,
@@ -265,12 +265,7 @@ pub async fn signin_state(
     offset_minutes: i64,
     rules: &[Rule],
 ) -> Result<SigninState> {
-    let checked_in =
-        crate::db::query("SELECT id FROM gonof_common_credit_ledger WHERE event_key=?")
-            .bind(signin_key(uid, now, offset_minutes))
-            .fetch_optional(db.executor())
-            .await?
-            .is_some();
+    let checked_in = signed_in_on(db.executor(), uid, now, offset_minutes).await?;
     let (enabled, amount) = rules
         .iter()
         .find(|rule| rule.key == "signin")
@@ -504,10 +499,15 @@ pub async fn reward_content(
     .await?;
     Ok(())
 }
-/// Check-in is idempotent per member and calendar day in the site time zone: the ledger `event_key` is
-/// `signin:{uid}:{day}`; checking in again the same day returns `false` without a second award. It takes no request
-/// key and does not replay an earlier result by request key. On the day the site time zone changes, "days" shift as
-/// a whole and one extra check-in is possible; that is accepted.
+/// Check-in is idempotent per member and calendar day in the site time zone: checking in again the same day returns
+/// `false` without a second award. The day is decided by the times of the member's check-ins in the current site time
+/// zone, as the calendar and the credits page show them ([`signed_in_on`]); the ledger `event_key` is
+/// `signin:{uid}:{day}`, and after a time zone change a check-in can hold the key of a day it no longer falls on, so
+/// that day's check-in takes `signin:{uid}:{day}:{offset minutes}` instead. It takes no request key and does not
+/// replay an earlier result by request key.
+///
+/// The website allows it during read-only mode; through the member API (`actor.api_key` set) read-only mode refuses it
+/// inside the transaction (docs/api.md, "Account and site rules").
 pub async fn check_in(db: &Database, actor: Actor, now: i64) -> Result<bool> {
     check_in_inner(db, actor, Some(now)).await
 }
@@ -515,15 +515,19 @@ pub async fn check_in_live(db: &Database, actor: Actor) -> Result<bool> {
     retry_transaction(|| check_in_inner(db, actor, None)).await
 }
 async fn check_in_inner(db: &Database, actor: Actor, timestamp: Option<i64>) -> Result<bool> {
-    // Check-in only touches the member's own credits and works as usual in read-only mode, so it
-    // goes through the read gate without looking at the read-only switch. The gate is this transaction's first lock:
-    // the site time zone and the daily cap come from this same read, and a check-in waits for an admin-area time-zone
-    // change to commit.
+    // Check-in only touches the member's own credits and works as usual on the website in read-only mode, so it
+    // goes through the read gate; only the member API, which documents every write as refused in read-only mode,
+    // looks at the read-only switch here. The gate is this transaction's first lock: the site time zone, the daily cap
+    // and the switch come from this same read, and a check-in waits for an admin-area settings change to commit.
     let mut tx = db.begin_write().await?;
-    let offset_minutes = crate::runtime::locked(db, &mut tx)
-        .await?
-        .time
-        .offset_minutes;
+    let settings = crate::runtime::locked(db, &mut tx).await?;
+    if actor.api_key.is_some() && settings.site.read_only {
+        return Err(crate::identity::IdentityError::Suspended(
+            settings.site.read_only_notice(crate::i18n::current()),
+        )
+        .into());
+    }
+    let offset_minutes = settings.time.offset_minutes;
     lock_members(db, &mut tx, &[actor.uid]).await?;
     actor_locked(db, &mut tx, actor, false).await?;
     funding(db, &mut tx, actor.uid).await?;
@@ -540,12 +544,27 @@ async fn check_in_inner(db: &Database, actor: Actor, timestamp: Option<i64>) -> 
         enabled == 1,
         crate::i18n::current().activity_error_signin_off(),
     )?;
+    // The member row is locked, so check-ins of one member run one after another and this read sees the last one.
+    if signed_in_on(db.observe(&mut *tx), actor.uid, now, offset_minutes).await? {
+        tx.commit().await?;
+        return Ok(false);
+    }
+    let mut key = signin_key(actor.uid, now, offset_minutes);
+    if crate::db::query("SELECT id FROM gonof_common_credit_ledger WHERE event_key=?")
+        .bind(&key)
+        .fetch_optional(db.observe(&mut *tx))
+        .await?
+        .is_some()
+    {
+        // Taken by a check-in made under another time zone that now falls on another day.
+        key = format!("{key}:{offset_minutes}");
+    }
     let credited = rule_reward(
         db,
         &mut tx,
         actor.uid,
         "signin",
-        &signin_key(actor.uid, now, offset_minutes),
+        &key,
         None,
         now,
         offset_minutes,
@@ -554,9 +573,44 @@ async fn check_in_inner(db: &Database, actor: Actor, timestamp: Option<i64>) -> 
     tx.commit().await?;
     Ok(credited)
 }
+
+/// Whether the member checked in on the site day containing `now` in the current site time zone, judged by the times
+/// of the check-ins like the calendar ([`super::signin_stats`]) rather than by the day in their keys, which keeps the
+/// time zone the site had at check-in. Reads `gonof_credit_rule_daily (uid, kind, dateline)`.
+async fn signed_in_on<'c, E>(executor: E, uid: i64, now: i64, offset_minutes: i64) -> Result<bool>
+where
+    E: crate::db::Executor<'c>,
+{
+    let start = crate::clock::day_start(now, offset_minutes);
+    Ok(crate::db::query(
+        "SELECT id FROM gonof_common_credit_ledger WHERE uid=? AND kind='signin' AND dateline>=? AND dateline<? LIMIT 1",
+    )
+    .bind(uid)
+    .bind(start)
+    .bind(start + 86_400)
+    .fetch_optional(executor)
+    .await?
+    .is_some())
+}
 /// Credits page. `offset_minutes` is the site time zone; "You have checked in today" is judged by its calendar day.
+/// The balance, the history page and the check-in status are read in one read-only snapshot, so a check-in or another
+/// entry committed meanwhile shows in all of them or in none.
 pub async fn credit_page(
     db: &Database,
+    uid: i64,
+    before: i64,
+    now: i64,
+    offset_minutes: i64,
+) -> Result<CreditPage> {
+    let mut tx = db.begin_read_only().await?;
+    let page = credit_page_in(db, &mut tx, uid, before, now, offset_minutes).await?;
+    tx.rollback().await?;
+    Ok(page)
+}
+
+async fn credit_page_in(
+    db: &Database,
+    tx: &mut Tx<'_>,
     uid: i64,
     before: i64,
     now: i64,
@@ -565,7 +619,7 @@ pub async fn credit_page(
     let account =
         crate::db::query("SELECT available,frozen FROM gonof_common_credit_account WHERE uid=?")
             .bind(uid)
-            .fetch_optional(db.executor())
+            .fetch_optional(db.observe(&mut **tx))
             .await?;
     let (available, frozen) = match account {
         Some(r) => (r.try_get("available")?, r.try_get("frozen")?),
@@ -583,7 +637,7 @@ pub async fn credit_page(
         )
         .bind(before)
         .bind(uid)
-        .fetch_optional(db.executor())
+        .fetch_optional(db.observe(&mut **tx))
         .await?;
         match cursor {
             Some(dateline) => crate::db::query(&format!("{COLUMNS} WHERE l.uid=? AND (l.dateline<? OR (l.dateline=? AND l.id<?)) ORDER BY l.dateline DESC,l.id DESC LIMIT 51"))
@@ -591,7 +645,7 @@ pub async fn credit_page(
                 .bind(dateline)
                 .bind(dateline)
                 .bind(before)
-                .fetch_all(db.executor())
+                .fetch_all(db.observe(&mut **tx))
                 .await?,
             None => Vec::new(),
         }
@@ -600,7 +654,7 @@ pub async fn credit_page(
             "{COLUMNS} WHERE l.uid=? ORDER BY l.dateline DESC,l.id DESC LIMIT 51"
         ))
         .bind(uid)
-        .fetch_all(db.executor())
+        .fetch_all(db.observe(&mut **tx))
         .await?
     };
     let more = rows.len() > 50;
@@ -622,12 +676,7 @@ pub async fn credit_page(
             })
         })
         .collect::<Result<_>>()?;
-    let checked_in =
-        crate::db::query("SELECT id FROM gonof_common_credit_ledger WHERE event_key=?")
-            .bind(signin_key(uid, now, offset_minutes))
-            .fetch_optional(db.executor())
-            .await?
-            .is_some();
+    let checked_in = signed_in_on(db.observe(&mut **tx), uid, now, offset_minutes).await?;
     Ok(CreditPage {
         available,
         frozen,

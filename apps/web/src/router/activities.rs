@@ -204,10 +204,10 @@ async fn credits(Page(state): Page, Query(query): Query<CreditQuery>) -> Respons
         level,
         credit_gains,
         growth_gains,
-        message: if query.done == "signin" {
-            crate::i18n::current().activity_credits_signed_in().into()
-        } else {
-            String::new()
+        message: match query.done.as_str() {
+            "signin" => crate::i18n::current().activity_credits_signed_in().into(),
+            "signin-none" => crate::i18n::current().activity_credits_signin_none().into(),
+            _ => String::new(),
         },
     })
 }
@@ -223,8 +223,10 @@ async fn signin(Page(state): Page, CsrfForm(_form): CsrfForm<SigninForm>) -> Res
         Ok(a) => a,
         Err(r) => return r,
     };
+    // Only a check-in that was recorded is reported as one.
     match service::check_in_live(&state.db, actor).await {
-        Ok(_) => auth::redirect("/my/credits?done=signin"),
+        Ok(true) => auth::redirect("/my/credits?done=signin"),
+        Ok(false) => auth::redirect("/my/credits?done=signin-none"),
         Err(e) => failure(&state, e),
     }
 }

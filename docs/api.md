@@ -228,8 +228,10 @@ held for your open bounties, red packets and lotteries; `checked_in` says whethe
 the site's time zone.
 
 **`POST /check-in`** takes no body and returns `{"credited": true}`. You get the day's check-in points once per
-calendar day in the site's time zone; further calls that day return `{"credited": false}`. If the site has the check-in
-turned off, the answer is `422 activity_rejected`.
+calendar day in the site's time zone; further calls that day return `{"credited": false}`. A day counts as checked in
+when one of your check-ins falls on it in the site's current time zone, so after the site changes its time zone,
+`checked_in`, the check-in calendar on the website and this endpoint still agree. If the site has the check-in turned
+off, the answer is `422 activity_rejected`.
 
 ### Boards
 
