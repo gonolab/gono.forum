@@ -382,21 +382,24 @@ impl Media {
         Ok(None)
     }
 
-    /// Among uploaders who have not had a turn this round, the earliest claimable job and its uploader.
+    /// Among uploaders who have not had a turn this round, the job due longest and its uploader
+    /// (`outbox::next_due_sql`: in each range of `gonof_outbox_claim`, the first job whose uploader is still waiting).
     async fn next_candidate(&self, now: i64, served: &BTreeSet<i64>) -> Result<Option<(i64, i64)>> {
-        let mut sql = String::from(
-            "SELECT o.eventid,a.uid FROM gonof_common_outbox o JOIN gonof_forum_attachment a ON a.aid=o.aggregate_id WHERE o.event_type IN ('media.process','media.purge') AND o.status IN ('pending','processing') AND o.available_at<=? AND o.lease_until<=?",
+        const TYPES: [&str; 2] = ["media.process", "media.purge"];
+        let filter = if served.is_empty() {
+            String::new()
+        } else {
+            format!(" AND a.uid NOT IN ({})", vec!["?"; served.len()].join(","))
+        };
+        let sql = crate::outbox::next_due_sql(
+            TYPES.len(),
+            "o.eventid,o.available_at,a.uid",
+            " JOIN gonof_forum_attachment a ON a.aid=o.aggregate_id",
+            &filter,
         );
-        if !served.is_empty() {
-            sql.push_str(" AND a.uid NOT IN (");
-            sql.push_str(&vec!["?"; served.len()].join(","));
-            sql.push(')');
-        }
-        sql.push_str(" ORDER BY o.eventid LIMIT 1");
-        let mut query = crate::db::query(&sql).bind(now).bind(now);
-        for uid in served {
-            query = query.bind(*uid);
-        }
+        let query = crate::outbox::bind_next_due(crate::db::query(&sql), &TYPES, now, |query| {
+            served.iter().fold(query, |query, uid| query.bind(*uid))
+        });
         let row = query.fetch_optional(self.db.executor()).await?;
         Ok(match row {
             Some(row) => Some((row.try_get("eventid")?, row.try_get("uid")?)),
@@ -1136,6 +1139,44 @@ mod tests {
             next <= std::time::Instant::now() + IDLE_MAX,
             "at most 5 seconds between checks"
         );
+    }
+
+    /// Finding the next job reads only the due media jobs, in `gonof_outbox_claim` order, also when uploaders who had
+    /// their turn are left out; not the jobs already done or the backlog of other queues.
+    #[tokio::test]
+    async fn media_claims_read_the_claim_index() {
+        use crate::debug::trace::{self, RequestProfile};
+        let fixture = Fixture::new(MediaConfig::default()).await;
+        let server = FakeS3::new(fixture.db.clone()).await;
+        fixture.configure(&server.endpoint).await;
+        let upload = fixture
+            .upload(&identity::random_token(), "queued.png", &png())
+            .await
+            .unwrap();
+        let now = identity::now();
+        crate::test_support::outbox_backlog(&fixture.db, &["media.process", "media.purge"], now)
+            .await
+            .unwrap();
+        let profile = std::sync::Arc::new(RequestProfile::new());
+        let served = BTreeSet::from([fixture.uid + 1]);
+        let candidate = trace::scope(profile.clone(), fixture.media.next_candidate(now, &served))
+            .await
+            .unwrap();
+        assert_eq!(candidate.map(|(_, uid)| uid), Some(fixture.uid));
+        let claim = trace::scope(
+            profile.clone(),
+            fixture.media.claim(now, &mut Default::default()),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(claim.aid, upload.aid);
+        let checked =
+            crate::test_support::assert_outbox_claim_plans(&fixture.db, &profile.snapshot())
+                .await
+                .unwrap();
+        assert_eq!(checked, 2);
+        fixture._services.cleanup_ref().await.unwrap();
     }
 
     #[tokio::test]

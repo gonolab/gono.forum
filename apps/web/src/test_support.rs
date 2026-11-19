@@ -364,6 +364,146 @@ pub fn assert_sqlite_index_order(plan: &[String], sql: &str) {
     );
 }
 
+/// A backlog for the Outbox claim plan tests: for each of `types`, events already sent, plus due pending and sent
+/// events of a type no worker claims; then fresh statistics, so both planners weigh the claim index against the
+/// primary key and `gonof_outbox_delivery` as they would on a busy site.
+pub async fn outbox_backlog(db: &Database, types: &[&str], now: i64) -> Result<()> {
+    const ROWS: usize = 300;
+    let mut rows = Vec::new();
+    for (n, kind) in types.iter().enumerate() {
+        for m in 0..ROWS {
+            rows.push(format!(
+                "('backlog:{n}:{m}','{kind}','test',{m},'{{}}',{at},{at},'sent')",
+                at = now - 86_400
+            ));
+        }
+    }
+    for m in 0..2 * ROWS {
+        let status = if m % 2 == 0 { "pending" } else { "sent" };
+        rows.push(format!(
+            "('backlog:other:{m}','test.backlog','test',{m},'{{}}',{at},{at},'{status}')",
+            at = now - 3_600
+        ));
+    }
+    for chunk in rows.chunks(500) {
+        crate::db::query(&format!(
+            "INSERT INTO gonof_common_outbox(event_key,event_type,aggregate_type,aggregate_id,payload,dateline,available_at,status) VALUES {}",
+            chunk.join(",")
+        ))
+        .execute(db.executor())
+        .await?;
+    }
+    crate::db::raw_sql(match db.backend() {
+        crate::db::Backend::Sqlite => "ANALYZE",
+        crate::db::Backend::MySql => "ANALYZE TABLE gonof_common_outbox",
+    })
+    .execute(&db.pool)
+    .await?;
+    Ok(())
+}
+
+/// The statements among `records` that look for an event to claim (they read the outbox with a lease condition;
+/// the recheck of the chosen row by primary key aside) read `gonof_outbox_claim` in index order, a range on type,
+/// status and due time, on both backends (docs/queries.md, "Outbox claims"). On MySQL no read of the outbox uses
+/// another index or a filesort; on SQLite no search of the outbox uses another index or feeds a temporary B-tree.
+/// Returns how many statements were checked.
+pub async fn assert_outbox_claim_plans(
+    db: &Database,
+    records: &[crate::debug::trace::QueryRecord],
+) -> Result<usize> {
+    let claims: Vec<_> = records
+        .iter()
+        .filter(|r| {
+            let sql: String = r.sql.split_whitespace().collect();
+            r.source == crate::debug::trace::QuerySource::Application
+                && sql.contains("FROMgonof_common_outbox")
+                && sql.contains("lease_until<=?")
+                && !sql.contains("WHEREeventid=?")
+        })
+        .collect();
+    assert!(!claims.is_empty(), "no claim statement was recorded");
+    for record in &claims {
+        let sql = &record.expanded_sql;
+        match db.backend() {
+            crate::db::Backend::MySql => {
+                let plan = crate::db::query(&format!("EXPLAIN {sql}"))
+                    .fetch_all(db.executor())
+                    .await?;
+                let mut reads = 0;
+                for row in &plan {
+                    // SQLx only gets the column names of EXPLAIN at execution time, so they are looked up by name.
+                    let text = |column: &str| -> Result<String> {
+                        let ordinal = row
+                            .columns()
+                            .iter()
+                            .position(|c| c.name() == column)
+                            .context("EXPLAIN column")?;
+                        Ok(row
+                            .try_get::<Option<Vec<u8>>, _>(ordinal)?
+                            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+                            .unwrap_or_default())
+                    };
+                    if !matches!(text("table")?.as_str(), "o" | "gonof_common_outbox") {
+                        continue;
+                    }
+                    reads += 1;
+                    let (kind, key, key_len, extra) = (
+                        text("type")?,
+                        text("key")?,
+                        text("key_len")?,
+                        text("Extra")?,
+                    );
+                    assert_eq!(key, "gonof_outbox_claim", "{}", record.sql);
+                    assert_eq!(kind, "range", "{}", record.sql);
+                    // `event_type` 322 bytes, `status` 66 and `available_at` 8: the range covers the due time.
+                    assert_eq!(key_len, "396", "{}", record.sql);
+                    assert!(!extra.contains("filesort"), "{}\n{extra}", record.sql);
+                }
+                assert!(reads > 0, "{}", record.sql);
+            }
+            crate::db::Backend::Sqlite => {
+                let steps: Vec<(i64, String)> =
+                    crate::db::query(&format!("EXPLAIN QUERY PLAN {sql}"))
+                        .written_for(crate::db::Backend::Sqlite)
+                        .fetch_all(&db.pool)
+                        .await?
+                        .iter()
+                        .map(|row| Ok((row.try_get("parent")?, crate::db::text(row, "detail")?)))
+                        .collect::<Result<_>>()?;
+                let outbox = |detail: &str| {
+                    detail
+                        .strip_prefix("SEARCH ")
+                        .or_else(|| detail.strip_prefix("SCAN "))
+                        .and_then(|rest| {
+                            rest.strip_prefix("gonof_common_outbox")
+                                .or_else(|| rest.strip_prefix('o'))
+                        })
+                        .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+                };
+                let reads: Vec<_> = steps.iter().filter(|(_, d)| outbox(d)).collect();
+                assert!(!reads.is_empty(), "{}\n{steps:?}", record.sql);
+                for (parent, detail) in reads {
+                    assert!(
+                        detail.contains(
+                            "INDEX gonof_common_outbox__gonof_outbox_claim (event_type=? AND status=? AND available_at<?)"
+                        ),
+                        "{}\n{steps:?}",
+                        record.sql
+                    );
+                    assert!(
+                        !steps
+                            .iter()
+                            .any(|(p, d)| p == parent && d.starts_with("USE TEMP B-TREE")),
+                        "the outbox rows are not sorted: {}\n{steps:?}",
+                        record.sql
+                    );
+                }
+            }
+        }
+    }
+    Ok(claims.len())
+}
+
 /// Fault injection for tests: makes statements fail on `table` at `timing` (`BEFORE INSERT`, `BEFORE UPDATE`,
 /// `BEFORE DELETE`) when `condition` holds, with `message` in the error. `condition` may refer to `NEW.column` and
 /// `OLD.column`, written as an expression both backends accept; an empty string means always fail.

@@ -577,9 +577,9 @@ async fn abandon(mailer: &Mailer, mail: &ClaimedMail, reason: &str) -> Result<()
 
 /// Claim order: account and moderation mail before content notification mail.
 ///
-/// The two kinds share one queue; claimed together first-in first-out by eventid, a wave of follow mail would push
-/// password reset and verification mail to the back. This is two queries in code rather than sorting by type in
-/// SQL: take account and moderation mail first, and only when there is none, content notification mail.
+/// The two kinds share one queue; claimed together in due order, a wave of follow mail would push password reset and
+/// verification mail to the back. This is two claims in code rather than sorting by type in SQL: take account and
+/// moderation mail first, and only when there is none, content notification mail.
 ///
 /// Sign-in alerts and two-factor security notices are account security and go in the first tier; private message
 /// mail alerts sit with content notification mail in the second tier.
@@ -592,22 +592,17 @@ async fn claim(database: &Database, now: i64) -> Result<Option<ClaimedMail>> {
     let mut transaction = database.begin_write().await?;
     let mut found = None;
     for types in MAIL_CLAIM_ORDER {
-        // Without the hint, both 5.7.44 and 8.4.11 switch to the primary key for ORDER BY eventid LIMIT 1 and scan
-        // every historical sent row (with a locking read, too). `gonof_outbox_delivery` takes a range by status and
-        // due time and only reads due pending rows.
-        let statement = format!(
-            "SELECT eventid, event_key, event_type, aggregate_id, payload, attempts,dateline FROM gonof_common_outbox FORCE INDEX (gonof_outbox_delivery) WHERE event_type IN ({}) AND status IN ('pending', 'processing') AND available_at <= ? AND lease_until <= ? ORDER BY eventid LIMIT 1 FOR UPDATE",
-            vec!["?"; types.len()].join(",")
-        );
-        let mut query = crate::db::query(&statement);
-        for kind in types {
-            query = query.bind(*kind);
-        }
-        found = query
-            .bind(now)
-            .bind(now)
-            .fetch_optional(database.observe(&mut *transaction))
-            .await?;
+        // Within a tier, the mail due longest (`outbox::lock_next_due`): a few entries of `gonof_outbox_claim` per
+        // type, not the due mail of every queue (`gonof_outbox_delivery` has no type) nor, as both 5.7.44 and 8.4.11
+        // do without a hint, every historical sent row in primary key order.
+        found = crate::outbox::lock_next_due(
+            database,
+            &mut transaction,
+            types,
+            "eventid,event_key,event_type,aggregate_id,payload,attempts,dateline",
+            now,
+        )
+        .await?;
         if found.is_some() {
             break;
         }
@@ -994,8 +989,8 @@ mod claim_tests {
     }
 
     /// Claim order: with a batch of content notification mail queued first, a later password reset mail is still
-    /// claimed first; content notification mail only comes after the account mail is claimed, each still first-in
-    /// first-out by eventid.
+    /// claimed first; content notification mail only comes after the account mail is claimed, each tier in due order
+    /// and then by eventid.
     #[tokio::test]
     async fn account_mail_is_claimed_before_queued_content_mail() {
         let services = crate::test_support::TestFixture::migrated().await.unwrap();
@@ -1032,6 +1027,36 @@ mod claim_tests {
                 "notification.email",
             ]
         );
+        services.cleanup().await.unwrap();
+    }
+
+    /// Each tier reads only the due mail of its own types, in `gonof_outbox_claim` order: content mail is found
+    /// after the account tier came up empty, without the sent mail kept for the retention period or the backlog of
+    /// other queues being read.
+    #[tokio::test]
+    async fn mail_claims_read_the_claim_index() {
+        let services = crate::test_support::TestFixture::migrated().await.unwrap();
+        let db = &services.db;
+        let now = crate::identity::now();
+        crate::test_support::outbox_backlog(db, &EVENT_TYPES, now)
+            .await
+            .unwrap();
+        crate::db::query("INSERT INTO gonof_common_outbox(event_key,event_type,aggregate_type,aggregate_id,payload,dateline,available_at) VALUES('content-mail','notification.email','test',1,'{}',?,?)")
+            .bind(now - 10)
+            .bind(now - 10)
+            .execute(db.executor())
+            .await
+            .unwrap();
+        let profile = std::sync::Arc::new(crate::debug::trace::RequestProfile::new());
+        let mail = crate::debug::trace::scope(profile.clone(), claim(db, now))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(mail.event_type, "notification.email");
+        let checked = crate::test_support::assert_outbox_claim_plans(db, &profile.snapshot())
+            .await
+            .unwrap();
+        assert_eq!(checked, 2, "one statement for each tier");
         services.cleanup().await.unwrap();
     }
 }

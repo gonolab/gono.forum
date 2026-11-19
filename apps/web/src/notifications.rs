@@ -488,8 +488,14 @@ struct Claim {
 async fn claim(db: &Database, now: i64) -> anyhow::Result<Option<Claim>> {
     let started = std::time::Instant::now();
     let mut tx = db.begin_write().await?;
-    let row = crate::db::query("SELECT eventid,aggregate_id,event_key,event_type,payload,dateline,attempts FROM gonof_common_outbox WHERE event_type='notification.content' AND status IN ('pending','processing') AND available_at<=? AND lease_until<=? ORDER BY eventid LIMIT 1 FOR UPDATE")
-        .bind(now).bind(now).fetch_optional(db.observe(&mut *tx)).await?;
+    let row = crate::outbox::lock_next_due(
+        db,
+        &mut tx,
+        &["notification.content"],
+        "eventid,aggregate_id,event_key,event_type,payload,dateline,attempts",
+        now,
+    )
+    .await?;
     let Some(row) = row else {
         tx.commit().await?;
         return Ok(None);
@@ -657,6 +663,26 @@ mod tests {
         let error = db::text(&row, "last_error").unwrap();
         assert!(crate::outbox::is_exhausted(Some(&error)), "{error}");
         assert!(error.contains("notification limit contract"));
+        services.cleanup().await.unwrap();
+    }
+
+    /// The claim reads only the due notification events, in `gonof_outbox_claim` order, not the sent events kept for
+    /// the retention period or the backlog of other queues.
+    #[tokio::test]
+    async fn notification_claim_reads_the_claim_index() {
+        let services = enqueued().await;
+        let db = &services.db;
+        crate::test_support::outbox_backlog(db, &["notification.content"], 100)
+            .await
+            .unwrap();
+        let profile = std::sync::Arc::new(crate::debug::trace::RequestProfile::new());
+        let claimed = crate::debug::trace::scope(profile.clone(), claim(db, 100))
+            .await
+            .unwrap();
+        assert!(claimed.is_some());
+        crate::test_support::assert_outbox_claim_plans(db, &profile.snapshot())
+            .await
+            .unwrap();
         services.cleanup().await.unwrap();
     }
 

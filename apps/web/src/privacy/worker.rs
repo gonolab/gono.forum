@@ -143,14 +143,19 @@ pub async fn process_pending(
     }
     Ok(count)
 }
-/// Takes the task that has been due longest. A multi-step task goes back to the queue at the time its step ended
-/// ([`finish_task`]), so an erasure of many posts takes turns with requests that came in meanwhile instead of keeping
-/// the queue to itself. The order is not the index order of `gonof_outbox_delivery (status, available_at,
-/// lease_until, eventid)`: both backends read that index as a range on `status` and `available_at` and sort the due
-/// rows, which are few.
+/// Takes the task that has been due longest, export or erasure (`outbox::lock_next_due`). A multi-step task goes back
+/// to the queue at the time its step ended ([`finish_task`]), so an erasure of many posts takes turns with requests
+/// that came in meanwhile instead of keeping the queue to itself.
 async fn claim(db: &Database, now: i64) -> anyhow::Result<Option<Claim>> {
     let mut tx = db.begin_write().await?;
-    let row=db::query("SELECT eventid,aggregate_id,payload FROM gonof_common_outbox WHERE event_type IN ('privacy.export','privacy.erase') AND status IN ('pending','processing') AND available_at<=? AND lease_until<=? ORDER BY available_at,eventid LIMIT 1 FOR UPDATE").bind(now).bind(now).fetch_optional(db.observe(&mut *tx)).await?;
+    let row = crate::outbox::lock_next_due(
+        db,
+        &mut tx,
+        &["privacy.export", "privacy.erase"],
+        "eventid,aggregate_id,payload",
+        now,
+    )
+    .await?;
     let Some(row) = row else {
         tx.commit().await?;
         return Ok(None);
@@ -1163,6 +1168,34 @@ mod tests {
             .fetch_one(db.executor())
             .await
             .unwrap()
+    }
+
+    /// The claim reads only the due data requests, in `gonof_outbox_claim` order, not the requests already done or
+    /// the backlog of other queues.
+    #[tokio::test]
+    async fn data_request_claim_reads_the_claim_index() {
+        let fixture = crate::test_support::TestFixture::migrated().await.unwrap();
+        let db = fixture.db.clone();
+        let now = identity::now();
+        crate::test_support::outbox_backlog(&db, &["privacy.export", "privacy.erase"], now)
+            .await
+            .unwrap();
+        db::query("INSERT INTO gonof_common_outbox(event_key,event_type,aggregate_type,aggregate_id,payload,dateline,available_at) VALUES('privacy.request:1','privacy.erase','data_request',1,'{\"uid\":1}',?,?)")
+            .bind(now)
+            .bind(now)
+            .execute(db.executor())
+            .await
+            .unwrap();
+        let profile = std::sync::Arc::new(crate::debug::trace::RequestProfile::new());
+        let claim = crate::debug::trace::scope(profile.clone(), claim(&db, now))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!((claim.request_id, claim.uid), (1, 1));
+        crate::test_support::assert_outbox_claim_plans(&db, &profile.snapshot())
+            .await
+            .unwrap();
+        fixture.cleanup().await.unwrap();
     }
 
     // An export may outlast one lease period: the heartbeat must push the lease forward and stop as soon as another

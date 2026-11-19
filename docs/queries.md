@@ -470,6 +470,32 @@ member's `unread_notifications` goes down by the rows deleted. A round that find
 members; otherwise the next round carries on after the last uid, and a pass starts again at the beginning, so a
 notification can outlive its period by the time a pass takes.
 
+## Outbox claims
+
+Each background worker claims its own kinds of event from `gonof_common_outbox`: mail (account and moderation mail
+first, content notification and private message mail only when there is none), content notifications, media jobs,
+data requests and forum merges. A claim takes the event that has been due longest, by `available_at` and then
+`eventid`, whether it is pending or processing under a lease that ran out (its worker stopped). A retry is due again
+only after its backoff, so it queues by that time, not by when the event was written.
+
+Claims read `gonof_outbox_claim (event_type, status, available_at, eventid)`. `outbox::next_due_sql` gives every type
+and status its own branch, which reads that range in index order and stops at the first row that is due and not
+leased (`LIMIT 1`); `UNION ALL` with `ORDER BY available_at, eventid LIMIT 1` keeps the earliest. A claim therefore
+reads a few index entries per type, however long the backlog of its own or other queues is and however many sent
+events are kept. As one condition with `IN` lists over the types or statuses, both planners would read and sort the
+whole due backlog (filesort, temporary B-tree), and without the hint MySQL walks the primary key through every
+historical row. The candidate is read without a lock; the claim then locks that row by primary key and checks its
+status, due time and lease again, since another process may have claimed it meanwhile, and tries the next candidate
+a few times at most. The media worker's turn among uploaders is a condition in each branch (`a.uid NOT IN (…)`).
+Looking up the forum merges in progress reads the same index, on type and status.
+
+`gonof_outbox_delivery (status, available_at, lease_until, eventid)` stays for the cleanup of sent events, which walks
+it in index order (`maintenance.rs`), and for the size of the queue on the admin home page.
+
+`outbox::tests` checks the order. Each worker has a test that claims from a backlog of sent events and of other
+queues and checks the plan on both backends (`test_support::assert_outbox_claim_plans`): every read of the outbox is a
+range of `gonof_outbox_claim` on type, status and due time, and nothing sorts outbox rows.
+
 ## Checking consistency
 
 - `apps/web/tests/consistency/content.sql` holds read-only checks that must all be 0: the copies (the last replier's

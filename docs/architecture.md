@@ -147,8 +147,9 @@ own pages.
 ## Side effects and background work
 
 Mail, notifications, media processing and data requests are written as Outbox events in the same transaction as the
-change that causes them, and consumed by workers inside the web process. Workers claim events with a lease, retry
-transient failures with backoff and give up after 20 attempts (an administrator can schedule another try). Posting
+change that causes them, and consumed by workers inside the web process. Workers claim events with a lease, the one
+due longest first ([queries.md](queries.md), "Outbox claims"), retry transient failures with backoff and give up after
+20 attempts (an administrator can schedule another try). Posting
 and other writes carry request keys, so a retried request returns the original result instead of writing twice.
 Thread views are not events: each process buffers the views it counts and writes them once a minute and when it shuts
 down ([queries.md](queries.md), "Views").

@@ -910,10 +910,11 @@ pub struct MergeTask {
     pub reason: String,
 }
 
-/// Merge jobs in progress (`pending`, `processing`). Forced onto `gonof_outbox_delivery`: takes a range by status,
-/// reading only those in-progress rows without scanning events already sent within the retention period.
+/// Merge jobs in progress (`pending`, `processing`). Forced onto `gonof_outbox_claim`: two ranges, the merge events
+/// of each status, so only those in-progress rows are read, not the backlog of other queues or the events already
+/// sent within the retention period.
 async fn active_merges(db: &Database, tx: &mut Tx<'_>) -> Result<Vec<(i64, MergeTask)>> {
-    let rows = db::query("SELECT eventid,payload FROM gonof_common_outbox FORCE INDEX (gonof_outbox_delivery) WHERE status IN ('pending','processing') AND event_type=?")
+    let rows = db::query("SELECT eventid,payload FROM gonof_common_outbox FORCE INDEX (gonof_outbox_claim) WHERE event_type=? AND status IN ('pending','processing')")
         .bind(MERGE_EVENT)
         .fetch_all(db.observe(&mut **tx))
         .await?;
@@ -928,7 +929,7 @@ async fn active_merges(db: &Database, tx: &mut Tx<'_>) -> Result<Vec<(i64, Merge
 
 /// For the admin forum page: the in-progress merge with this forum as source (target forum ID, job ID).
 pub async fn pending_merge(db: &Database, fid: i64) -> Result<Option<(i64, i64)>> {
-    let row = db::query("SELECT eventid,payload FROM gonof_common_outbox FORCE INDEX (gonof_outbox_delivery) WHERE status IN ('pending','processing') AND event_type=? AND aggregate_id=? LIMIT 1")
+    let row = db::query("SELECT eventid,payload FROM gonof_common_outbox FORCE INDEX (gonof_outbox_claim) WHERE event_type=? AND status IN ('pending','processing') AND aggregate_id=? LIMIT 1")
         .bind(MERGE_EVENT)
         .bind(fid)
         .fetch_optional(db.executor())
@@ -1304,12 +1305,9 @@ async fn claim_merge(
     now: i64,
 ) -> anyhow::Result<Option<(i64, String, i64, MergeTask)>> {
     let mut tx = db.begin_write().await?;
-    let row = db::query("SELECT eventid,payload,attempts FROM gonof_common_outbox FORCE INDEX (gonof_outbox_delivery) WHERE status IN ('pending','processing') AND event_type=? AND available_at<=? AND lease_until<=? ORDER BY eventid LIMIT 1 FOR UPDATE")
-        .bind(MERGE_EVENT)
-        .bind(now)
-        .bind(now)
-        .fetch_optional(db.observe(&mut *tx))
-        .await?;
+    let row =
+        crate::outbox::lock_next_due(db, &mut tx, &[MERGE_EVENT], "eventid,payload,attempts", now)
+            .await?;
     let Some(row) = row else {
         tx.commit().await?;
         return Ok(None);
@@ -1641,6 +1639,64 @@ async fn move_thread_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Merge jobs are claimed and looked up through `gonof_outbox_claim`: only merge events in progress are read, not
+    /// the backlog of other queues or the events already sent.
+    #[tokio::test]
+    async fn merge_jobs_read_the_claim_index() {
+        use crate::debug::trace::{self, RequestProfile};
+        let services = crate::test_support::TestFixture::migrated().await.unwrap();
+        let db = &services.db;
+        let now = identity::now();
+        crate::test_support::outbox_backlog(db, &[MERGE_EVENT], now)
+            .await
+            .unwrap();
+        let task = serde_json::json!({"source": 7, "target": 8, "uid": 1, "reason": "test"});
+        db::query("INSERT INTO gonof_common_outbox(event_key,event_type,aggregate_type,aggregate_id,payload,dateline,available_at) VALUES('forum.merge:7:test',?,'forum',7,?,?,?)")
+            .bind(MERGE_EVENT)
+            .bind(task.to_string())
+            .bind(now)
+            .bind(now)
+            .execute(db.executor())
+            .await
+            .unwrap();
+        let profile = std::sync::Arc::new(RequestProfile::new());
+        let claimed = trace::scope(profile.clone(), claim_merge(db, now))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!((claimed.3.source, claimed.3.target), (7, 8));
+        crate::test_support::assert_outbox_claim_plans(db, &profile.snapshot())
+            .await
+            .unwrap();
+
+        let profile = std::sync::Arc::new(RequestProfile::new());
+        let pending = trace::scope(profile.clone(), pending_merge(db, 7))
+            .await
+            .unwrap();
+        assert_eq!(pending, Some((8, claimed.0)));
+        let sql = profile.snapshot().pop().unwrap().expanded_sql;
+        if db.backend() == db::Backend::Sqlite {
+            let plan = crate::test_support::sqlite_plan(db, &sql).await.unwrap();
+            assert!(
+                plan.iter().any(|step| step.contains(
+                    "INDEX gonof_common_outbox__gonof_outbox_claim (event_type=? AND status=?)"
+                )),
+                "{sql}: {plan:?}"
+            );
+        } else {
+            let rows = db::query(&format!("EXPLAIN FORMAT=JSON {sql}"))
+                .fetch_all(db.executor())
+                .await
+                .unwrap();
+            let plan: String = rows[0].try_get(0).unwrap();
+            let plan: serde_json::Value = serde_json::from_str(&plan).unwrap();
+            let table = &plan["query_block"]["table"];
+            assert_eq!(table["key"], "gonof_outbox_claim", "{sql}: {plan}");
+            assert_eq!(table["access_type"], "range", "{sql}: {plan}");
+        }
+        services.cleanup().await.unwrap();
+    }
 
     /// The grouping as it was written before it became one pass, kept as the reference for the order.
     fn grouped_by_rescanning(items: &[(i64, Option<i64>)]) -> Vec<(i64, bool)> {
