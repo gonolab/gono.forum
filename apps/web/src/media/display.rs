@@ -72,7 +72,8 @@ impl Media {
             .body
             .collect()
             .await
-            .map_err(|e| MediaError::Internal(e.into()))?
+            // The object stream broke off: storage is unavailable, as when the request itself fails.
+            .map_err(|_| super::storage::unavailable())?
             .into_bytes();
         let small = |side: Option<i64>| side.is_some_and(|v| v <= i64::from(DISPLAY_SIZE));
         let (bytes, mime_type) =

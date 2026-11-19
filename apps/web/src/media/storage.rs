@@ -850,6 +850,6 @@ where
     MediaError::Unavailable(t.media_manage_s3_failed(step, reason))
 }
 
-fn unavailable() -> MediaError {
+pub(super) fn unavailable() -> MediaError {
     MediaError::Unavailable(crate::i18n::current().media_error_storage().into())
 }

@@ -253,7 +253,8 @@ impl Media {
             .body
             .collect()
             .await
-            .map_err(|e| MediaError::Internal(e.into()))?
+            // The object stream broke off: storage is unavailable, as when the request itself fails.
+            .map_err(|_| super::storage::unavailable())?
             .into_bytes();
         let rendered = match dimensions {
             None => (bytes, file.mime_type),

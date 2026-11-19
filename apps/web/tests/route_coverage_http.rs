@@ -848,6 +848,114 @@ async fn task_and_data_request_retry_forms() {
     f.services.cleanup().await.unwrap();
 }
 
+/// A storage read failure is not a missing image: the main site's and a domain's brand images and board icons
+/// answer 503 while storage cannot be read, images that are not there stay 404, and everything loads again once
+/// storage is back.
+#[tokio::test]
+async fn brand_images_and_board_icons_report_storage_failures() {
+    let f = Fixture::new(|_| {}).await;
+    let (path, mut file) = f.media.staging_file().await.unwrap();
+    tokio::io::AsyncWriteExt::write_all(&mut file, &png(64))
+        .await
+        .unwrap();
+    file.sync_all().await.unwrap();
+    drop(file);
+    let aid = f
+        .media
+        .register_brand_upload(
+            f.admin.member.actor(),
+            NewUpload {
+                request_key: identity::random_token(),
+                filename: "brand.png".into(),
+                description: "Forum brand image".into(),
+                alt_text: "Sample Forum".into(),
+                path,
+            },
+        )
+        .await
+        .unwrap()
+        .aid;
+    f.process_media().await;
+    let saved = f
+        .post(
+            "/manage/branding/logo",
+            &f.admin,
+            &[("aid", aid.to_string()), ("version", "0".into())],
+        )
+        .await;
+    assert_eq!(saved.status, StatusCode::SEE_OTHER, "{}", saved.text());
+    let on = f
+        .post(
+            "/manage/domains/switch",
+            &f.admin,
+            &[("enabled", "on".into())],
+        )
+        .await;
+    assert_eq!(on.status, StatusCode::SEE_OTHER, "{}", on.text());
+    let created = f
+        .post(
+            "/manage/domains",
+            &f.admin,
+            &[
+                ("domain_id", "0".into()),
+                ("version", "0".into()),
+                ("site_url", "http://demo3.test".into()),
+                ("site_name", "Storage Outage Center".into()),
+                ("canonical", "self".into()),
+                ("enabled", "1".into()),
+                ("logo_aid", aid.to_string()),
+                ("favicon_aid", String::new()),
+            ],
+        )
+        .await;
+    assert_eq!(created.status, StatusCode::SEE_OTHER, "{}", created.text());
+    let domain: i64 = f
+        .scalar("SELECT domain_id FROM gonof_common_site_domain WHERE site_url='http://demo3.test'")
+        .await;
+    let fid: i64 = f
+        .scalar("SELECT fid FROM gonof_forum_forum WHERE visibility='public' AND status=1 AND parent_fid IS NULL ORDER BY fid LIMIT 1")
+        .await;
+    db::query("UPDATE gonof_forum_forum SET icon_aid=? WHERE fid=?")
+        .bind(aid)
+        .bind(fid)
+        .execute(f.db().executor())
+        .await
+        .unwrap();
+    let images = [
+        format!("/brand/logo/{aid}/source"),
+        format!("/brand/domain/{domain}/logo/{aid}/source"),
+        format!("/forum-icon/{fid}/{aid}"),
+    ];
+    let missing = [
+        format!("/brand/logo/{}/source", aid + 1000),
+        format!("/brand/domain/{domain}/logo/{}/source", aid + 1000),
+        format!("/forum-icon/{fid}/{}", aid + 1000),
+    ];
+    f.s3.fail_reads(true);
+    for path in &images {
+        let reply = f.get(path, None, false).await;
+        assert_eq!(
+            reply.status,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "{path}: {}",
+            reply.text()
+        );
+    }
+    for path in &missing {
+        assert_eq!(
+            f.get(path, None, false).await.status,
+            StatusCode::NOT_FOUND,
+            "{path}"
+        );
+    }
+    f.s3.fail_reads(false);
+    for path in &images {
+        let reply = f.get(path, None, false).await;
+        assert_eq!(reply.status, StatusCode::OK, "{path}: {}", reply.text());
+    }
+    f.services.cleanup().await.unwrap();
+}
+
 /// Public reads of brand images (originals and scaled sizes) and downloads of data exports.
 #[tokio::test]
 async fn brand_images_and_data_exports_download() {

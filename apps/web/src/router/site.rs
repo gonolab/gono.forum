@@ -468,20 +468,43 @@ fn image_response(bytes: bytes::Bytes, mime: String) -> Response {
     );
     r
 }
+/// Whether a failed image read means the image is not there (not bound, not in that size, not readable): 404. A
+/// storage failure (503) or an internal error (500) must not look like a missing image to clients and monitoring.
+fn image_missing(error: &crate::media::MediaError) -> bool {
+    !matches!(
+        error,
+        crate::media::MediaError::Unavailable(_) | crate::media::MediaError::Internal(_)
+    )
+}
+
+/// The plain-text answer for a brand image that could not be served. These routes do not go through the session
+/// middleware, so there is no page frame to render; an image request has no use for an HTML error page either.
+fn brand_failure(error: crate::media::MediaError) -> Response {
+    let (status, message) = if image_missing(&error) {
+        (
+            StatusCode::NOT_FOUND,
+            crate::i18n::current()
+                .site_plain_no_brand_image()
+                .to_owned(),
+        )
+    } else {
+        super::media_message(error)
+    };
+    (
+        status,
+        [(header::CACHE_CONTROL, "no-store")],
+        format!("{message}\n"),
+    )
+        .into_response()
+}
+
 async fn brand(
     State(state): State<Arc<AppState>>,
     Path((slot, aid, variant)): Path<(String, i64, String)>,
 ) -> Response {
     match state.media.read_brand(&slot, aid, &variant).await {
         Ok((bytes, mime)) => image_response(bytes, mime),
-        // This route does not go through the session middleware, so there is no page frame to render; an
-        // image request has no use for an HTML error page either.
-        Err(_) => (
-            StatusCode::NOT_FOUND,
-            [(header::CACHE_CONTROL, "no-store")],
-            format!("{}\n", crate::i18n::current().site_plain_no_brand_image()),
-        )
-            .into_response(),
+        Err(error) => brand_failure(error),
     }
 }
 /// A multi-domain site's own logo and favicon for one domain.
@@ -495,12 +518,7 @@ async fn domain_brand(
         .await
     {
         Ok((bytes, mime)) => image_response(bytes, mime),
-        Err(_) => (
-            StatusCode::NOT_FOUND,
-            [(header::CACHE_CONTROL, "no-store")],
-            format!("{}\n", crate::i18n::current().site_plain_no_brand_image()),
-        )
-            .into_response(),
+        Err(error) => brand_failure(error),
     }
 }
 
@@ -841,11 +859,12 @@ async fn forum_icon(
         .await
     {
         Ok(image) => super::display_image_response(image),
-        Err(_) => error_page(
+        Err(error) if image_missing(&error) => error_page(
             &state,
             StatusCode::NOT_FOUND,
             crate::i18n::current().site_error_no_forum_icon(),
         ),
+        Err(error) => super::media_failure(&state, error),
     }
 }
 

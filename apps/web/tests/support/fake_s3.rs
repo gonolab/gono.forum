@@ -2,7 +2,10 @@
 //! No signature checks; the path is `/<bucket>/<key>` (the storage config uses path style).
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use axum::{
@@ -15,16 +18,26 @@ use axum::{
 
 type Objects = Arc<Mutex<HashMap<String, Vec<u8>>>>;
 
+#[derive(Clone, Default)]
+struct Stub {
+    objects: Objects,
+    /// While set, every GET and HEAD answers 403: storage temporarily unreadable (without triggering SDK retries).
+    fail_reads: Arc<AtomicBool>,
+}
+
 pub struct FakeS3 {
     pub endpoint: String,
     objects: Objects,
+    fail_reads: Arc<AtomicBool>,
     task: tokio::task::JoinHandle<()>,
 }
 
 impl FakeS3 {
     pub async fn new() -> Self {
-        let objects = Objects::default();
-        let router = Router::new().fallback(object).with_state(objects.clone());
+        let stub = Stub::default();
+        let objects = stub.objects.clone();
+        let fail_reads = stub.fail_reads.clone();
+        let router = Router::new().fallback(object).with_state(stub);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}", listener.local_addr().unwrap());
         let task = tokio::spawn(async move {
@@ -33,8 +46,15 @@ impl FakeS3 {
         Self {
             endpoint,
             objects,
+            fail_reads,
             task,
         }
+    }
+
+    /// Makes reads fail (`true`) or work again (`false`).
+    #[allow(dead_code)] // Only some test binaries use it
+    pub fn fail_reads(&self, fail: bool) {
+        self.fail_reads.store(fail, Ordering::SeqCst);
     }
 
     /// The single object whose path ends with `suffix`.
@@ -71,9 +91,16 @@ impl Drop for FakeS3 {
     }
 }
 
-async fn object(State(objects): State<Objects>, request: Request) -> Response {
+async fn object(State(stub): State<Stub>, request: Request) -> Response {
+    let Stub {
+        objects,
+        fail_reads,
+    } = stub;
     let path = request.uri().path().to_owned();
     match *request.method() {
+        Method::GET | Method::HEAD if fail_reads.load(Ordering::SeqCst) => {
+            StatusCode::FORBIDDEN.into_response()
+        }
         Method::PUT => {
             let bytes = to_bytes(request.into_body(), 64 * 1024 * 1024)
                 .await
