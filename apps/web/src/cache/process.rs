@@ -345,12 +345,29 @@ impl<K: PartialEq + Clone, V: Clone> Slot<(K, V)> {
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<V, E>>,
     {
+        self.keyed(name, bypass, segment, u64::MAX, fill).await
+    }
+
+    /// Like [`Slot::segment`], but a value of the same key is also read again once it is `max_age` seconds old (0:
+    /// never kept).
+    async fn keyed<E, F, Fut>(
+        &self,
+        name: &str,
+        bypass: bool,
+        segment: K,
+        max_age: u64,
+        fill: F,
+    ) -> Result<V, E>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<V, E>>,
+    {
         let key = segment.clone();
         let value = self
             .get(
                 name,
                 bypass,
-                move |(stored, _): &(K, V)| if *stored == key { u64::MAX } else { 0 },
+                move |(stored, _): &(K, V)| if *stored == key { max_age } else { 0 },
                 || async move { Ok((segment, fill().await?)) },
             )
             .await?;
@@ -404,7 +421,7 @@ struct Inner {
     /// The instance directory is read at start and again after the skins block is cleared (import, delete,
     /// "Rescan", a broadcast of any of them), not on every reload of the block.
     rescan: AtomicBool,
-    /// Site statistics: the bucket is `(statistics_bucket, site time zone offset)`.
+    /// Site statistics: the bucket is `(statistics_bucket, start of the week in the site time zone)`.
     statistics: Slot<((i64, i64), Statistics)>,
     /// Scoped community statistics (multi-domain sites): the key is the forum
     /// IDs in the scope and the value records the bucket; only the current bucket is kept, and when the slot count
@@ -1052,11 +1069,14 @@ impl GlobalCache {
     }
 
     /// The latest thread of each board for the `boards` data source (docs/data.md): kept per view (`members` or
-    /// anonymous) while the list version and the boards are the same; a new version reads again.
+    /// anonymous) while the list version and the boards are the same, and for at most `max_age` seconds (the list
+    /// lifetime); a new version reads again. The age limit is for MySQL, where a thread whose lower post id commits
+    /// after a higher one leaves the new-post watermark, and so the version, unchanged (docs/settings-and-caching.md,
+    /// "The Redis cache").
     pub async fn board_last_posts<F, Fut>(
         &self,
         members: bool,
-        key: BoardPostsKey,
+        (key, max_age): (BoardPostsKey, u64),
         fill: F,
     ) -> anyhow::Result<Vec<(i64, crate::content::Thread)>>
     where
@@ -1068,7 +1088,7 @@ impl GlobalCache {
         } else {
             (&self.inner.board_last_posts[0], "board-last-posts-public")
         };
-        slot.segment(name, self.statistics_bypass(), key, fill)
+        slot.keyed(name, self.statistics_bypass(), key, max_age, fill)
             .await
     }
 
@@ -1143,8 +1163,8 @@ impl GlobalCache {
         self.inner.last_ttl.load(Ordering::Relaxed) == 0
     }
 
-    /// The three site statistics numbers: cached in process by `(bucket, site time zone offset)`; a miss goes to `fill`
-    /// (Redis layer and database).
+    /// The three site statistics numbers: cached in process by `(bucket, start of the week in the site time zone)`; a
+    /// miss goes to `fill` (Redis layer and database).
     pub async fn statistics<F, Fut>(
         &self,
         segment: (i64, i64),

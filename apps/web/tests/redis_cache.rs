@@ -903,3 +903,126 @@ async fn bypassing_redis_skips_content_revision_queries() {
             .any(|q| q.sql.contains("gonof_common_content_revision"))
     );
 }
+
+/// Anonymous hot threads of the `threads` data source are keyed by the window length, not by its start: requests in
+/// adjacent seconds of one list-lifetime segment share one copy instead of ranking again.
+#[tokio::test]
+async fn hot_data_source_copies_serve_the_whole_segment() {
+    use gono_forum_web::content::{
+        self, ListScope, ListViewer,
+        sources::{SourceList, SourceSort},
+    };
+    let services = TestFixture::migrated().await.unwrap();
+    if !services.cache.enabled() {
+        return services.cleanup().await.unwrap();
+    }
+    let db = &services.db;
+    content::seed_fixture(db).await.unwrap();
+    // The first second of a 60-second list segment, so the next second is in the same segment.
+    let start = gono_forum_web::identity::now() / 60 * 60;
+    gono_forum_web::db::query(
+        "UPDATE gonof_forum_thread SET lastpost=? WHERE replies>0 AND visibility='public'",
+    )
+    .bind(start - 3600)
+    .execute(db.executor())
+    .await
+    .unwrap();
+    gono_forum_web::test_support::refresh_listing(db)
+        .await
+        .unwrap();
+    let forums = content::anonymous_forums(db).await.unwrap();
+    let cache = services.cache.timed(LIFETIMES);
+    let mut statements = Vec::new();
+    let mut copies = Vec::new();
+    for now in [start, start + 1, start + 59] {
+        let list = SourceList {
+            scope: &ListScope::All,
+            sort: SourceSort::Hot { days: 30 },
+            category: None,
+            limit: 10,
+            thumbnails: false,
+        };
+        let viewer = ListViewer {
+            forums: &forums,
+            ..ListViewer::default()
+        };
+        let counts = Arc::new(gono_forum_web::metrics::RequestMetrics::new());
+        let threads = gono_forum_web::metrics::scope(
+            counts.clone(),
+            content::sources::threads(db, &cache, list, viewer, now),
+        )
+        .await
+        .unwrap();
+        statements.push(counts.sql());
+        copies.push(threads.iter().map(|thread| thread.id).collect::<Vec<_>>());
+    }
+    assert!(!copies[0].is_empty(), "the fixture has hot threads");
+    assert!(copies.iter().all(|copy| *copy == copies[0]), "{copies:?}");
+    // The first request reads the list version and ranks; the others only read the list version.
+    assert!(statements[0] >= 2, "{statements:?}");
+    assert_eq!(&statements[1..], [1, 1], "{statements:?}");
+    services.cleanup().await.unwrap();
+}
+
+/// This week's contributors count from Monday 00:00 in the site time zone, also when one statistics segment straddles
+/// it: on a UTC+8 site with day-long segments, the minute after local Monday midnight is in the same UTC day as the
+/// minute before it, yet it must not keep last week's figure (process copy and Redis copy alike).
+#[tokio::test]
+async fn weekly_contributors_start_again_at_local_monday_midnight() {
+    let services = TestFixture::migrated().await.unwrap();
+    let db = &services.db;
+    gono_forum_web::content::seed_fixture(db).await.unwrap();
+    const OFFSET: i64 = 480;
+    let day = gono_forum_web::cache::Lifetimes {
+        statistics: 86_400,
+        ..LIFETIMES
+    };
+    // A local Monday 00:00 three weeks back, where the fixture has no posts of its own.
+    let monday =
+        gono_forum_web::clock::week_start(gono_forum_web::identity::now(), OFFSET) - 21 * 86_400;
+    let (before, after) = (monday - 30, monday + 30);
+    assert_eq!(
+        before.div_euclid(86_400),
+        after.div_euclid(86_400),
+        "both minutes are in one day-long segment"
+    );
+    // One visible public reply posted in the last minute of the Sunday before.
+    let pid: i64 = gono_forum_web::db::query_scalar(
+        "SELECT p.pid FROM gonof_forum_post p JOIN gonof_forum_thread t ON t.tid=p.tid
+         WHERE p.first=0 AND p.invisible=0 AND p.deleted_at=0 AND p.root_invisible=0 AND p.authorid IS NOT NULL
+           AND t.visibility='public' AND t.displayorder>=0 ORDER BY p.pid LIMIT 1",
+    )
+    .fetch_one(db.executor())
+    .await
+    .unwrap();
+    gono_forum_web::db::query("UPDATE gonof_forum_post SET dateline=? WHERE pid=?")
+        .bind(monday - 60)
+        .bind(pid)
+        .execute(db.executor())
+        .await
+        .unwrap();
+    let fresh = |at: i64| async move {
+        gono_forum_web::content::statistics_at(db, at as u64, OFFSET)
+            .await
+            .unwrap()
+            .contributors
+    };
+    let expected = [(before, fresh(before).await), (after, fresh(after).await)];
+    assert!(
+        expected[0].1 > expected[1].1,
+        "the reply counts in the week before only: {expected:?}"
+    );
+    let cache = services.cache.timed(day);
+    for (at, expected) in expected {
+        let process =
+            gono_forum_web::content::layered_statistics(db, &services.global, &cache, at, OFFSET)
+                .await
+                .unwrap();
+        assert_eq!(process.contributors, expected, "process copy at {at}");
+        let redis = gono_forum_web::content::cached_statistics(db, &cache, at, OFFSET)
+            .await
+            .unwrap();
+        assert_eq!(redis.contributors, expected, "Redis copy at {at}");
+    }
+    services.cleanup().await.unwrap();
+}

@@ -218,12 +218,14 @@ on `AppState` and is passed explicitly to every function that saves cached data.
 | `skins` | every skin of the three sources, checked and compiled ([skins.md](skins.md), "Sources"); built-in skins are checked once per process, imported ones on every load, the instance directory is read again only after the block is cleared; also the colored variants pages use (a skin with seed colors, compiled on first use, at most 32) | skin imports and deletes, "Rescan" at `/manage/skins` |
 
 `board-last-posts` holds the latest thread of each board for the `boards` data source, one slot for the anonymous view
-and one for members, each kept while the list version and the boards are the same.
+and one for members, each kept while the list version and the boards are the same, and for at most one list lifetime
+(`settings.cache.list_ttl_seconds`; see "Versions" below for why).
 
 Statistics live here too but are not cleared by writes. Site statistics, scoped statistics (per domain scope, at most
 128 slots), the newest members for anonymous visitors and board statistics are keyed by a time segment of their
-configured length, plus the site time zone offset (the three kinds of statistics), the site day (board statistics) and
-the content revision (newest members). A new segment recomputes; a process miss reads Redis when it is on, and only then computes.
+configured length, plus the start of this week in the site time zone (site and scoped statistics, so this week's
+contributors start again at local Monday 00:00 however long the segment), the site day and time zone offset (board
+statistics) and the content revision (newest members). A new segment recomputes; a process miss reads Redis when it is on, and only then computes.
 
 Loading follows the same rules for every block: one request per process loads it while the others wait for the
 result; the generation number is compared before storing, so a block cleared during the load does not get a stale
@@ -287,7 +289,7 @@ callers read the database.
 | `floors` | anonymous reply pages | content revision and thread revision | page |
 | `rendered-bodies` | rendered post HTML for anonymous visitors, with the places of its thread cards (the cards are read for each request) | content revision and post versions | page |
 | `member-frame` | a member's own board filters and reading choices | deleted on write | member |
-| `data-threads` | anonymous thread lists of the data sources ([data.md](data.md)) | list version (and a list-lifetime segment for hot threads) | list |
+| `data-threads` | anonymous thread lists of the data sources ([data.md](data.md)) | list version (and for hot threads a list-lifetime segment and the window in days: the copy filled first in a segment serves it) | list |
 | `data-members` | the member lists of the data sources (`members.rank`, `members.honors`, `members.verified`), one copy per visitor class without anyone's blocks | list-lifetime segment | list |
 | `thread-outline` | the floors behind `thread.outline` | thread revision | page |
 
@@ -299,7 +301,11 @@ callers read the database.
   (title changes, hiding, withdrawal, moves, board changes, renames, account deletion); every update of a thread row
   raises `gonof_forum_thread.cache_revision`, except the view count's ("View counting"); list keys also carry the
   highest post id, so new threads and replies change them without touching the revision row. A key only uses versions
-  this request read from the database, never one read from Redis. See [queries.md](queries.md).
+  this request read from the database, never one read from Redis. See [queries.md](queries.md). On MySQL a post id is
+  taken before its transaction commits, so a thread or reply that commits after one with a higher id leaves the
+  watermark as it was: until the list lifetime runs out, cached lists, feeds and the boards' latest threads
+  (`board-last-posts`) can leave it out. A new post on MySQL can therefore appear up to one list lifetime late; SQLite
+  has one writer and commits ids in order.
 - **Anonymous only.** Lists, sidebars, pins, floors and rendered bodies are cached for anonymous visitors only;
   members' views depend on their own blocks and permissions.
 - **Member frame.** One key per uid holds the raw choices (board hides and blocks, reading choices, the custom style
@@ -330,7 +336,7 @@ Register a new cache first. Bump the tag's version whenever the cached structure
 | --- | --- | --- | --- |
 | `settings.cache.ttl_seconds` | 3600 | 0–86400 | every process block; the member frame (capped at 300) |
 | `settings.cache.page_ttl_seconds` | 60 | 1–3600 | floors and rendered bodies (Redis only) |
-| `settings.cache.list_ttl_seconds` | 60 | 1–3600 | lists, sidebar cards, pins, feeds (Redis only) |
+| `settings.cache.list_ttl_seconds` | 60 | 1–3600 | lists, sidebar cards, pins, feeds (Redis); the age limit of `board-last-posts` |
 | `settings.cache.statistics_seconds` | 600 | 30–86400 | segment length of site and scoped statistics and the newest members |
 | `settings.cache.forum_statistics_seconds` | 600 | 30–86400 | segment length of board statistics |
 

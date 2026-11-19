@@ -176,9 +176,7 @@ pub(super) async fn fetch(
                         Some(Days::Days(days)) => days,
                         _ => settings.display.hot_days,
                     };
-                    content::sources::SourceSort::Hot {
-                        since: now.saturating_sub(days.saturating_mul(86_400)),
-                    }
+                    content::sources::SourceSort::Hot { days }
                 }
             };
             let limit = match threads.limit {
@@ -587,11 +585,16 @@ async fn boards_records(
         let revision = content::list_revision(&state.db).await?;
         let db = state.db.clone();
         let (key_boards, key_fids) = (boards.clone(), fids.clone());
+        let max_age = state.lifetimes().list;
         state
             .global
-            .board_last_posts(members, (revision, key_boards, key_fids), || async move {
-                content::sources::board_last_posts(&db, &boards, &fids, !members).await
-            })
+            .board_last_posts(
+                members,
+                ((revision, key_boards, key_fids), max_age),
+                || async move {
+                    content::sources::board_last_posts(&db, &boards, &fids, !members).await
+                },
+            )
             .await?
     } else {
         Vec::new()

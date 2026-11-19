@@ -1463,13 +1463,13 @@ pub async fn layered_statistics_in(
     if fids.is_empty() {
         return layered_statistics(db, global, cache, now, offset_minutes).await;
     }
-    let segment = (cache.lifetimes().statistics_bucket(now), offset_minutes);
+    let segment = statistics_segment(cache.lifetimes(), now, offset_minutes);
     global
         .scoped_statistics(fids, segment, || async {
             let key = crate::cache::CacheKey::new(
                 &crate::cache::registry::SCOPED_STATISTICS,
                 0,
-                &(segment.0, offset_minutes, fids),
+                &(segment, fids),
             )?;
             cache
                 .get_or_fill_json(&key, || async {
@@ -1491,10 +1491,24 @@ pub async fn layered_statistics(
 ) -> Result<Statistics> {
     global
         .statistics(
-            (cache.lifetimes().statistics_bucket(now), offset_minutes),
+            statistics_segment(cache.lifetimes(), now, offset_minutes),
             || cached_statistics(db, cache, now, offset_minutes),
         )
         .await
+}
+
+/// The segment site and scoped statistics are cached by: the time segment (`settings.cache.statistics_seconds`) and
+/// the start of this week in the site time zone, which also moves with the time zone. The bucket alone is counted in
+/// UTC, so a long segment that straddles local Monday 00:00 would keep last week's contributors.
+fn statistics_segment(
+    lifetimes: crate::cache::Lifetimes,
+    now: i64,
+    offset_minutes: i64,
+) -> (i64, i64) {
+    (
+        lifetimes.statistics_bucket(now),
+        crate::clock::week_start(now, offset_minutes),
+    )
 }
 
 fn search_pattern(value: &str) -> String {
@@ -2569,8 +2583,9 @@ pub async fn cached_sidebar(
 /// time. The statistics are just three counts; being stale by at most one segment leaks no content. The
 /// hot and latest cards are cached by the list version (site-wide version plus new-post watermark), so titles do
 /// not keep showing after withdrawal or hiding. The version parameter is therefore fixed at 0. The segment length
-/// is a setting; changing it changes the segment number and naturally the key. The site time zone decides which
-/// day "this week" starts on and is encoded in the key as well (docs/settings-and-caching.md, "The Redis cache").
+/// is a setting; changing it changes the segment number and naturally the key. The start of this week in the site
+/// time zone is encoded in the key as well, so the week's contributors start again at local Monday 00:00 and a time
+/// zone change takes a new key (docs/settings-and-caching.md, "The Redis cache").
 pub async fn cached_statistics(
     db: &Database,
     cache: &crate::cache::TimedCache,
@@ -2580,7 +2595,7 @@ pub async fn cached_statistics(
     let key = crate::cache::CacheKey::new(
         &crate::cache::registry::STATISTICS,
         0,
-        &(cache.lifetimes().statistics_bucket(now), offset_minutes),
+        &statistics_segment(cache.lifetimes(), now, offset_minutes),
     )?;
     cache
         .get_or_fill_json(&key, || async {

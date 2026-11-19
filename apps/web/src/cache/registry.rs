@@ -298,12 +298,12 @@ pub const THREAD_OUTLINE: Entry = anonymous(
     "thread-outline-v1",
 );
 /// The latest thread of each board for `boards` with `last_post`: one slot for the anonymous view and one for
-/// members, each keyed by the list version and the boards it covers.
+/// members, each keyed by the list version and the boards it covers, and read again after one list lifetime.
 pub const BOARD_LAST_POSTS: Entry = Entry {
     name: "board-last-posts",
     layer: Layer::Process,
     invalidation: &[Invalidation::Versioned],
-    lifetime: Lifetime::Process,
+    lifetime: Lifetime::List,
     per_member: false,
     slots: &["board-last-posts-public", "board-last-posts-members"],
     redis_tag: None,

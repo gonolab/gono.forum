@@ -380,3 +380,56 @@ async fn the_endpoint_is_read_only_private_and_same_site() {
     assert_eq!(posted.json()["code"], "method_not_allowed");
     site.services.cleanup().await.unwrap();
 }
+
+/// A board's latest thread is kept while the list version is the same, but for at most one list lifetime: on MySQL a
+/// thread whose lower post id commits after a higher one leaves the version unchanged, and the copy must not keep
+/// hiding it until the next post (docs/settings-and-caching.md, "The Redis cache"). Here a raw update stands in for that
+/// commit: it changes the board's newest thread without changing the version.
+#[tokio::test]
+async fn a_boards_latest_thread_is_read_again_after_one_list_lifetime() {
+    let site = Site::prepared(true, |db| async move {
+        gono_forum_web::test_support::set_setting(&db, "settings.cache.list_ttl_seconds", "1")
+            .await
+            .unwrap();
+    })
+    .await;
+    let latest = |body: Value| -> Vec<(i64, i64)> {
+        body["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|board| Some((board["fid"].as_i64()?, board["last_post"]["tid"].as_i64()?)))
+            .collect()
+    };
+    let path = "/data/v1/boards?last_post=true";
+    let before = latest(site.get(path, None).await.json());
+    let (fid, shown) = before[0];
+    // Another listed public thread of that board becomes its newest, without a new list version.
+    let other = site
+        .scalar(&format!(
+            "SELECT MIN(tid) FROM gonof_forum_thread WHERE fid={fid} AND tid<>{shown} AND displayorder=0 AND visibility='public' AND deleted_at=0"
+        ))
+        .await;
+    let revision = site
+        .scalar("SELECT revision FROM gonof_common_content_revision WHERE id=1")
+        .await;
+    site.execute(&format!(
+        "UPDATE gonof_forum_thread SET lastpost={} WHERE tid={other}",
+        gono_forum_web::identity::now() + 3600
+    ))
+    .await;
+    assert_eq!(
+        site.scalar("SELECT revision FROM gonof_common_content_revision WHERE id=1")
+            .await,
+        revision
+    );
+    assert_eq!(
+        latest(site.get(path, None).await.json()),
+        before,
+        "within the list lifetime the copy is kept"
+    );
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    let after = latest(site.get(path, None).await.json());
+    assert!(after.contains(&(fid, other)), "{after:?}");
+    site.services.cleanup().await.unwrap();
+}

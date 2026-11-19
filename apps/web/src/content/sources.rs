@@ -15,9 +15,11 @@ use crate::urls::Sort;
 pub enum SourceSort {
     Latest,
     Created,
-    /// Threads with a reply since `since`, by reply count (`gonof_thread_global_active`).
+    /// Threads with a reply in the last `days` days, by reply count (`gonof_thread_global_active`). The window is
+    /// held as its length, not its start: the cache key carries it, and a start precise to the second would make a
+    /// new key every second.
     Hot {
-        since: i64,
+        days: i64,
     },
     Featured,
     Pinned,
@@ -36,8 +38,9 @@ pub struct SourceList<'a> {
 }
 
 /// The first `limit` threads of a source list. Anonymous lists go through the Redis cache when it is on, keyed by
-/// the list version (and for hot threads a list-lifetime segment, since their window moves); members always read
-/// the database, like list pages.
+/// the list version (and for hot threads a list-lifetime segment and the window length, since their window moves:
+/// the copy filled first in a segment serves the whole segment); members always read the database, like list
+/// pages.
 pub async fn threads(
     db: &Database,
     cache: &crate::cache::TimedCache,
@@ -46,7 +49,7 @@ pub async fn threads(
     now: i64,
 ) -> Result<Vec<Thread>> {
     if viewer.uid.is_some() || !cache.cache().enabled() {
-        return read(db, list, &viewer).await;
+        return read(db, list, &viewer, now).await;
     }
     let (revision, watermark) = list_revision(db).await?;
     let segment = match list.sort {
@@ -69,18 +72,26 @@ pub async fn threads(
         ),
     )?;
     let mut threads = cache
-        .get_or_fill_json(&key, || read(db, list, &viewer))
+        .get_or_fill_json(&key, || read(db, list, &viewer, now))
         .await?;
     refresh_thread_times(&mut threads)?;
     Ok(threads)
 }
 
-async fn read(db: &Database, list: SourceList<'_>, viewer: &ListViewer<'_>) -> Result<Vec<Thread>> {
+async fn read(
+    db: &Database,
+    list: SourceList<'_>,
+    viewer: &ListViewer<'_>,
+    now: i64,
+) -> Result<Vec<Thread>> {
     if viewer.sees_nothing(list.scope) || list.limit <= 0 {
         return Ok(Vec::new());
     }
     let mut threads = match list.sort {
-        SourceSort::Hot { since } => hot_topics(db, viewer, list.scope, list.limit, since).await?,
+        SourceSort::Hot { days } => {
+            let since = now.saturating_sub(days.saturating_mul(86_400));
+            hot_topics(db, viewer, list.scope, list.limit, since).await?
+        }
         sort => {
             let sort = match sort {
                 SourceSort::Created => Sort::Created,
