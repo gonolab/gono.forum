@@ -186,7 +186,9 @@ struct BoardStyleQuery {
 /// `/boards.css` (docs/skins.md, "Board colors and glyphs"): the board colors fitted to the skin whose stylesheet
 /// hash is `k`, served without a session. A skin or colored variant the catalog holds is compiled when needed, public
 /// when a page of the site uses it and private otherwise (a preview); one a page of this process compiled lately and
-/// the catalog does not keep is private; any other `k` gets the stylesheet of the built-in default skin. The
+/// the catalog does not keep is private; a colored variant a page of the site uses that the catalog has not compiled
+/// (it is loaded again on every request with caching off, and after every change of the skins) is compiled the way
+/// the page frame compiles it and public; any other `k` gets the stylesheet of the built-in default skin. The
 /// current version is kept for a year; any other `v` gets the current stylesheet with `no-cache`, so a page cached
 /// from before a board save still has one.
 async fn board_stylesheet(
@@ -210,6 +212,13 @@ async fn board_stylesheet(
             .await?
         {
             return Ok((style, false));
+        }
+        if let Some(skin) = in_use_variant(&catalog, block.as_deref(), &query.k) {
+            let public = used(block.as_deref(), skin.id(), skin.seeds);
+            return Ok((
+                state.global.board_style(&state.db, ttl, &skin).await?,
+                public,
+            ));
         }
         let style = state
             .global
@@ -242,6 +251,28 @@ async fn board_stylesheet(
         .into_response()
 }
 
+/// The colored variant with the stylesheet hash `hash` among those pages of the site use (the site's and each
+/// domain's skin with seed colors), compiled and kept in the catalog as the page frame does: over the chosen skin, or
+/// the built-in default where that skin cannot be used. `None` when no such variant has this hash.
+fn in_use_variant(
+    catalog: &skins::Catalog,
+    block: Option<&crate::cache::SettingsBlock>,
+    hash: &str,
+) -> Option<Arc<skins::Skin>> {
+    let block = block?;
+    skins::selection::in_use(block.layout.as_ref(), &block.domain_layouts)
+        .into_iter()
+        .filter_map(|(id, seeds)| Some((id, seeds?)))
+        .map(|(id, seeds)| {
+            let base = catalog
+                .get(&id)
+                .or_else(|| catalog.get(skins::DEFAULT_ID))
+                .unwrap_or(&*skins::DEFAULT_SKIN);
+            catalog.colored(base, Some(seeds), true)
+        })
+        .find(|variant| variant.version_hash == hash)
+}
+
 pub(super) fn actor(state: &AppState) -> crate::identity::Actor {
     state
         .viewer
@@ -263,8 +294,8 @@ struct Row {
     errors: Vec<String>,
     warnings: Vec<String>,
     imported: String,
-    /// An imported row: its version, for the delete form.
-    delete: Option<i64>,
+    /// An imported row: its version and pack hash, which the delete form carries.
+    delete: Option<skins::store::RowState>,
 }
 
 /// One choice of the skin selects: a usable skin with one of its palettes, as `id:palette`.
@@ -279,7 +310,9 @@ struct Confirm {
     name: String,
     version: String,
     warnings: Vec<String>,
+    /// The row it replaces, by version (0: none) and pack hash, which the form carries.
     replaces: i64,
+    replaces_hash: String,
     replaces_version: String,
     pack: String,
     digest: String,
@@ -456,7 +489,13 @@ fn row(
         imported: entry.imported.as_ref().map_or(String::new(), |imported| {
             t.skin_imported_at(crate::clock::datetime(imported.at, &format))
         }),
-        delete: entry.imported.as_ref().map(|imported| imported.row_version),
+        delete: entry
+            .imported
+            .as_ref()
+            .map(|imported| skins::store::RowState {
+                version: imported.row_version,
+                content_hash: imported.content_hash.clone(),
+            }),
     }
 }
 
@@ -711,8 +750,11 @@ async fn exit_preview(AdminPage(state): AdminPage, CsrfForm(_): CsrfForm<CsrfOnl
     response
 }
 
-/// Makes the previewed skin the site's, or saves the previewed colors as the site's, and ends the preview.
-async fn publish(AdminPage(state): AdminPage, CsrfForm(_): CsrfForm<CsrfOnly>) -> Response {
+/// Makes the previewed skin the site's, or saves the previewed colors as the site's, and ends the preview. A skin
+/// goes through the same question as choosing it at `/manage/skins` when the site's layout sets places of its own
+/// ([`confirm_switch`]); the question posts back here with the answer and the `id:palette` it was asked about, and an
+/// answer about another skin than the one previewed now is asked again.
+async fn publish(AdminPage(state): AdminPage, CsrfForm(form): CsrfForm<ChoiceForm>) -> Response {
     let actor = actor(&state);
     let Some(preview) = state
         .identity
@@ -749,6 +791,27 @@ async fn publish(AdminPage(state): AdminPage, CsrfForm(_): CsrfForm<CsrfOnly>) -
     let saved = async {
         let (skin, palette) =
             chosen(&state, &format!("{}:{}", preview.skin, preview.palette)).await?;
+        let choice = format!("{}:{palette}", skin.id());
+        let answered = ChoiceForm {
+            layout: if form.choice == choice {
+                form.layout.clone()
+            } else {
+                String::new()
+            },
+            _csrf: form._csrf.clone(),
+            choice,
+        };
+        if let Some(page) = confirm_switch(
+            &state,
+            None,
+            &answered,
+            Some(&skin),
+            "/manage/skins/preview/publish".into(),
+        )
+        .await?
+        {
+            return Ok(Some(page));
+        }
         skins::selection::save(
             &state.db,
             &state.global,
@@ -759,11 +822,16 @@ async fn publish(AdminPage(state): AdminPage, CsrfForm(_): CsrfForm<CsrfOnly>) -
                 palette: Some(&palette),
             },
         )
-        .await
+        .await?;
+        if answered.layout == "skin" {
+            skins::selection::save_places(&state.db, &state.global, actor, None, None).await?;
+        }
+        Ok(None)
     }
     .await;
     match saved {
-        Ok(()) => {
+        Ok(Some(page)) => page,
+        Ok(None) => {
             let mut response = auth::redirect("/manage/skins?saved=selected");
             preview_cookie(&mut response, &state.viewer, "", 0);
             response
@@ -777,6 +845,9 @@ struct DeleteForm {
     _csrf: String,
     #[serde(default)]
     version: i64,
+    /// The pack hash of the row the form was shown for.
+    #[serde(default)]
+    content_hash: String,
 }
 csrf_forms!(DeleteForm);
 
@@ -785,7 +856,11 @@ async fn delete(
     AxumPath(id): AxumPath<String>,
     CsrfForm(form): CsrfForm<DeleteForm>,
 ) -> Response {
-    match skins::store::delete(&state.db, &state.global, actor(&state), &id, form.version).await {
+    let seen = skins::store::RowState {
+        version: form.version,
+        content_hash: form.content_hash,
+    };
+    match skins::store::delete(&state.db, &state.global, actor(&state), &id, &seen).await {
         Ok(()) => auth::redirect("/manage/skins?saved=deleted"),
         Err(error) => failed(&state, error).await,
     }
@@ -800,8 +875,14 @@ fn digest(warnings: &[Finding]) -> String {
         .collect()
 }
 
+/// What a confirmation form saw: the row it replaces (`None`: none) and the digest of the warnings.
+struct Confirmed {
+    replaces: Option<skins::store::RowState>,
+    digest: String,
+}
+
 /// Checks a pack and either imports it at once (no warnings, a new id) or asks for confirmation.
-async fn check_pack(state: &AppState, text: String, confirmed: Option<(i64, String)>) -> Response {
+async fn check_pack(state: &AppState, text: String, confirmed: Option<Confirmed>) -> Response {
     let t = crate::i18n::current();
     let refuse = |findings: Vec<Finding>| {
         findings
@@ -837,13 +918,13 @@ async fn check_pack(state: &AppState, text: String, confirmed: Option<(i64, Stri
         .await;
     }
     let warnings: Vec<Finding> = checked.warnings().cloned().collect();
-    let current = match skins::store::row_version(&state.db, &draft.manifest.id).await {
+    let current = match skins::store::row_state(&state.db, &draft.manifest.id).await {
         Ok(current) => current,
         Err(error) => return database_error(state, error),
     };
     let digest = digest(&warnings);
     let ready = match &confirmed {
-        Some((replaces, seen)) => *seen == digest && *replaces == current.unwrap_or(0),
+        Some(seen) => seen.digest == digest && seen.replaces == current,
         None => warnings.is_empty() && current.is_none(),
     };
     if !ready {
@@ -863,7 +944,10 @@ async fn check_pack(state: &AppState, text: String, confirmed: Option<(i64, Stri
             name: draft.manifest.name_in(t).to_owned(),
             version: draft.manifest.version.clone(),
             warnings: warnings.iter().map(|finding| finding.text(t)).collect(),
-            replaces: current.unwrap_or(0),
+            replaces: current.as_ref().map_or(0, |row| row.version),
+            replaces_hash: current
+                .as_ref()
+                .map_or(String::new(), |row| row.content_hash.clone()),
             replaces_version,
             pack: text,
             digest,
@@ -878,14 +962,14 @@ async fn check_pack(state: &AppState, text: String, confirmed: Option<(i64, Stri
         )
         .await;
     }
-    let replaces = confirmed.map_or(0, |(replaces, _)| replaces);
+    let replaces = confirmed.and_then(|seen| seen.replaces);
     match skins::store::import(
         &state.db,
         &state.global,
         actor(state),
         &draft,
         &warnings,
-        replaces,
+        replaces.as_ref(),
     )
     .await
     {
@@ -996,18 +1080,25 @@ struct ConfirmForm {
     pack: String,
     #[serde(default)]
     replaces: i64,
+    /// The pack hash of the row it replaces.
+    #[serde(default)]
+    replaces_hash: String,
     #[serde(default)]
     digest: String,
 }
 csrf_forms!(ConfirmForm);
 
 /// The confirmation: the pack comes back in the form and is checked again; it is imported when the warnings and the
-/// row it replaces are still those the administrator saw.
+/// row it replaces (by version and pack hash) are still those the administrator saw.
 async fn confirm_import(
     AdminPage(state): AdminPage,
     CsrfForm(form): CsrfForm<ConfirmForm>,
 ) -> Response {
-    check_pack(&state, form.pack, Some((form.replaces, form.digest))).await
+    let confirmed = Confirmed {
+        replaces: skins::store::RowState::seen(form.replaces, &form.replaces_hash),
+        digest: form.digest,
+    };
+    check_pack(&state, form.pack, Some(confirmed)).await
 }
 
 /// A domain's own skin, or `""` to follow the site again.

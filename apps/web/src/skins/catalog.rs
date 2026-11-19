@@ -31,6 +31,9 @@ pub struct Imported {
     pub by: Option<i64>,
     /// The row's concurrency version.
     pub row_version: i64,
+    /// The pack's SHA-256 (`content_hash`). With the version it names the import a form was shown for: deleting a
+    /// skin and importing another under the same id starts the version at 1 again.
+    pub content_hash: String,
     /// The warnings the administrator confirmed when importing.
     pub confirmed: Vec<Finding>,
 }

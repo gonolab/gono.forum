@@ -26,6 +26,7 @@ pub async fn listed(db: &Database) -> anyhow::Result<Vec<Listed>> {
             at: row.try_get("imported_at")?,
             by: row.try_get("imported_by")?,
             row_version: row.try_get("version")?,
+            content_hash: db::text(&row, "content_hash")?,
             confirmed,
         };
         let css = db::text(&row, "css")?;
@@ -74,25 +75,69 @@ pub async fn listed(db: &Database) -> anyhow::Result<Vec<Listed>> {
     Ok(listed)
 }
 
-/// The row version of an imported skin, `None` when there is none.
-pub async fn row_version(db: &Database, id: &str) -> anyhow::Result<Option<i64>> {
-    Ok(
-        db::query_scalar("SELECT version FROM gonof_common_skin WHERE skin_id=?")
-            .bind(id)
-            .fetch_optional(db.executor())
-            .await?,
-    )
+/// The row of an imported skin as a form names it: its version and its pack's SHA-256 (`content_hash`). The
+/// version alone does not tell two imports apart, since deleting a skin and importing another under the same id
+/// starts it at 1 again.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RowState {
+    pub version: i64,
+    pub content_hash: String,
 }
 
-/// Imports a checked draft. `replaces` is the row version the administrator saw (0: none), so a skin imported or
-/// deleted meanwhile is not overwritten unseen; `warnings` are the warnings they confirmed.
+impl RowState {
+    /// What a form saw: no row (`version` 0, no hash) or this one.
+    pub fn seen(version: i64, content_hash: &str) -> Option<Self> {
+        (version != 0).then(|| Self {
+            version,
+            content_hash: content_hash.to_owned(),
+        })
+    }
+}
+
+/// The current row of an imported skin, `None` when there is none.
+pub async fn row_state(db: &Database, id: &str) -> anyhow::Result<Option<RowState>> {
+    let row = db::query("SELECT version,content_hash FROM gonof_common_skin WHERE skin_id=?")
+        .bind(id)
+        .fetch_optional(db.executor())
+        .await?;
+    row.map(|row| {
+        Ok(RowState {
+            version: row.try_get("version")?,
+            content_hash: db::text(&row, "content_hash")?,
+        })
+    })
+    .transpose()
+}
+
+/// The row of an imported skin, locked for an update or delete.
+async fn locked_row(
+    db: &Database,
+    tx: &mut crate::db::Tx<'_>,
+    id: &str,
+) -> Result<Option<RowState>, IdentityError> {
+    let row =
+        db::query("SELECT version,content_hash FROM gonof_common_skin WHERE skin_id=? FOR UPDATE")
+            .bind(id)
+            .fetch_optional(db.observe(&mut **tx))
+            .await?;
+    Ok(match row {
+        Some(row) => Some(RowState {
+            version: row.try_get("version")?,
+            content_hash: db::text(&row, "content_hash")?,
+        }),
+        None => None,
+    })
+}
+
+/// Imports a checked draft. `replaces` is the row the administrator saw (`None`: no row), by version and pack hash,
+/// so a skin imported or deleted meanwhile is not overwritten unseen; `warnings` are the warnings they confirmed.
 pub async fn import(
     db: &Database,
     global: &GlobalCache,
     actor: Actor,
     draft: &Draft,
     warnings: &[Finding],
-    replaces: i64,
+    replaces: Option<&RowState>,
 ) -> Result<(), IdentityError> {
     let id = &draft.manifest.id;
     let manifest = draft.manifest.to_json();
@@ -101,18 +146,14 @@ pub async fn import(
     let confirmed = serde_json::to_string(warnings).map_err(anyhow::Error::from)?;
     let mut tx = db.begin_write().await?;
     crate::runtime::admin_locked(db, &mut tx, actor).await?;
-    let current: Option<i64> =
-        db::query_scalar("SELECT version FROM gonof_common_skin WHERE skin_id=? FOR UPDATE")
-            .bind(id)
-            .fetch_optional(db.observe(&mut *tx))
-            .await?;
-    if current.unwrap_or(0) != replaces {
+    let current = locked_row(db, &mut tx, id).await?;
+    if current.as_ref() != replaces {
         return Err(IdentityError::Conflict(
             crate::i18n::current().skin_error_changed(),
         ));
     }
     let now = crate::identity::now();
-    match current {
+    match current.as_ref().map(|row| row.version) {
         Some(version) => {
             db::query("UPDATE gonof_common_skin SET skin_version=?,manifest=?,palettes=?,css=?,content_hash=?,warnings=?,imported_at=?,imported_by=?,version=version+1 WHERE skin_id=? AND version=?")
                 .bind(&draft.manifest.version)
@@ -166,26 +207,22 @@ pub async fn import(
 }
 
 /// Deletes an imported skin that no page uses: not chosen for the site or a domain, unless a built-in skin with the
-/// same id is the one those pages use anyway.
+/// same id is the one those pages use anyway. `seen` is the row the delete form was shown for, by version and pack
+/// hash; another row (one imported after a delete, starting at version 1 again) is refused with `Conflict`.
 pub async fn delete(
     db: &Database,
     global: &GlobalCache,
     actor: Actor,
     id: &str,
-    version: i64,
+    seen: &RowState,
 ) -> Result<(), IdentityError> {
     let mut tx = db.begin_write().await?;
     let (site, domains) = super::selection::uses(db, &mut tx, id).await?;
     crate::runtime::admin_locked(db, &mut tx, actor).await?;
-    let current: Option<i64> =
-        db::query_scalar("SELECT version FROM gonof_common_skin WHERE skin_id=? FOR UPDATE")
-            .bind(id)
-            .fetch_optional(db.observe(&mut *tx))
-            .await?;
-    let Some(current) = current else {
+    let Some(current) = locked_row(db, &mut tx, id).await? else {
         return Err(IdentityError::NotFound);
     };
-    if current != version {
+    if current != *seen {
         return Err(IdentityError::Conflict(
             crate::i18n::current().skin_error_changed(),
         ));
@@ -200,7 +237,7 @@ pub async fn delete(
     }
     db::query("DELETE FROM gonof_common_skin WHERE skin_id=? AND version=?")
         .bind(id)
-        .bind(version)
+        .bind(current.version)
         .execute(db.observe(&mut *tx))
         .await?;
     crate::runtime::audit(

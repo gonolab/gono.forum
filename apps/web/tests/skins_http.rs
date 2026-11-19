@@ -259,10 +259,21 @@ impl Site {
 
     /// Imports the Ruled fixture through the upload and the confirmation of its warnings.
     async fn import_ruled(&self) {
-        let answer = self.upload(&self.admin, &ruled_pack()).await;
+        self.import_pack(&ruled_pack()).await;
+    }
+
+    /// Imports a pack with warnings through the upload and its confirmation.
+    async fn import_pack(&self, pack: &str) {
+        let answer = self.upload(&self.admin, pack).await;
         assert_eq!(answer.status, StatusCode::OK, "{}", answer.html);
         assert!(answer.html.contains("data-skin-confirm"), "{}", answer.html);
         let replaces = hidden(&answer.html, "replaces");
+        // The hash of the row it replaces (none for a new id).
+        let replaces_hash = if answer.html.contains("name=\"replaces_hash\"") {
+            hidden(&answer.html, "replaces_hash")
+        } else {
+            String::new()
+        };
         let digest = hidden(&answer.html, "digest");
         let pack = hidden(&answer.html, "pack");
         let done = self
@@ -271,6 +282,7 @@ impl Site {
                 &self.admin,
                 &[
                     ("replaces", &replaces),
+                    ("replaces_hash", &replaces_hash),
                     ("digest", &digest),
                     ("pack", &pack),
                 ],
@@ -748,11 +760,12 @@ async fn a_skin_in_use_cannot_be_deleted_and_a_broken_choice_falls_back_to_the_d
     )
     .await
     .to_string();
+    let hash = ruled_column(site.db(), "content_hash").await;
     let refused = site
         .post(
             "/manage/skins/ruled/delete",
             &site.admin,
-            &[("version", &version)],
+            &[("version", &version), ("content_hash", &hash)],
         )
         .await;
     assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -792,7 +805,7 @@ async fn a_skin_in_use_cannot_be_deleted_and_a_broken_choice_falls_back_to_the_d
         .post(
             "/manage/skins/ruled/delete",
             &site.admin,
-            &[("version", &version)],
+            &[("version", &version), ("content_hash", &hash)],
         )
         .await;
     assert_eq!(
@@ -1708,6 +1721,109 @@ async fn a_color_preview_is_only_seen_by_the_administrator_who_started_it() {
         )
         .await,
         0
+    );
+    site.services.cleanup().await.unwrap();
+}
+
+#[tokio::test]
+async fn forms_shown_for_a_deleted_import_leave_a_newer_one_under_the_same_id_alone() {
+    let site = Site::new(&[]).await;
+    site.import_ruled().await;
+    let first = ruled_column(site.db(), "content_hash").await;
+    // An administrator opens the skins page (its delete form for Ruled 1.0.0) and the confirmation of importing the
+    // same pack again (the row it replaces), and leaves both open.
+    let page = site.get("/manage/skins", Some(&site.admin)).await;
+    let version = hidden(&page.html, "version");
+    assert_eq!(version, "1");
+    let again = site.upload(&site.admin, &ruled_pack()).await;
+    assert!(again.html.contains("data-skin-confirm"), "{}", again.html);
+    // Meanwhile Ruled is deleted and another pack imported under its id: its row starts at version 1 again.
+    let deleted = site
+        .post(
+            "/manage/skins/ruled/delete",
+            &site.admin,
+            &[("version", "1"), ("content_hash", &first)],
+        )
+        .await;
+    assert_eq!(
+        deleted.location, "/manage/skins?saved=deleted",
+        "{}",
+        deleted.html
+    );
+    let (mut newer, _) = skins::read_dir(&ruled_dir()).unwrap();
+    newer.manifest.version = "2.0.0".into();
+    site.import_pack(&skins::pack(&newer)).await;
+    assert_eq!(ruled_column(site.db(), "skin_version").await, "2.0.0");
+    assert_eq!(
+        scalar(
+            site.db(),
+            "SELECT version FROM gonof_common_skin WHERE skin_id='ruled'"
+        )
+        .await,
+        1
+    );
+    let second = ruled_column(site.db(), "content_hash").await;
+    assert_ne!(second, first);
+
+    // The old delete form names version 1 and the old pack's hash: refused, the newer import stays.
+    let stale = site
+        .post(
+            "/manage/skins/ruled/delete",
+            &site.admin,
+            &[("version", &version), ("content_hash", &first)],
+        )
+        .await;
+    assert_eq!(stale.status, StatusCode::CONFLICT, "{}", stale.location);
+    assert!(
+        stale
+            .html
+            .contains(gono_forum_web::i18n::Lang::EN.skin_error_changed())
+    );
+    assert_eq!(ruled_column(site.db(), "skin_version").await, "2.0.0");
+    // The old confirmation replaces version 1 of the old pack: it asks again instead of replacing 2.0.0.
+    let replaced = site
+        .post(
+            "/manage/skins/import/confirm",
+            &site.admin,
+            &[
+                ("replaces", "1"),
+                ("replaces_hash", &first),
+                ("digest", &hidden(&again.html, "digest")),
+                ("pack", &hidden(&again.html, "pack")),
+            ],
+        )
+        .await;
+    assert_eq!(replaced.status, StatusCode::OK, "{}", replaced.location);
+    assert!(replaced.html.contains("data-skin-confirm"));
+    assert!(
+        replaced
+            .html
+            .contains(&format!("name=\"replaces_hash\" value=\"{second}\""))
+    );
+    assert_eq!(ruled_column(site.db(), "skin_version").await, "2.0.0");
+    assert_eq!(
+        scalar(
+            site.db(),
+            "SELECT COUNT(*) FROM gonof_common_log WHERE type='skin.import'"
+        )
+        .await,
+        2
+    );
+
+    // The forms carry the row they were shown for, so the current ones work.
+    let page = site.get("/manage/skins", Some(&site.admin)).await;
+    assert_eq!(hidden(&page.html, "content_hash"), second);
+    let deleted = site
+        .post(
+            "/manage/skins/ruled/delete",
+            &site.admin,
+            &[("version", "1"), ("content_hash", &second)],
+        )
+        .await;
+    assert_eq!(
+        deleted.location, "/manage/skins?saved=deleted",
+        "{}",
+        deleted.html
     );
     site.services.cleanup().await.unwrap();
 }

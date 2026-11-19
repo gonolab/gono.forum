@@ -282,7 +282,9 @@ do not change the default look: the core stylesheets do not use them; a skin doe
   The stylesheet is served without a session and kept for a year with the current hash: `public` for a skin (or
   colored variant) a page of the site uses, `private` for one only a preview shows. Any other `k` gets the built-in
   default skin's board colors with `no-cache`. The process keeps the stylesheets of up to 32 skins and compiles them
-  again when the boards change.
+  again when the boards change. A `k` of a colored variant that a page of the site uses is answered with that
+  variant's board colors even when the process holds no compiled copy of it (with caching off the skins are loaded
+  again for every request): the variant is compiled the way the page frame compiles it.
 - **Symbols.** Pages that draw glyphs include `partials/board_glyphs.html` once, which defines
   `#board-glyph-<name>` symbols drawn like every other icon (docs/styles.md, "Icons"); markup uses them as
   `<svg><use href="#board-glyph-<name>"></use></svg>`.
@@ -506,7 +508,10 @@ Appearance › Skins (`/manage/skins`, administrators only, see [roles.md](roles
 - **Import a skin**: upload a pack. A pack that breaks a blocking rule is refused with every problem listed. A pack
   with warnings, or one that replaces an imported skin of the same id, is shown with its warnings for confirmation;
   the confirmation carries the pack back and is refused if the warnings or the row it replaces changed meanwhile.
-  Imports record `skin.import` (with the number of confirmed warnings), deletes `skin.delete`.
+  Imports record `skin.import` (with the number of confirmed warnings), deletes `skin.delete`. The delete button and
+  the confirmation name the imported row by its version and its pack's SHA-256 (`content_hash`): a skin deleted and
+  imported again under the same id starts at version 1 again, so a form shown for the earlier import is refused
+  (a delete answers 409; a confirmation is shown again for the row there now).
 - **Instance directory**: "Rescan" reads `$GONOF_HOME/skins/` again here and, through the cache broadcast, in every
   other process.
 
@@ -545,8 +550,8 @@ form button.
   answers 409 with the editor as it is now and a note saying so; the revision is compared again under the draft's lock
   in the transaction that writes. The preview bar's **Publish** carries no revision and publishes the draft as it is.
 
-**Changing skins.** When the document whose skin changes (the site's at `/manage/skins`, a domain's on its page) sets
-places of its own, choosing a skin first asks: **Keep my layout**, or **Use the new skin's layout**, which clears the
+**Changing skins.** When the document whose skin changes (the site's at `/manage/skins` and through the preview bar's
+**Publish**, a domain's on its page) sets places of its own, choosing a skin first asks: **Keep my layout**, or **Use the new skin's layout**, which clears the
 document's places and home page so the new skin's `[layout]` and `frame.home` (or the defaults) show (recording `layout.save` after `skin.select`).
 The question lists the places the document sets (and `home` when it chooses the home page) and the blocks the new
 skin would not show (side navigation blocks
@@ -563,8 +568,9 @@ that skin); a preview from Appearance › Colors shows the entered seeds over th
 a skin; **Preview on this domain** on a domain's page (Multiple domains) shows that domain's chosen colors (its own
 seeds, the skin's own colors, or the site's when it follows the site) over the domain's skin, on that domain's address
 only, and publishing it saves them as the domain's; a preview of a layout draft ("Editing a layout") shows the draft's places over the skin and colors the page has
-anyway. A bar at the top of every page offers **Publish** (make the skin the site's, recording `skin.select`, save the
-colors as the site's, recording `skin.colors`, or publish the layout draft, recording `layout.save`) and **Exit
+anyway. A bar at the top of every page offers **Publish** (make the skin the site's, recording `skin.select`, after
+the same question as choosing it when the site's layout sets places ("Editing a layout", "Changing skins"); save the
+colors as the site's, recording `skin.colors`; or publish the layout draft, recording `layout.save`) and **Exit
 preview**. Pages of signed-in members are never stored
 by shared caches (`private, no-store`) and the anonymous caches are not used for them; the stylesheet of a skin no
 page uses is served `private`, and that of previewed colors only to the administrator previewing them, `private` too

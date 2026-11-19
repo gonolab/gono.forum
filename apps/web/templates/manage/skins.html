@@ -4,7 +4,7 @@
 <section class="panel" id="section-skin-confirm" data-skin-confirm aria-labelledby="section-skin-confirm-title"><h2 class="panel__title" id="section-skin-confirm-title">{{ p.t.skin_import_confirm_heading(c.name, c.version) }}</h2>
 {% if !c.replaces_version.is_empty() %}<p>{{ p.t.skin_import_replaces(c.replaces_version) }}</p>{% endif %}
 {% if c.warnings.is_empty() %}<p>{{ p.t.skin_import_confirm_none() }}</p>{% else %}<p>{{ p.t.skin_import_confirm_warnings() }}</p><ul data-skin-warnings>{% for warning in c.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>{% endif %}
-<form class="fields" method="post" action="{{ crate::site::base() }}/manage/skins/import/confirm"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="replaces" value="{{ c.replaces }}"><input type="hidden" name="digest" value="{{ c.digest }}"><input type="hidden" name="pack" value="{{ c.pack }}">
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/skins/import/confirm"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="replaces" value="{{ c.replaces }}"><input type="hidden" name="replaces_hash" value="{{ c.replaces_hash }}"><input type="hidden" name="digest" value="{{ c.digest }}"><input type="hidden" name="pack" value="{{ c.pack }}">
 <div class="form-actions"><button class="button" type="submit">{{ p.t.skin_import_confirm_submit() }}</button><a href="{{ crate::site::base() }}/manage/skins">{{ p.t.skin_import_cancel() }}</a></div>
 </form></section>
 {%- endif %}
@@ -23,7 +23,7 @@
 {%- if !row.errors.is_empty() %}<details open><summary>{{ p.t.skin_findings_errors_count(row.errors.len()) }}</summary><ul data-skin-errors>{% for problem in row.errors %}<li>{{ problem }}</li>{% endfor %}</ul></details>{% endif %}
 {%- if !row.warnings.is_empty() %}<details><summary>{{ p.t.skin_findings_warnings_count(row.warnings.len()) }}</summary><ul data-skin-warnings>{% for problem in row.warnings %}<li>{{ problem }}</li>{% endfor %}</ul></details>{% endif %}</td>
 <td>{% if row.usable %}<form method="post" action="{{ crate::site::base() }}/manage/skins/preview"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="choice" value="{{ row.id }}:"><button class="button button--small button--secondary" type="submit">{{ p.t.skin_preview_submit() }}</button></form>{% endif %}
-{%- if let Some(version) = row.delete %}<form method="post" action="{{ crate::site::base() }}/manage/skins/{{ row.id }}/delete"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="version" value="{{ version }}"><button class="button button--small button--danger" type="submit">{{ p.t.skin_delete_submit() }}</button></form>{% endif %}</td></tr>
+{%- if let Some(seen) = row.delete %}<form method="post" action="{{ crate::site::base() }}/manage/skins/{{ row.id }}/delete"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="version" value="{{ seen.version }}"><input type="hidden" name="content_hash" value="{{ seen.content_hash }}"><button class="button button--small button--danger" type="submit">{{ p.t.skin_delete_submit() }}</button></form>{% endif %}</td></tr>
 {%- endfor %}
 </tbody></table></section>
 <section class="panel" id="section-skin-import" aria-labelledby="section-skin-import-title"><h2 class="panel__title" id="section-skin-import-title">{{ p.t.skin_import_heading() }}</h2><p>{{ p.t.skin_import_lead() }}</p>

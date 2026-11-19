@@ -13,12 +13,13 @@
   --sidebar-w: 220px;
 }
 
-/* Surfaces: lists, threads and asides sit on the page ground, separated by rules. */
+/* Surfaces: lists, threads and asides sit on the page ground, separated by rules. The reply box keeps the core's panel
+   while the docked-composer module docks it open, so the page does not show through it. */
 .pane,
 .thread,
 .spotlight,
 .replies-pane,
-.reply-box,
+html:not([data-composer-dock="open"]) .reply-box,
 .panel.board-head,
 .panel--aside {
   border: 0;
@@ -493,11 +494,11 @@
 .spotlight,
 .replies-head,
 .replies-pane__pager,
-.reply-box {
+html:not([data-composer-dock="open"]) .reply-box {
   padding-inline: 0;
 }
 
-.reply-box {
+html:not([data-composer-dock="open"]) .reply-box {
   border-block-start: 1px solid var(--line);
 }
 

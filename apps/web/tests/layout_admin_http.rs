@@ -850,3 +850,127 @@ async fn publishing_keeps_a_draft_saved_while_it_runs() {
     );
     site.services.cleanup().await.unwrap();
 }
+
+#[tokio::test]
+async fn publishing_a_previewed_skin_asks_first_about_a_changed_layout() {
+    let site = Site::new(true).await;
+    let layout = || async {
+        let body = site
+            .text("SELECT svalue FROM gonof_common_settings WHERE skey='settings.layout.body'")
+            .await;
+        serde_json::from_str::<serde_json::Value>(&body).unwrap()
+    };
+    // Atrium, with the site's own side navigation.
+    let chosen = site
+        .post(
+            "/manage/skins/select",
+            &site.admin,
+            &[("choice", "atrium:main")],
+        )
+        .await;
+    assert_eq!(chosen.status, StatusCode::SEE_OTHER, "{}", chosen.body);
+    let own = edit(
+        &site,
+        "/manage/layout/own",
+        &[("domain", "0"), ("place", "side.nav")],
+    )
+    .await;
+    assert_eq!(own.status, StatusCode::SEE_OTHER, "{}", own.body);
+    let published = edit(&site, "/manage/layout/publish", &[("domain", "0")]).await;
+    assert_eq!(
+        published.status,
+        StatusCode::SEE_OTHER,
+        "{}",
+        published.body
+    );
+    let selects = "SELECT COUNT(*) FROM gonof_common_log WHERE type='skin.select'";
+    assert_eq!(site.scalar(selects).await, 1);
+
+    // Publishing a preview of the default skin from the preview bar asks, as choosing it directly does, and lists
+    // the side navigation blocks the default skin would not show.
+    let preview = site
+        .post(
+            "/manage/skins/preview",
+            &site.admin,
+            &[("choice", "default:")],
+        )
+        .await;
+    let sealed = cookie(&preview);
+    assert!(!sealed.is_empty());
+    let asked = post_with_cookie(&site, "/manage/skins/preview/publish", &sealed, &[]).await;
+    assert_eq!(asked.status, StatusCode::OK, "{}", asked.body);
+    assert!(asked.body.contains("data-layout-switch"), "{}", asked.body);
+    assert!(
+        asked.body.contains("<code>side-boards</code>"),
+        "{}",
+        asked.body
+    );
+    assert!(
+        asked
+            .body
+            .contains("action=\"/manage/skins/preview/publish\"")
+    );
+    assert!(
+        asked
+            .body
+            .contains("name=\"choice\" value=\"default:default\"")
+    );
+    assert_eq!(site.scalar(selects).await, 1, "nothing is published yet");
+    assert_eq!(layout().await["skin"], "atrium");
+    // An answer given about another skin than the one previewed is asked again.
+    let other = post_with_cookie(
+        &site,
+        "/manage/skins/preview/publish",
+        &sealed,
+        &[("choice", "ledger:blue"), ("layout", "skin")],
+    )
+    .await;
+    assert_eq!(other.status, StatusCode::OK, "{}", other.body);
+    assert!(other.body.contains("data-layout-switch"));
+    assert_eq!(layout().await["skin"], "atrium");
+
+    // Keeping the layout publishes the skin with the site's places and ends the preview.
+    let kept = post_with_cookie(
+        &site,
+        "/manage/skins/preview/publish",
+        &sealed,
+        &[("choice", "default:default"), ("layout", "keep")],
+    )
+    .await;
+    assert_eq!(kept.status, StatusCode::SEE_OTHER, "{}", kept.body);
+    assert_eq!(
+        kept.header(header::LOCATION),
+        "/manage/skins?saved=selected"
+    );
+    assert!(cookie(&kept).ends_with("gonof_skin_preview__port58833="));
+    let kept = layout().await;
+    assert_eq!(kept["skin"], "default");
+    assert!(kept["places"]["side.nav"].is_array(), "{kept}");
+
+    // Taking the new skin's layout clears the places after choosing the skin.
+    let preview = site
+        .post(
+            "/manage/skins/preview",
+            &site.admin,
+            &[("choice", "atrium:")],
+        )
+        .await;
+    let sealed = cookie(&preview);
+    let reset = post_with_cookie(
+        &site,
+        "/manage/skins/preview/publish",
+        &sealed,
+        &[("choice", "atrium:main"), ("layout", "skin")],
+    )
+    .await;
+    assert_eq!(reset.status, StatusCode::SEE_OTHER, "{}", reset.body);
+    let reset = layout().await;
+    assert_eq!(reset["skin"], "atrium");
+    assert!(reset["places"].is_null(), "{reset}");
+    assert_eq!(
+        site.text("SELECT type FROM gonof_common_log WHERE type IN ('skin.select','layout.save') ORDER BY id DESC LIMIT 1")
+            .await,
+        "layout.save"
+    );
+    site.services.cleanup().await.unwrap();
+}

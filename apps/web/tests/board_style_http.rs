@@ -309,3 +309,54 @@ async fn board_colors_are_fitted_to_the_skin_in_use() {
     assert!(private.body.contains(&format!("[data-board=\"{daily}\"]")));
     site.services.cleanup().await.unwrap();
 }
+
+#[tokio::test]
+async fn with_caching_off_a_skin_with_seed_colors_keeps_its_board_colors() {
+    let site = Site::new(false).await;
+    let daily = site.fid("daily").await;
+    let saved = save(&site, daily, &[("color_on", "1"), ("color", "#1e3a8a")]).await;
+    assert_eq!(saved.status, StatusCode::SEE_OTHER, "{}", saved.body);
+    // Harbor, with its three palettes, over seed colors: a colored variant that only the page frame compiles.
+    gono_forum_web::test_support::set_setting(
+        site.db(),
+        "settings.layout.body",
+        r##"{"v":1,"skin":"harbor","palette":"main","colors":{"primary":"#be123c","secondary":"#64748b"}}"##,
+    )
+    .await
+    .unwrap();
+    site.services.global.refresh_all().await.unwrap();
+    let href = linked(&site.get("/", None).await.body).expect("the board stylesheet");
+    let cached = site.get(&href, None).await;
+    assert_eq!(
+        cached.header(header::CACHE_CONTROL),
+        "public, max-age=31536000, immutable"
+    );
+    for palette in ["main", "contrast", "colored"] {
+        assert!(
+            cached.body.contains(&format!(
+                ":root[data-palette=\"{palette}\"] [data-board=\"{daily}\"]"
+            )),
+            "{palette}: {}",
+            cached.body
+        );
+    }
+
+    // With caching off every request loads the skins again, so the variant has not been compiled for it yet; the
+    // page links the same address and the stylesheet is still the variant's, kept for a year.
+    gono_forum_web::test_support::set_setting(site.db(), "settings.cache.ttl_seconds", "0")
+        .await
+        .unwrap();
+    site.services.global.refresh_all().await.unwrap();
+    for _ in 0..2 {
+        let home = site.get("/", None).await;
+        assert_eq!(linked(&home.body).as_deref(), Some(href.as_str()));
+        let style = site.get(&href, None).await;
+        assert_eq!(style.status, StatusCode::OK);
+        assert_eq!(
+            style.header(header::CACHE_CONTROL),
+            "public, max-age=31536000, immutable"
+        );
+        assert_eq!(style.body, cached.body);
+    }
+    site.services.cleanup().await.unwrap();
+}

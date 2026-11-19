@@ -606,8 +606,9 @@
   border-block-end-color: var(--line);
 }
 
-/* The reply box reads as a placeholder at the end of the stream. */
-.reply-box {
+/* The reply box reads as a placeholder at the end of the stream. Docked open by the docked-composer module, it keeps
+   the core's panel, so the page does not show through it. */
+html:not([data-composer-dock="open"]) .reply-box {
   padding-block: 18px;
   padding-inline: 20px;
   border: 1px dashed var(--line-strong);

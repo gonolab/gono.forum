@@ -62,7 +62,7 @@ async function useSkin(instance, state, pack) {
       page = await answer.text();
       answer = await context.post('/manage/skins/import/confirm', {
         headers,
-        form: { _csrf: csrf, replaces: hidden(page, 'replaces'), digest: hidden(page, 'digest'), pack: hidden(page, 'pack') },
+        form: { _csrf: csrf, replaces: hidden(page, 'replaces'), replaces_hash: hidden(page, 'replaces_hash'), digest: hidden(page, 'digest'), pack: hidden(page, 'pack') },
         maxRedirects: 0,
       });
     }
