@@ -17,10 +17,15 @@ pub struct ProvisionedKey {
 /// For each uid, its existing unrevoked tokens are revoked first (an account has only one valid token at a time), then
 /// the new one is written. A duplicate uid in the list rejects the whole batch: otherwise the later entry would revoke
 /// the token the earlier one just wrote, leaving an already invalid token in the result.
+///
+/// `persist` stores the plaintext tokens (`gono-forum-cli enable-api-keys` writes and syncs its output file) before the
+/// transaction commits: if it fails, nothing is revoked or issued and the old tokens keep working, instead of the old
+/// tokens being revoked for replacements whose plaintext is lost.
 pub async fn provision_api_keys(
     db: &Database,
     uids: &[i64],
     ttl_seconds: i64,
+    persist: impl FnOnce(&[ProvisionedKey]) -> Result<()>,
 ) -> Result<Vec<ProvisionedKey>> {
     // Uses the same member row locks as web generation and rotation, to avoid concurrent inserts after each side
     // revokes, or a deadlock from locking tokens first and then waiting on the member foreign key check, the reverse of
@@ -81,6 +86,7 @@ pub async fn provision_api_keys(
             expires_at,
         });
     }
+    persist(&results).context("cannot save the new tokens; nothing was revoked or issued")?;
     transaction.commit().await?;
     Ok(results)
 }

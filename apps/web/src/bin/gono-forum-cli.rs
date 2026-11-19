@@ -76,7 +76,7 @@ async fn main() -> Result<()> {
     }
     if args.is_empty() || args == ["--help"] || args == ["-h"] {
         println!(
-            "Gono Forum database tool\n\n  gono-forum-cli migrate                       Run migrations; creates the SQLite database file if it does not exist (creates no forums: on a fresh install the administrator creates them at /manage/forums)\n  gono-forum-cli seed-demo                     Run migrations, create the fixture's six forums when the forum table is empty, and import the development fixture into an empty content database\n  gono-forum-cli seed-sample [--language=<tag>]  Add the optional sample content offered by the setup wizard (10 members, 5 forums, 100 threads and 1,000 replies; in English unless --language names another language that has a sample, such as zh-CN) to a site that has no forums, threads or posts yet\n  gono-forum-cli export-sample <dir> [--language=<tag>]  Write the same sample content as a content dataset in a new directory, as a starting point for content of your own (docs/content-import.md)\n  gono-forum-cli check-content <dir>           Check a content dataset and list every problem with its file, line and thread key; needs no database or configuration\n  gono-forum-cli import-content <dir> [--members-out=<file>]  Check a content dataset, then import its boards, members, threads and replies into a site that has no forums, threads or posts yet; --members-out writes the new members' uids as a profile list for enable-api-keys and enable-interactions\n  gono-forum-cli import-profiles <path> --confirm-reset=<database>  Bulk-import accounts into the member table from a JSON profile list (empties the member table first; only for test environments that may be reset; the database name must match the currently connected database)\n  gono-forum-cli enable-api-keys <list> <output>  Issue API tokens in bulk for every uid in the profile list; the raw tokens are written to a newly created local output file (mode 0600, refused if it already exists; must not be committed to the repository)\n  gono-forum-cli enable-interactions <list>    Give accounts other than uid=1 that have no e-mail yet a placeholder e-mail and verified status, meeting the e-mail requirement of the like/favorite/reply endpoints\n  gono-forum-cli set-password <uid>            Set a uid's password to the plaintext read from standard input (not echoed, not left in the command-line arguments)\n  gono-forum-cli run-campaign-plan <admin-uid> <plan.json>  Following a plan, in bulk: grant credits / create bounty, red packet, lottery, poll and news campaigns / cast poll votes / accept bounty replies\n  gono-forum-cli settle-due <limit>            Settle due lotteries/bounties/red packets (lottery draws, etc.)\n  gono-forum-cli reset-two-factor <uid> --reason=<reason>  After verifying the member in person offline, turn off their two-factor authentication: delete the authenticator and recovery codes, sign out all devices, revoke API tokens and feed URLs, and send the member a security notice\n  gono-forum-cli rekey-two-factor              After rotating the [identity.two_factor] key, re-encrypt authenticator secrets and lottery redemption codes still encrypted with an old key under the current key; remove the old key only after both report 0 old-key items\n  gono-forum-cli set-site-url <forum-url>      Change the forum URL directly (may include a path, e.g. https://demo.com/bbs; \"\" leaves it empty); for recovery when the admin area is unreachable, and before the first start of a new sub-path install; validated like the admin area, without the second confirmation\n  gono-forum-cli purge-non-image-attachments [--confirm]  List ready non-image attachments (only images are allowed since 2026-11-08); only with --confirm are the post references removed and the attachments marked for cleanup; the objects are deleted by the running Web process, irreversibly\n  gono-forum-cli skin check <dir|file> [--builtin]  Check a skin directory or skin pack exactly as an import does and list every problem and warning (docs/skins.md); --builtin applies the rules of built-in skins; needs no database or configuration\n  gono-forum-cli skin pack <dir> [--output=<file>]  Check a skin directory and write it as one skin pack file for import in the admin area (default <id>-<version>.skin.json in the current directory; refused if the file exists)\n\nConfiguration: GONOF_HOME sets the instance directory (release packages default to the directory holding this binary); GONOF_CONFIG selects the config file (default config/gono-forum.toml in release packages, config/development.toml in source builds); GONOF_DATABASE_URL overrides the database connection."
+            "Gono Forum database tool\n\n  gono-forum-cli migrate                       Run migrations; creates the SQLite database file if it does not exist (creates no forums: on a fresh install the administrator creates them at /manage/forums)\n  gono-forum-cli seed-demo                     Run migrations, create the fixture's six forums when the forum table is empty, and import the development fixture into an empty content database\n  gono-forum-cli seed-sample [--language=<tag>]  Add the optional sample content offered by the setup wizard (10 members, 5 forums, 100 threads and 1,000 replies; in English unless --language names another language that has a sample, such as zh-CN) to a site that has no forums, threads or posts yet\n  gono-forum-cli export-sample <dir> [--language=<tag>]  Write the same sample content as a content dataset in a new directory, as a starting point for content of your own (docs/content-import.md)\n  gono-forum-cli check-content <dir>           Check a content dataset and list every problem with its file, line and thread key; needs no database or configuration\n  gono-forum-cli import-content <dir> [--members-out=<file>]  Check a content dataset, then import its boards, members, threads and replies into a site that has no forums, threads or posts yet; --members-out writes the new members' uids as a profile list for enable-api-keys and enable-interactions\n  gono-forum-cli import-profiles <path> --confirm-reset=<database>  Bulk-import accounts into the member table from a JSON profile list (empties the member table first; only for test environments that may be reset; the database name must match the currently connected database)\n  gono-forum-cli enable-api-keys <list> <output>  Issue API tokens in bulk for every uid in the profile list; the raw tokens are written to a newly created local output file and synced before the old tokens are revoked (mode 0600, refused if it already exists; must not be committed to the repository)\n  gono-forum-cli enable-interactions <list>    Give accounts other than uid=1 that have no e-mail yet a placeholder e-mail and verified status, meeting the e-mail requirement of the like/favorite/reply endpoints\n  gono-forum-cli set-password <uid>            Set a uid's password to the plaintext read from standard input (not echoed, not left in the command-line arguments)\n  gono-forum-cli run-campaign-plan <admin-uid> <plan.json>  Following a plan, in bulk: grant credits / create bounty, red packet, lottery, poll and news campaigns / cast poll votes / accept bounty replies\n  gono-forum-cli settle-due <limit>            Settle due lotteries/bounties/red packets (lottery draws, etc.)\n  gono-forum-cli reset-two-factor <uid> --reason=<reason>  After verifying the member in person offline, turn off their two-factor authentication: delete the authenticator and recovery codes, sign out all devices, revoke API tokens and feed URLs, and send the member a security notice\n  gono-forum-cli rekey-two-factor              After rotating the [identity.two_factor] key, re-encrypt authenticator secrets and lottery redemption codes still encrypted with an old key under the current key; remove the old key only after both report 0 old-key items\n  gono-forum-cli set-site-url <forum-url>      Change the forum URL directly (may include a path, e.g. https://demo.com/bbs; \"\" leaves it empty); for recovery when the admin area is unreachable, and before the first start of a new sub-path install; validated like the admin area, without the second confirmation\n  gono-forum-cli purge-non-image-attachments [--confirm]  List ready non-image attachments (only images are allowed since 2026-11-08); only with --confirm are the post references removed and the attachments marked for cleanup; the objects are deleted by the running Web process, irreversibly\n  gono-forum-cli skin check <dir|file> [--builtin]  Check a skin directory or skin pack exactly as an import does and list every problem and warning (docs/skins.md); --builtin applies the rules of built-in skins; needs no database or configuration\n  gono-forum-cli skin pack <dir> [--output=<file>]  Check a skin directory and write it as one skin pack file for import in the admin area (default <id>-<version>.skin.json in the current directory; refused if the file exists)\n\nConfiguration: GONOF_HOME sets the instance directory (release packages default to the directory holding this binary); GONOF_CONFIG selects the config file (default config/gono-forum.toml in release packages, config/development.toml in source builds); GONOF_DATABASE_URL overrides the database connection."
         );
         return Ok(());
     }
@@ -321,8 +321,15 @@ async fn main() -> Result<()> {
         }
         Command::ImportContent { members_out, .. } => {
             let dataset = dataset.expect("checked before connecting to the database");
+            // The member list is created before anything is imported: a path that cannot be written stops the command
+            // while the site is still empty (once boards exist a second run is refused), and a failed import removes
+            // the empty file again.
+            let output = members_out
+                .as_deref()
+                .map(content::profiles::create_secret_file)
+                .transpose()?;
             println!("\nImporting...");
-            let members = content::import_dataset(
+            let imported = content::import_dataset(
                 &db,
                 &dataset,
                 gono_forum_web::identity::now(),
@@ -332,9 +339,18 @@ async fn main() -> Result<()> {
                     }
                 },
             )
-            .await?;
-            if let Some(path) = members_out {
-                let mut output = content::profiles::create_secret_file(&path)?;
+            .await;
+            let members = match imported {
+                Ok(members) => members,
+                Err(error) => {
+                    if let Some(path) = &members_out {
+                        drop(output);
+                        let _ = std::fs::remove_file(path);
+                    }
+                    return Err(error);
+                }
+            };
+            if let (Some(path), Some(mut output)) = (members_out, output) {
                 let roles: Vec<serde_json::Value> = members
                     .iter()
                     .map(|member| {
@@ -351,6 +367,7 @@ async fn main() -> Result<()> {
                     (serde_json::to_string_pretty(&serde_json::json!({ "roles": roles }))? + "\n")
                         .as_bytes(),
                 )?;
+                output.sync_all()?;
                 println!("Wrote the new members' uids to {}.", path.display());
             }
             println!(
@@ -393,7 +410,31 @@ async fn main() -> Result<()> {
                 .api
                 .key_ttl_days
                 .saturating_mul(86_400);
-            let keys = match content::api_keys::provision_api_keys(&db, &uids, ttl).await {
+            let usernames: std::collections::HashMap<i64, String> = members.into_iter().collect();
+            // The file is written and synced before the old tokens are revoked: a full disk then leaves every client
+            // on its old token instead of revoking it for a replacement nobody has.
+            let provisioned = content::api_keys::provision_api_keys(&db, &uids, ttl, |keys| {
+                let entries: Vec<serde_json::Value> = keys
+                    .iter()
+                    .map(|key| {
+                        serde_json::json!({
+                            "uid": key.uid,
+                            "username": usernames.get(&key.uid),
+                            "api_key": key.secret,
+                            "hint": key.hint,
+                            "expires_at": key.expires_at,
+                        })
+                    })
+                    .collect();
+                std::io::Write::write_all(
+                    &mut output,
+                    (serde_json::to_string_pretty(&entries)? + "\n").as_bytes(),
+                )?;
+                output.sync_all()?;
+                content::profiles::sync_parent(&output_path)
+            })
+            .await;
+            let keys = match provisioned {
                 Ok(keys) => keys,
                 Err(error) => {
                     drop(output);
@@ -401,24 +442,6 @@ async fn main() -> Result<()> {
                     return Err(error);
                 }
             };
-            let usernames: std::collections::HashMap<i64, String> = members.into_iter().collect();
-            let entries: Vec<serde_json::Value> = keys
-                .iter()
-                .map(|key| {
-                    serde_json::json!({
-                        "uid": key.uid,
-                        "username": usernames.get(&key.uid),
-                        "api_key": key.secret,
-                        "hint": key.hint,
-                        "expires_at": key.expires_at,
-                    })
-                })
-                .collect();
-            std::io::Write::write_all(
-                &mut output,
-                (serde_json::to_string_pretty(&entries)? + "\n").as_bytes(),
-            )?;
-            output.sync_all()?;
             println!(
                 "Issued API tokens for {} accounts; the raw tokens were written to {}. Do not commit or share this file.",
                 keys.len(),

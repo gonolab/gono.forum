@@ -28,7 +28,9 @@ gono-forum-cli import-content content --members-out=members.json
   halfway, the site keeps what was written and a second run refuses to stack on it: restore the database or start
   from a new one. Restart the forum afterwards so its process caches pick up the new boards.
 - `--members-out` writes the new members' uids and names as a profile list for `enable-api-keys` and
-  `enable-interactions`, for load tests that need signed-in members. It refuses to overwrite a file.
+  `enable-interactions`, for load tests that need signed-in members. It refuses to overwrite a file. The file is
+  created before anything is imported, so a path that cannot be written stops the command while the site is still
+  empty, and it is removed again if the import fails.
 
 ## Files
 

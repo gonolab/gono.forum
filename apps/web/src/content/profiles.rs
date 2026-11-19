@@ -117,6 +117,17 @@ pub fn create_secret_file(path: &Path) -> Result<std::fs::File> {
         })
 }
 
+/// Syncs the directory holding `path`, so a file just created there is still listed after a crash.
+pub fn sync_parent(path: &Path) -> Result<()> {
+    let parent = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    std::fs::File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .with_context(|| format!("cannot sync the directory {}", parent.display()))
+}
+
 /// Sets the password of a uid to plaintext chosen by the caller (only for setting an administrator password by hand on
 /// a local test database).
 pub async fn set_password(db: &Database, uid: i64, password: &str) -> Result<()> {

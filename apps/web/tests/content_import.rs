@@ -342,3 +342,84 @@ async fn the_committed_examples_import_like_the_wizard_samples() {
         f.cleanup().await.unwrap();
     }
 }
+
+/// Runs `gono-forum-cli` on the fixture's database, as an operator would.
+fn cli(f: &TestFixture, args: &[&str]) -> std::process::Output {
+    let config = f.root.join("cli.toml");
+    std::fs::write(&config, "[redis]\nenabled = false\n").unwrap();
+    std::process::Command::new(env!("CARGO_BIN_EXE_gono-forum-cli"))
+        .args(args)
+        .env("GONOF_HOME", &f.root)
+        .env("GONOF_CONFIG", &config)
+        .env("GONOF_DATABASE_URL", &f.config.database.url)
+        .env("GONOF_AUTH_COOKIE_KEY", "11".repeat(32))
+        .env("GONOF_TWO_FACTOR_KEY", "22".repeat(32))
+        .env_remove("GONOF_AUTH_COOKIE_PREVIOUS_KEYS")
+        .env_remove("GONOF_TWO_FACTOR_PREVIOUS_KEYS")
+        .output()
+        .unwrap()
+}
+
+/// `--members-out` is created before anything is imported: a path that cannot be written stops the command while the
+/// site is still empty, so the import can be run again, and an import that fails removes the file again.
+#[tokio::test]
+async fn the_member_list_is_created_before_the_import_and_removed_when_it_fails() {
+    let f = TestFixture::migrated().await.unwrap();
+    let scratch = Scratch::new();
+    write_dataset(&scratch.0);
+    let dir = scratch.0.to_str().unwrap();
+    let missing = f.root.join("missing/members.json");
+    let output = cli(
+        &f,
+        &[
+            "import-content",
+            dir,
+            &format!("--members-out={}", missing.display()),
+        ],
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{stderr}");
+    assert!(stderr.contains("cannot create the output file"), "{stderr}");
+    assert_eq!(
+        count(&f, "SELECT COUNT(*) FROM gonof_forum_forum").await,
+        0,
+        "nothing is imported when the member list cannot be created"
+    );
+
+    let members = f.root.join("members.json");
+    let output = cli(
+        &f,
+        &[
+            "import-content",
+            dir,
+            &format!("--members-out={}", members.display()),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let list: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&members).unwrap()).unwrap();
+    assert_eq!(list["roles"].as_array().unwrap().len(), 4);
+
+    // The site now has boards, so a second import fails and leaves no member list behind.
+    let again = f.root.join("again.json");
+    let output = cli(
+        &f,
+        &[
+            "import-content",
+            dir,
+            &format!("--members-out={}", again.display()),
+        ],
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("only goes into a site without forums"),
+        "{stderr}"
+    );
+    assert!(!again.exists(), "a failed import removes the member list");
+    f.cleanup().await.unwrap();
+}

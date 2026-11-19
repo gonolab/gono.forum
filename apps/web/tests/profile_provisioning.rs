@@ -28,7 +28,7 @@ async fn bulk_api_key_provisioning_serializes_with_member_key_rotation() {
     let profile = Arc::new(RequestProfile::new());
     let provisioning = trace::scope(
         profile.clone(),
-        api_keys::provision_api_keys(database, &[9201], 3600),
+        api_keys::provision_api_keys(database, &[9201], 3600, |_| Ok(())),
     );
     let finish_rotation = async {
         // First confirm that the batch provisioning's member row-lock statement has been issued and is waiting.
@@ -353,11 +353,15 @@ async fn bulk_api_key_provisioning_rejects_duplicate_uids() {
         .execute(fixture.db.executor())
         .await
         .unwrap();
-    let error =
-        gono_forum_web::content::api_keys::provision_api_keys(&fixture.db, &[9211, 9211], 3600)
-            .await
-            .err()
-            .expect("a duplicate uid is refused");
+    let error = gono_forum_web::content::api_keys::provision_api_keys(
+        &fixture.db,
+        &[9211, 9211],
+        3600,
+        |_| Ok(()),
+    )
+    .await
+    .err()
+    .expect("a duplicate uid is refused");
     assert!(error.to_string().contains("duplicates"), "{error}");
     let keys: i64 =
         db::query_scalar("SELECT COUNT(*) FROM gonof_common_member_api_key WHERE uid=9211")
@@ -365,5 +369,69 @@ async fn bulk_api_key_provisioning_rejects_duplicate_uids() {
             .await
             .unwrap();
     assert_eq!(keys, 0, "a refused batch writes no token at all");
+    fixture.cleanup().await.unwrap();
+}
+
+/// The plaintext tokens are saved before the batch commits: when saving them fails (a full disk, say), the old token
+/// keeps working and no new token exists, instead of every client losing its token to a replacement nobody has.
+#[tokio::test]
+async fn bulk_api_keys_are_saved_before_the_old_ones_are_revoked() {
+    use gono_forum_web::content::api_keys;
+    let fixture = TestFixture::migrated().await.unwrap();
+    let database = &fixture.db;
+    db::query("INSERT INTO gonof_common_member(uid,username) VALUES(9221,'cli-rotate')")
+        .execute(database.executor())
+        .await
+        .unwrap();
+    let timestamp = identity::now();
+    db::query("INSERT INTO gonof_common_member_api_key(uid,key_hash,key_hint,dateline,expires_at) VALUES(9221,?,'before',?,?)")
+        .bind(identity::token_hash("the-token-clients-use"))
+        .bind(timestamp)
+        .bind(timestamp + 3600)
+        .execute(database.executor())
+        .await
+        .unwrap();
+    let active = || async {
+        db::query_scalar::<String>(
+            "SELECT key_hash FROM gonof_common_member_api_key WHERE uid=9221 AND revoked_at IS NULL",
+        )
+        .fetch_all(database.executor())
+        .await
+        .unwrap()
+    };
+
+    let error = api_keys::provision_api_keys(database, &[9221], 3600, |keys| {
+        assert_eq!(keys.len(), 1);
+        anyhow::bail!("No space left on device")
+    })
+    .await
+    .err()
+    .expect("a failed save fails the batch");
+    assert!(
+        error.to_string().contains("nothing was revoked"),
+        "{error:#}"
+    );
+    assert_eq!(
+        active().await,
+        [identity::token_hash("the-token-clients-use")],
+        "the old token keeps working when the new ones could not be saved"
+    );
+    let rows: i64 =
+        db::query_scalar("SELECT COUNT(*) FROM gonof_common_member_api_key WHERE uid=9221")
+            .fetch_one(database.executor())
+            .await
+            .unwrap();
+    assert_eq!(rows, 1, "no token was issued");
+
+    // When saving works, the saved token is the one that is valid.
+    let mut saved = Vec::new();
+    let keys = api_keys::provision_api_keys(database, &[9221], 3600, |keys| {
+        saved = keys.iter().map(|key| key.secret.clone()).collect();
+        Ok(())
+    })
+    .await
+    .unwrap();
+    assert_eq!(saved, [keys[0].secret.clone()]);
+    assert_eq!(active().await, [identity::token_hash(&saved[0])]);
     fixture.cleanup().await.unwrap();
 }
