@@ -506,3 +506,88 @@ async fn member_collection_counts_and_pages_obey_content_visibility() {
     assert!(listed_pids(&empty).is_empty());
     fixture.services.cleanup().await.unwrap();
 }
+
+/// A member's lists stop at 1,000 pages like every list (docs/queries.md, "Page totals and the page cap"). The
+/// personal space takes its total from the member count table, so a member counted with 30,000 replies has pages up to
+/// 1,000 and no page 1,001 (whose `OFFSET` would skip 20,000 posts with their bodies); the member's own list counts at
+/// most 1,000 pages of posts.
+#[tokio::test]
+async fn member_lists_stop_at_the_list_page_cap() {
+    let fixture = Fixture::new().await;
+    let (db, uid) = (&fixture.db, fixture.uid);
+    let execute = |sql: String| async move {
+        gono_forum_web::db::query(&sql)
+            .execute(db.executor())
+            .await
+            .unwrap_or_else(|error| panic!("{sql}: {error}"));
+    };
+    execute(format!(
+        "UPDATE gonof_common_member_count SET threads=30000, replies=30000 WHERE uid={uid}"
+    ))
+    .await;
+    let space = urls::space(uid);
+    for view in ["threads", "posts"] {
+        let (status, _, _) =
+            support::fetch(&fixture.app, &format!("{space}/{view}-1000"), false).await;
+        assert_eq!(status, StatusCode::OK, "{view}-1000");
+        let (status, _, _) =
+            support::fetch(&fixture.app, &format!("{space}/{view}-1001"), false).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{view}-1001");
+    }
+    // 1,001 more replies of the member in thread 103: with one post per page the own list may count 1,000.
+    let scalar = |sql: &'static str| async move {
+        gono_forum_web::db::query_scalar::<i64>(sql)
+            .fetch_one(db.executor())
+            .await
+            .unwrap()
+    };
+    let base_pid = scalar("SELECT MAX(pid) FROM gonof_forum_post_tableid").await;
+    let base_position = scalar("SELECT MAX(position) FROM gonof_forum_post WHERE tid=103").await;
+    let base_root = scalar("SELECT MAX(root_position) FROM gonof_forum_post WHERE tid=103").await;
+    let fid = scalar("SELECT fid FROM gonof_forum_thread WHERE tid=103").await;
+    for chunk in (1..=1001_i64).collect::<Vec<_>>().chunks(500) {
+        let ids = chunk
+            .iter()
+            .map(|n| format!("({})", base_pid + n))
+            .collect::<Vec<_>>()
+            .join(",");
+        execute(format!(
+            "INSERT INTO gonof_forum_post_tableid (pid) VALUES {ids}"
+        ))
+        .await;
+        let rows = chunk
+            .iter()
+            .map(|n| {
+                format!(
+                    "({},{fid},103,{uid},0,{},'EXTRA_REPLY',1700000100,{})",
+                    base_pid + n,
+                    base_position + n,
+                    base_root + n
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        execute(format!(
+            "INSERT INTO gonof_forum_post (pid,fid,tid,authorid,first,position,message,dateline,root_position) VALUES {rows}"
+        ))
+        .await;
+    }
+    let own = |page: usize| async move {
+        content::own_content(
+            db,
+            uid,
+            MemberContentKind::Posts,
+            page,
+            1,
+            gono_forum_web::test_support::SEEDED_PAGING,
+        )
+        .await
+        .unwrap()
+    };
+    let first = own(1).await;
+    assert_eq!(first.total, 1000, "counted up to 1,000 pages of one post");
+    assert_eq!(first.rows.len(), 1);
+    assert_eq!(own(1000).await.rows.len(), 1);
+    assert!(own(1001).await.rows.is_empty());
+    fixture.services.cleanup().await.unwrap();
+}

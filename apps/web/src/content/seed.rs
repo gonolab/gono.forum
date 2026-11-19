@@ -534,7 +534,7 @@ async fn write_threads(
             }
             insert_post(db, transaction, fid, tid, uid, false, &post, children).await?;
         }
-        super::refresh_effective_replies(db, transaction, tid).await?;
+        super::recount_effective_replies(db, transaction, tid).await?;
     }
     Ok(())
 }

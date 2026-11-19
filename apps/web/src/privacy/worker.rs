@@ -446,6 +446,8 @@ async fn run(
                 .bind(pid)
                 .execute(db.observe(&mut *tx))
                 .await?;
+            // The post as the live-reply copies see it, before erasure withdraws it.
+            let before = crate::content::ReplyState::read(db, &mut tx, pid).await?;
             db::query("UPDATE gonof_forum_post SET message='',deleted_at=?,erased_at=?,version=version+1 WHERE pid=? AND authorid=? AND erased_at=0").bind(now).bind(now).bind(pid).bind(c.uid).execute(db.observe(&mut *tx)).await?;
             // Erasure works like withdrawal: the growth points this post brought are taken back.
             crate::growth::sync_posts(db, &mut tx, &[pid], crate::growth::Cause::Revoke, now)
@@ -520,7 +522,7 @@ async fn run(
             for aid in aids {
                 purge_if_unused(db, &mut tx, aid, words, now).await?;
             }
-            crate::content::refresh_effective_replies(db, &mut tx, tid).await?;
+            crate::content::reply_visibility_changed(db, &mut tx, before, 0).await?;
             db::query("UPDATE gonof_common_data_request SET cursor_pid=?,version=version+1,last_error='',status='processing' WHERE id=?").bind(if moves { pid } else { r.cursor_pid }).bind(r.id).execute(db.observe(&mut *tx)).await?;
             finish_task(db, &mut tx, c, false, now).await?;
             // Erasure changed the title, effective replies or last reply, so the anonymous cache is invalidated

@@ -906,6 +906,8 @@ impl ContentEditor {
                     super::copies::count_member(&self.db, tx, post.authorid, (0, 0, delta)).await?;
                 }
             } else {
+                // The post as the live-reply copies see it, before the change.
+                let live_before = super::ReplyState::read(&self.db, tx, post.pid).await?;
                 crate::db::query(&format!(
                     "UPDATE gonof_forum_post SET {column}=?,version=? WHERE pid=?"
                 ))
@@ -936,9 +938,11 @@ impl ContentEditor {
                 }
                 // A root floor's moderation hiding is copied to its nested replies (root_invisible), so checking a
                 // nested reply's visibility does not look up the parent floor.
-                if column == "invisible" && !post.first && post.root_pid.is_none() {
-                    super::copies::sync_root_invisible(&self.db, tx, post.pid, value).await?;
-                }
+                let nested = if column == "invisible" && !post.first && post.root_pid.is_none() {
+                    super::copies::sync_root_invisible(&self.db, tx, post.pid, value).await?
+                } else {
+                    0
+                };
                 // Member counts look only at the post itself: it counts only when neither hidden nor withdrawn.
                 let (invisible, deleted_at) = if column == "invisible" {
                     (value, post.deleted_at)
@@ -956,7 +960,7 @@ impl ContentEditor {
                     )
                     .await?;
                 }
-                self.recount(tx, post.tid).await?;
+                super::reply_visibility_changed(&self.db, tx, live_before, nested).await?;
                 if post.first
                     && matches!(
                         request.action,
@@ -1521,11 +1525,6 @@ impl ContentEditor {
             }
         }
         Ok(false)
-    }
-
-    async fn recount(&self, tx: &mut Tx<'_>, tid: i64) -> Result<()> {
-        super::refresh_effective_replies(&self.db, tx, tid).await?;
-        Ok(())
     }
 }
 /// Which moderation-identity actions each role may take (docs/roles.md, "Staff roles"): trainee

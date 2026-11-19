@@ -1456,7 +1456,7 @@ pub async fn layered_forum_statistics(
 }
 
 /// Community statistics by scope: process cache → Redis (when enabled) → computed, segmented like the site-wide
-/// statistics; when `fids` is empty this is just [`layered_statistics`].
+/// statistics and refreshed ahead like them; when `fids` is empty this is just [`layered_statistics`].
 pub async fn layered_statistics_in(
     db: &Database,
     global: &crate::cache::GlobalCache,
@@ -1468,24 +1468,28 @@ pub async fn layered_statistics_in(
         return layered_statistics(db, global, cache, now, offset_minutes).await;
     }
     let segment = statistics_segment(cache.lifetimes(), now, offset_minutes);
+    let (db, cache, scope) = (db.clone(), cache.clone(), fids.to_vec());
     global
-        .scoped_statistics(fids, segment, || async {
+        .statistics(fids, segment, move || async move {
             let key = crate::cache::CacheKey::new(
                 &crate::cache::registry::SCOPED_STATISTICS,
                 0,
-                &(segment, fids),
+                &(segment, &scope),
             )?;
             cache
                 .get_or_fill_json(&key, || async {
-                    statistics_in(db, u64::try_from(now)?, offset_minutes, fids).await
+                    statistics_in(&db, u64::try_from(now)?, offset_minutes, &scope).await
                 })
                 .await
         })
         .await
 }
 
-/// Site-wide statistics: process cache → Redis (when enabled) → computed. Segmented like
-/// [`cached_statistics`].
+/// Site-wide statistics: process cache → Redis (when enabled) → computed. Segmented like [`cached_statistics`], and
+/// refreshed ahead: once the process has figures, a new segment returns them while a background task reads the new
+/// ones, so requests do not wait for the aggregates (docs/settings-and-caching.md, "The process cache"). The web
+/// process's "site statistics" task calls this every half minute, so the site-wide figures are read before a request
+/// asks for them.
 pub async fn layered_statistics(
     db: &Database,
     global: &crate::cache::GlobalCache,
@@ -1493,10 +1497,12 @@ pub async fn layered_statistics(
     now: i64,
     offset_minutes: i64,
 ) -> Result<Statistics> {
+    let (db, cache) = (db.clone(), cache.clone());
     global
         .statistics(
+            &[],
             statistics_segment(cache.lifetimes(), now, offset_minutes),
-            || cached_statistics(db, cache, now, offset_minutes),
+            move || async move { cached_statistics(&db, &cache, now, offset_minutes).await },
         )
         .await
 }
@@ -1966,13 +1972,7 @@ pub async fn member_content_for_viewer(
             blocked_fids
         )
     );
-    let count_sql = format!("SELECT COUNT(*) {MEMBER_CONTENT_JOINS} WHERE {filter}");
-    let total = usize::try_from(
-        crate::db::query_scalar::<i64>(&count_sql)
-            .bind(uid)
-            .fetch_one(db.executor())
-            .await?,
-    )?;
+    let total = capped_member_count(db, &filter, uid, page_size).await?;
     member_content_page_for_viewer(
         db,
         uid,
@@ -1986,9 +1986,38 @@ pub async fn member_content_for_viewer(
     .await
 }
 
+/// A member's posts under `filter` (whose last parameter is the member's uid), counted up to [`MAX_LIST_PAGES`]
+/// pages: like search, `SELECT COUNT(*) FROM (SELECT 1 … LIMIT ?)` reads at most the cap, however many posts the
+/// member has.
+async fn capped_member_count(
+    db: &Database,
+    filter: &str,
+    uid: i64,
+    page_size: usize,
+) -> Result<usize> {
+    let cap = MAX_LIST_PAGES
+        .checked_mul(page_size)
+        .context("page limit out of range")?;
+    let sql = format!(
+        "SELECT COUNT(*) FROM (SELECT 1 {MEMBER_CONTENT_JOINS} WHERE {filter} LIMIT ?) capped"
+    );
+    let total = crate::db::query_scalar::<i64>(&sql)
+        .bind(uid)
+        .bind(i64::try_from(cap)?)
+        .fetch_one(db.executor())
+        .await?;
+    Ok(usize::try_from(total.max(0))?.min(cap))
+}
+
+/// The last page a member list can have: [`MAX_LIST_PAGES`] at most, as for thread lists (docs/queries.md, "Page
+/// totals and the page cap"), so the `OFFSET` of a deep page stays bounded.
+pub fn member_list_pages(total: usize, page_size: usize) -> usize {
+    total.div_ceil(page_size.max(1)).clamp(1, MAX_LIST_PAGES)
+}
+
 /// Fetch only this page when the total is already known (the profile page's total comes from
 /// [`member_stats_for_viewer`] and is not counted again). `total` must be the total for the same visitor and the
-/// same set of blocked forums.
+/// same set of blocked forums; pages past [`member_list_pages`] read nothing.
 #[allow(clippy::too_many_arguments)]
 pub async fn member_content_page_for_viewer(
     db: &Database,
@@ -2016,7 +2045,7 @@ pub async fn member_content_page_for_viewer(
             blocked_fids
         )
     );
-    if page > total.div_ceil(page_size).max(1) {
+    if page > member_list_pages(total, page_size) {
         return Ok(MemberContentPage {
             posts: Vec::new(),
             total,
@@ -2158,7 +2187,8 @@ pub struct OwnContentPage {
     pub total: usize,
 }
 
-/// The member's own thread or reply list.
+/// The member's own thread or reply list. Its total is counted up to [`MAX_LIST_PAGES`] pages
+/// ([`capped_member_count`]), so it reads at most that many of the member's posts.
 ///
 /// It differs from the public set only in visibility: moderation hides and author withdrawals must stay visible
 /// to the member; only permanently erased content no longer appears. The status is judged in code from the
@@ -2181,15 +2211,8 @@ pub async fn own_content(
         MemberContentKind::Posts => 0,
     };
     let filter = format!("p.erased_at = 0 AND p.authorid = ? AND p.first = {first}");
-    let total = usize::try_from(
-        crate::db::query_scalar::<i64>(&format!(
-            "SELECT COUNT(*) {MEMBER_CONTENT_JOINS} WHERE {filter}"
-        ))
-        .bind(uid)
-        .fetch_one(db.executor())
-        .await?,
-    )?;
-    if page > total.div_ceil(page_size).max(1) {
+    let total = capped_member_count(db, &filter, uid, page_size).await?;
+    if page > member_list_pages(total, page_size) {
         return Ok(OwnContentPage {
             rows: Vec::new(),
             total,
@@ -2809,38 +2832,154 @@ pub async fn cached_replies(
     refresh_post_times(&mut thread.posts)
 }
 
-/// Refreshes the live content copies during moderation or fixture initialization; reading and pagination never
-/// call this statistic. The placeholder replies/root_replies/sub_replies_count do not take part in this update.
-pub(crate) async fn refresh_effective_replies(
+/// What counts as a live reply for `valid_replies` and the last reply: not the first post, not hidden by moderation,
+/// not withdrawn, and its parent floor not hidden. The parent floor's hidden state is read from the `root_invisible`
+/// copy rather than by joining the parent: every caller changes `invisible` only through paths that rewrite the copy
+/// first (`copies::sync_root_invisible`), and the content consistency check compares the two.
+const LIVE_REPLY: &str = "p.first=0 AND p.invisible=0 AND p.deleted_at=0 AND p.root_invisible=0";
+
+/// Recounts a thread's live replies and finds its last one from scratch, for fixture imports and tests that wrote
+/// posts with raw SQL. Moderation and erasure change one post at a time and use [`reply_visibility_changed`], which
+/// does not count the thread. The placeholder replies/root_replies/sub_replies_count do not take part in this update.
+pub(crate) async fn recount_effective_replies(
     db: &Database,
     tx: &mut Tx<'_>,
     tid: i64,
 ) -> Result<()> {
-    // The parent floor's hidden state is read from the `root_invisible` copy rather than by joining the parent: every
-    // caller changes `invisible` only through paths that rewrite the copy first (`copies::sync_root_invisible`), and
-    // the content consistency check compares the two.
-    let valid = "p.tid=? AND p.first=0 AND p.invisible=0 AND p.deleted_at=0 AND p.root_invisible=0";
     let count: i64 = crate::db::query_scalar(&format!(
-        "SELECT COUNT(*) FROM gonof_forum_post p WHERE {valid}"
+        "SELECT COUNT(*) FROM gonof_forum_post p WHERE p.tid=? AND {LIVE_REPLY}"
     ))
     .bind(tid)
     .fetch_one(db.observe(&mut **tx))
     .await?;
-    // The excerpt takes the full text and cuts it to 255 characters in code: a single row,
-    // the same statement on both backends.
-    // FORCE INDEX (PRIMARY) keeps MySQL on this thread's rows: left alone, it walks the site-wide
-    // `gonof_post_dateline` index backwards for the ORDER BY … LIMIT 1 and, for an old thread, reads every newer post
-    // on the site first, inside this write transaction.
+    let last = last_live_reply(db, tx, tid).await?;
+    write_reply_copies(db, tx, tid, ("valid_replies=?", count), Some(last)).await
+}
+
+/// A post as the live-reply copies see it, read by primary key inside the caller's transaction (which holds the
+/// thread row lock) before and after a change of its own `invisible` or `deleted_at`.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ReplyState {
+    pid: i64,
+    tid: i64,
+    position: i64,
+    /// A live reply ([`LIVE_REPLY`]); never for a first post.
+    live: bool,
+}
+
+impl ReplyState {
+    pub(crate) async fn read(db: &Database, tx: &mut Tx<'_>, pid: i64) -> Result<Self> {
+        let row = crate::db::query(
+            "SELECT pid,tid,first,position,invisible,deleted_at,root_invisible FROM gonof_forum_post WHERE pid=?",
+        )
+        .bind(pid)
+        .fetch_one(db.observe(&mut **tx))
+        .await?;
+        let zero = |column: &str| -> Result<bool> { Ok(row.try_get::<i64, _>(column)? == 0) };
+        Ok(Self {
+            pid: row.try_get("pid")?,
+            tid: row.try_get("tid")?,
+            position: row.try_get("position")?,
+            live: zero("first")?
+                && zero("invisible")?
+                && zero("deleted_at")?
+                && zero("root_invisible")?,
+        })
+    }
+}
+
+/// Moves a thread's live-reply copies after one post changed (docs/queries.md, "Copy columns"): `before` was read
+/// before the change, and `nested` is how many nested replies under it became live (positive) or stopped being live
+/// (negative) because its hiding was copied to them (the affected-row count of [`copies::sync_root_invisible`]).
+/// `valid_replies` moves by that difference, without counting the thread. The last reply is looked for again only
+/// when the change can have moved it: a reply that stopped being live was the last one (or the last one is under the
+/// post whose nested replies were hidden), or a reply after the last one became live. That search reads the thread's
+/// floors backwards from the end on the primary key and stops at the first live one. The thread's `cache_revision`
+/// always moves, as for any change of a floor.
+pub(crate) async fn reply_visibility_changed(
+    db: &Database,
+    tx: &mut Tx<'_>,
+    before: ReplyState,
+    nested: i64,
+) -> Result<()> {
+    let after = ReplyState::read(db, tx, before.pid).await?;
+    let own = i64::from(after.live) - i64::from(before.live);
+    let tid = before.tid;
+    let last_pid: Option<i64> =
+        crate::db::query_scalar("SELECT last_reply_pid FROM gonof_forum_thread WHERE tid=?")
+            .bind(tid)
+            .fetch_one(db.observe(&mut **tx))
+            .await?;
+    let last = match last_pid {
+        Some(pid) => crate::db::query("SELECT position,root_pid FROM gonof_forum_post WHERE pid=?")
+            .bind(pid)
+            .fetch_optional(db.observe(&mut **tx))
+            .await?
+            .map(|row| -> Result<(i64, i64, Option<i64>)> {
+                Ok((pid, row.try_get("position")?, row.try_get("root_pid")?))
+            })
+            .transpose()?,
+        None => None,
+    };
+    let lost = own < 0 || nested < 0;
+    let gained = own > 0 || nested > 0;
+    let mut refind = lost
+        && last.is_some_and(|(pid, _, root)| {
+            pid == before.pid || (nested < 0 && root == Some(before.pid))
+        });
+    if gained && !refind {
+        refind = match last {
+            None => true,
+            Some((_, position, _)) => {
+                (own > 0 && after.position > position)
+                    || (nested > 0
+                        && crate::db::query_scalar::<i64>(&format!(
+                            "SELECT p.position FROM gonof_forum_post p WHERE p.root_pid=? AND p.position>? AND {LIVE_REPLY} LIMIT 1"
+                        ))
+                        .bind(before.pid)
+                        .bind(position)
+                        .fetch_optional(db.observe(&mut **tx))
+                        .await?
+                        .is_some())
+            }
+        };
+    }
+    let found = if refind {
+        Some(last_live_reply(db, tx, tid).await?)
+    } else {
+        None
+    };
+    write_reply_copies(
+        db,
+        tx,
+        tid,
+        ("valid_replies=valid_replies+?", own + nested),
+        found,
+    )
+    .await
+}
+
+/// A thread's last live reply as its copy columns hold it: `(pid, dateline, author, uid, summary)`, all empty when
+/// there is none.
+type LastReply = (Option<i64>, i64, String, Option<i64>, String);
+
+/// "Last" is by floor number: the primary key `(tid, position)` is read backwards from the end and the search stops at
+/// the first live floor, so it reads only the dead floors after it. FORCE INDEX (PRIMARY) keeps MySQL on this
+/// thread's rows: left alone, it can walk the site-wide `gonof_post_dateline` index instead, inside this write
+/// transaction.
+async fn last_live_reply(db: &Database, tx: &mut Tx<'_>, tid: i64) -> Result<LastReply> {
+    // The excerpt takes the full text and cuts it to 255 characters in code: a single row, the same statement on
+    // both backends.
     let last = crate::db::query(&format!(
         "SELECT p.pid,p.dateline,p.authorid,m.username AS author,m.account_state AS author_state,p.message AS summary
          FROM gonof_forum_post p FORCE INDEX (PRIMARY)
          LEFT JOIN gonof_common_member m ON m.uid=p.authorid
-         WHERE {valid} ORDER BY p.dateline DESC,p.position DESC LIMIT 1"
+         WHERE p.tid=? AND {LIVE_REPLY} ORDER BY p.position DESC LIMIT 1"
     ))
-        .bind(tid)
-        .fetch_optional(db.observe(&mut **tx))
-        .await?;
-    let (pid, date, author, uid, summary) = match last {
+    .bind(tid)
+    .fetch_optional(db.observe(&mut **tx))
+    .await?;
+    Ok(match last {
         Some(row) => {
             let state = row.try_get::<Option<String>, _>("author_state")?;
             (
@@ -2855,10 +2994,33 @@ pub(crate) async fn refresh_effective_replies(
             )
         }
         None => (None, 0, String::new(), None, String::new()),
-    };
-    // A structural change: the caller increments the site-wide version at the end of the transaction
-    // (`copies::bump_site`).
-    crate::db::query("UPDATE gonof_forum_thread SET valid_replies=?,last_reply_pid=?,last_reply_author=?,last_reply_uid=?,last_reply_summary=?,lastpost=GREATEST(dateline,?),cache_revision=cache_revision+1 WHERE tid=?")
-        .bind(count).bind(pid).bind(author).bind(uid).bind(summary).bind(date).bind(tid).execute(db.observe(&mut **tx)).await?;
+    })
+}
+
+/// Writes the live-reply count (`count` is the `SET` clause and its value: an absolute count or a delta) and, when
+/// found again, the last reply, raising `cache_revision`. A structural change: the caller increments the site-wide
+/// version at the end of the transaction (`copies::bump_site`).
+async fn write_reply_copies(
+    db: &Database,
+    tx: &mut Tx<'_>,
+    tid: i64,
+    (count_sql, count): (&str, i64),
+    last: Option<LastReply>,
+) -> Result<()> {
+    match last {
+        Some((pid, date, author, uid, summary)) => {
+            crate::db::query(&format!("UPDATE gonof_forum_thread SET {count_sql},last_reply_pid=?,last_reply_author=?,last_reply_uid=?,last_reply_summary=?,lastpost=GREATEST(dateline,?),cache_revision=cache_revision+1 WHERE tid=?"))
+                .bind(count).bind(pid).bind(author).bind(uid).bind(summary).bind(date).bind(tid).execute(db.observe(&mut **tx)).await?;
+        }
+        None => {
+            crate::db::query(&format!(
+                "UPDATE gonof_forum_thread SET {count_sql},cache_revision=cache_revision+1 WHERE tid=?"
+            ))
+            .bind(count)
+            .bind(tid)
+            .execute(db.observe(&mut **tx))
+            .await?;
+        }
+    }
     Ok(())
 }

@@ -687,15 +687,15 @@ pub async fn refresh_listing(db: &Database) -> Result<()> {
 }
 
 /// After a test writes a thread's replies with raw SQL, recomputes its live reply count and last-reply copies
-/// (`last_reply_pid`, `last_reply_author`, `last_reply_uid`, `last_reply_summary`, `lastpost`) the way moderation
-/// does (`content::refresh_effective_replies`), and bumps the site-wide version.
+/// (`last_reply_pid`, `last_reply_author`, `last_reply_uid`, `last_reply_summary`, `lastpost`) from scratch
+/// (`content::recount_effective_replies`), and bumps the site-wide version.
 pub async fn refresh_replies(db: &Database, tid: i64) -> Result<()> {
     let mut tx = db.begin_content_write().await?;
     crate::db::query("SELECT tid FROM gonof_forum_thread WHERE tid=? FOR UPDATE")
         .bind(tid)
         .fetch_one(db.observe(&mut *tx))
         .await?;
-    crate::content::refresh_effective_replies(db, &mut tx, tid).await?;
+    crate::content::recount_effective_replies(db, &mut tx, tid).await?;
     crate::content::copies::bump_site(db, &mut tx).await?;
     tx.commit().await?;
     Ok(())

@@ -137,7 +137,7 @@ SELECT 'top-level replies whose nested reply count disagrees with the nested rep
  WHERE p.root_pid IS NULL
    AND p.sub_replies_count <> (SELECT COUNT(*) FROM gonof_forum_post c WHERE c.root_pid = p.pid)
 UNION ALL
--- Same definition as content::refresh_effective_replies: not the first post, not hidden, not withdrawn, and the
+-- Same definition as content::LIVE_REPLY: not the first post, not hidden, not withdrawn, and the
 -- top-level reply it belongs to is not hidden.
 SELECT 'threads whose visible reply count disagrees with the visible replies', COUNT(*)
   FROM gonof_forum_thread t

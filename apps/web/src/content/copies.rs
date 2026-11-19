@@ -537,19 +537,35 @@ pub async fn sync_first_hidden(db: &Database, tx: &mut Tx<'_>, tid: i64) -> Resu
 
 /// The moderation hidden state of a main floor changed: the `root_invisible` of its nested replies follows, so
 /// deciding whether a nested reply is visible does not look up the parent floor.
-/// The caller has already locked the main floor.
+/// The caller has already locked the main floor. Returns how many nested replies became live replies (positive) or
+/// stopped being live (negative), for `content::reply_visibility_changed`: those neither hidden nor withdrawn
+/// themselves, rewritten by a statement of their own whose affected rows are that number. Only rows whose copy
+/// really changes match (`root_invisible<>?`), since the MySQL connection reports matched rather than changed rows.
 pub async fn sync_root_invisible(
     db: &Database,
     tx: &mut Tx<'_>,
     root_pid: i64,
     invisible: i64,
-) -> Result<()> {
-    db::query("UPDATE gonof_forum_post SET root_invisible=? WHERE root_pid=?")
-        .bind(invisible)
-        .bind(root_pid)
-        .execute(db.observe(&mut **tx))
-        .await?;
-    Ok(())
+) -> Result<i64> {
+    let flipped = db::query(
+        "UPDATE gonof_forum_post SET root_invisible=? WHERE root_pid=? AND root_invisible<>? AND invisible=0 AND deleted_at=0",
+    )
+    .bind(invisible)
+    .bind(root_pid)
+    .bind(invisible)
+    .execute(db.observe(&mut **tx))
+    .await?
+    .rows_affected();
+    db::query(
+        "UPDATE gonof_forum_post SET root_invisible=? WHERE root_pid=? AND root_invisible<>?",
+    )
+    .bind(invisible)
+    .bind(root_pid)
+    .bind(invisible)
+    .execute(db.observe(&mut **tx))
+    .await?;
+    let flipped = i64::try_from(flipped)?;
+    Ok(if invisible == 0 { flipped } else { -flipped })
 }
 
 /// First look up the keys to change and then update by key (not a multi-table UPDATE, which SQLite writes

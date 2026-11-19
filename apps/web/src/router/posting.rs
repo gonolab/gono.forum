@@ -1315,7 +1315,8 @@ async fn member_space(state: &AppState, path: &str) -> Response {
             }
         }
     };
-    let page_count = total.div_ceil(20).max(1);
+    // At most 1,000 pages, as for every list: the page reads its rows with `OFFSET`, which the cap bounds.
+    let page_count = content::member_list_pages(total, 20);
     if route.page > page_count {
         return error_page(
             state,

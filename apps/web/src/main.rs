@@ -37,6 +37,9 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
 /// Wake-up interval of the rank task: equal to the lower bound of `settings.ranks.refresh_seconds`; the actual
 /// refresh interval is computed from the setting each round.
 const RANKS_TICK: Duration = Duration::from_secs(10);
+/// Site statistics are read ahead of requests; a round only asks for the current segment (at least 30 seconds long),
+/// so a new segment is read within this long of starting.
+const STATISTICS_TICK: Duration = Duration::from_secs(30);
 
 /// Background tasks read site settings from the in-process global cache shared with the router; a missing row or
 /// bad value is reported as usual (this round fails, the next round retries).
@@ -449,6 +452,41 @@ async fn main() -> Result<()> {
                     gono_forum_web::ranks::refresh(&db, now, refresh / 2)
                         .await
                         .map(drop)
+                }
+            }
+        },
+    );
+
+    // Site statistics (docs/settings-and-caching.md, "The process cache"): the first round reads them at start, and
+    // later rounds start the background read of a new segment, so pages show figures without running the aggregates.
+    // Domain scopes are read the same way once a page of that domain asks for them.
+    spawn_worker(
+        &mut workers,
+        &shutdown,
+        cache.clone(),
+        "site statistics",
+        STATISTICS_TICK,
+        {
+            let db = db.clone();
+            let global = global.clone();
+            let redis = cache.clone();
+            move || {
+                let db = db.clone();
+                let global = global.clone();
+                let redis = redis.clone();
+                async move {
+                    let settings = settings(&global, &db).await?;
+                    let timed =
+                        redis.timed(gono_forum_web::cache::Lifetimes::from_settings(&settings));
+                    gono_forum_web::content::layered_statistics(
+                        &db,
+                        &global,
+                        &timed,
+                        identity::now(),
+                        settings.time.offset_minutes,
+                    )
+                    .await
+                    .map(drop)
                 }
             }
         },

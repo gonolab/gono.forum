@@ -827,7 +827,7 @@ async fn own_content(
     if let Some(error) = fill_shell(&state, &mut p).await {
         return error;
     }
-    let last = result.total.div_ceil(PAGE_SIZE).max(1);
+    let last = crate::content::member_list_pages(result.total, PAGE_SIZE);
     render(&ContentTemplate {
         p,
         frame: frame(page_id),

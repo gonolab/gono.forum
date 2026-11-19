@@ -68,12 +68,45 @@ use crate::{
     runtime::{Document, NavigationItem, SiteSettings},
 };
 
-/// Community statistics by scope: the key is the forum IDs in the scope, the value is `(bucket, statistics)`.
-type ScopedStatistics = std::collections::BTreeMap<Vec<i64>, ((i64, i64), Statistics)>;
+/// Site and scoped community statistics: one slot per scope, the forum IDs in it (empty for the whole site).
+type StatisticsSlots = std::collections::BTreeMap<Vec<i64>, Arc<StatisticsSlot>>;
 
 /// Maximum number of slots kept for scoped community statistics (one per scope; the domain table has at most 50 rows,
 /// with one copy each for the anonymous and member views).
 const SCOPED_STATISTICS: usize = 128;
+
+/// The statistics of one scope, refreshed ahead ([`GlobalCache::statistics`]).
+#[derive(Default)]
+struct StatisticsSlot {
+    state: Mutex<StatisticsState>,
+    /// Coalesces the first load of a scope: one request reads it, the others wait for its result.
+    fill: tokio::sync::Mutex<()>,
+}
+
+#[derive(Default)]
+struct StatisticsState {
+    /// The last figures read, with the segment `(bucket, start of the week)` they were read for.
+    value: Option<((i64, i64), Statistics)>,
+    /// A background task is reading a newer segment.
+    refreshing: bool,
+}
+
+impl StatisticsSlot {
+    fn lock(&self) -> std::sync::MutexGuard<'_, StatisticsState> {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+/// Held by a background refresh: when it ends, however it ends, the next new segment may start another.
+struct Refreshing(Arc<StatisticsSlot>);
+
+impl Drop for Refreshing {
+    fn drop(&mut self) {
+        self.0.lock().refreshing = false;
+    }
+}
 
 /// Suffix of the invalidation channel name: the full channel is `{redis.namespace}:global-cache`.
 pub const CHANNEL: &str = "global-cache";
@@ -421,12 +454,10 @@ struct Inner {
     /// The instance directory is read at start and again after the skins block is cleared (import, delete,
     /// "Rescan", a broadcast of any of them), not on every reload of the block.
     rescan: AtomicBool,
-    /// Site statistics: the bucket is `(statistics_bucket, start of the week in the site time zone)`.
-    statistics: Slot<((i64, i64), Statistics)>,
-    /// Scoped community statistics (multi-domain sites): the key is the forum
-    /// IDs in the scope and the value records the bucket; only the current bucket is kept, and when the slot count
-    /// exceeds [`SCOPED_STATISTICS`] the whole map is cleared and rebuilt.
-    scoped_statistics: Mutex<ScopedStatistics>,
+    /// Site statistics (the empty scope) and scoped community statistics (multi-domain sites, keyed by the forum IDs
+    /// in the scope), each with the segment `(statistics_bucket, start of the week in the site time zone)` it was read
+    /// for; when the scoped slots exceed [`SCOPED_STATISTICS`] they are all dropped and rebuilt.
+    statistics: Mutex<StatisticsSlots>,
     /// Newest member for anonymous visitors: the current MySQL content version, the statistics bucket and the member
     /// count.
     recent_members: Slot<((i64, i64, i64), Vec<RecentMember>)>,
@@ -527,8 +558,7 @@ impl Inner {
         self.domains.clear();
         self.rescan.store(true, Ordering::Relaxed);
         self.skins.clear();
-        self.statistics.clear();
-        self.scoped_statistics
+        self.statistics
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clear();
@@ -601,8 +631,7 @@ impl GlobalCache {
                 skins: Slot::new(),
                 skin_scan: Mutex::new(None),
                 rescan: AtomicBool::new(true),
-                statistics: Slot::new(),
-                scoped_statistics: Mutex::new(std::collections::BTreeMap::new()),
+                statistics: Mutex::new(std::collections::BTreeMap::new()),
                 recent_members: Slot::new(),
                 forum_statistics: Slot::new(),
                 last_ttl: AtomicU64::new(u64::MAX),
@@ -1110,74 +1139,99 @@ impl GlobalCache {
             .await
     }
 
-    /// Scoped community statistics: cached in process by `(scope, bucket)`; a miss goes to `fill` (Redis layer and
-    /// database). Loads are not coalesced: there are very few scopes, and an occasional simultaneous recompute is
-    /// acceptable.
-    pub async fn scoped_statistics<F, Fut>(
-        &self,
-        scope: &[i64],
-        segment: (i64, i64),
-        fill: F,
-    ) -> anyhow::Result<Statistics>
-    where
-        F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = anyhow::Result<Statistics>>,
-    {
-        let bypass = self.statistics_bypass();
-        let lock = || {
-            self.inner
-                .scoped_statistics
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-        };
-        if !bypass
-            && let Some((stored, value)) = lock().get(scope)
-            && *stored == segment
-        {
-            record("scoped-statistics", trace::BlockOutcome::Hit, None);
-            return Ok(value.clone());
-        }
-        let value = fill().await?;
-        if !bypass {
-            let mut map = lock();
-            if map.len() >= SCOPED_STATISTICS && !map.contains_key(scope) {
-                map.clear();
-            }
-            map.insert(scope.to_vec(), (segment, value.clone()));
-        }
-        record(
-            "scoped-statistics",
-            if bypass {
-                trace::BlockOutcome::Uncached
-            } else {
-                trace::BlockOutcome::Filled
-            },
-            None,
-        );
-        Ok(value)
-    }
-
     /// Statistics slots are not bound by `settings.cache.ttl_seconds` and change by bucket; they are bypassed only when
     /// the TTL is set to 0 (SQL profiling).
     pub(crate) fn statistics_bypass(&self) -> bool {
         self.inner.last_ttl.load(Ordering::Relaxed) == 0
     }
 
-    /// The three site statistics numbers: cached in process by `(bucket, start of the week in the site time zone)`; a
-    /// miss goes to `fill` (Redis layer and database).
+    /// Site statistics (`scope` empty) or a domain scope's, refreshed ahead (docs/settings-and-caching.md, "The process
+    /// cache"): the figures of the current `segment` are a hit; figures of an older segment are returned at once while
+    /// one background task per scope reads the current one through `fill` (Redis layer and database), so no request
+    /// waits for the aggregates once a scope has figures; a scope with none yet is read by one request while the
+    /// others wait for its result. A failed refresh is logged and tried again by the next request.
     pub async fn statistics<F, Fut>(
         &self,
+        scope: &[i64],
         segment: (i64, i64),
         fill: F,
     ) -> anyhow::Result<Statistics>
     where
-        F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = anyhow::Result<Statistics>>,
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = anyhow::Result<Statistics>> + Send + 'static,
     {
-        self.inner
-            .statistics
-            .segment("statistics", self.statistics_bypass(), segment, fill)
-            .await
+        let name = if scope.is_empty() {
+            "statistics"
+        } else {
+            "scoped-statistics"
+        };
+        if self.statistics_bypass() {
+            let value = fill().await?;
+            record(name, trace::BlockOutcome::Uncached, None);
+            return Ok(value);
+        }
+        let slot = {
+            let mut slots = self
+                .inner
+                .statistics
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            match slots.get(scope) {
+                Some(slot) => slot.clone(),
+                None => {
+                    if !scope.is_empty()
+                        && slots.keys().filter(|key| !key.is_empty()).count() >= SCOPED_STATISTICS
+                    {
+                        slots.retain(|key, _| key.is_empty());
+                    }
+                    let slot = Arc::new(StatisticsSlot::default());
+                    slots.insert(scope.to_vec(), slot.clone());
+                    slot
+                }
+            }
+        };
+        let stale = {
+            let mut state = slot.lock();
+            match &state.value {
+                Some((stored, value)) if *stored == segment => {
+                    record(name, trace::BlockOutcome::Hit, None);
+                    return Ok(value.clone());
+                }
+                Some((_, value)) => {
+                    let value = value.clone();
+                    let start = !state.refreshing;
+                    state.refreshing = true;
+                    Some((value, start))
+                }
+                None => None,
+            }
+        };
+        if let Some((value, start)) = stale {
+            if start {
+                let refreshing = Refreshing(slot.clone());
+                tokio::spawn(async move {
+                    match fill().await {
+                        Ok(value) => refreshing.0.lock().value = Some((segment, value)),
+                        Err(error) => {
+                            tracing::warn!(error = %format!("{error:#}"), "statistics refresh failed; the previous figures stay")
+                        }
+                    }
+                    drop(refreshing);
+                });
+            }
+            // Nothing was read for this request: the figures of the previous segment, as for a hit.
+            record(name, trace::BlockOutcome::Hit, None);
+            return Ok(value);
+        }
+        let _turn = slot.fill.lock().await;
+        if let Some((_, value)) = &slot.lock().value {
+            record(name, trace::BlockOutcome::Hit, None);
+            return Ok(value.clone());
+        }
+        let value = fill().await?;
+        slot.lock().value = Some((segment, value.clone()));
+        record(name, trace::BlockOutcome::Filled, None);
+        Ok(value)
     }
 
     /// Newest member for anonymous visitors, bucketed like the site statistics; for signed-in members

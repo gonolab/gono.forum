@@ -966,7 +966,8 @@ async fn hot_data_source_copies_serve_the_whole_segment() {
 
 /// This week's contributors count from Monday 00:00 in the site time zone, also when one statistics segment straddles
 /// it: on a UTC+8 site with day-long segments, the minute after local Monday midnight is in the same UTC day as the
-/// minute before it, yet it must not keep last week's figure (process copy and Redis copy alike).
+/// minute before it, yet it must not keep last week's figure. The Redis copy is new at once; the process copy is read
+/// ahead, so the first request of the week may still get last week's figure while the new one is read.
 #[tokio::test]
 async fn weekly_contributors_start_again_at_local_monday_midnight() {
     let services = TestFixture::migrated().await.unwrap();
@@ -1014,15 +1015,130 @@ async fn weekly_contributors_start_again_at_local_monday_midnight() {
     );
     let cache = services.cache.timed(day);
     for (at, expected) in expected {
-        let process =
-            gono_forum_web::content::layered_statistics(db, &services.global, &cache, at, OFFSET)
-                .await
-                .unwrap();
-        assert_eq!(process.contributors, expected, "process copy at {at}");
         let redis = gono_forum_web::content::cached_statistics(db, &cache, at, OFFSET)
             .await
             .unwrap();
         assert_eq!(redis.contributors, expected, "Redis copy at {at}");
+        let mut seen = Vec::new();
+        for _ in 0..50 {
+            let process = gono_forum_web::content::layered_statistics(
+                db,
+                &services.global,
+                &cache,
+                at,
+                OFFSET,
+            )
+            .await
+            .unwrap();
+            seen.push(process.contributors);
+            if process.contributors == expected {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert_eq!(
+            seen.last(),
+            Some(&expected),
+            "process copy at {at}: {seen:?}"
+        );
     }
+    services.cleanup().await.unwrap();
+}
+
+/// Site statistics are read ahead (docs/settings-and-caching.md, "The process cache"): once the process has figures,
+/// the first request of a new segment gets them without running the aggregates, and a background task reads the new
+/// segment, whose figures the following requests get.
+#[tokio::test]
+async fn a_new_statistics_segment_is_read_in_the_background() {
+    let services = TestFixture::migrated().await.unwrap();
+    let db = &services.db;
+    gono_forum_web::content::seed_fixture(db).await.unwrap();
+    let cache = services.cache.timed(LIFETIMES);
+    let offset = gono_forum_web::test_support::SEEDED_OFFSET_MINUTES;
+    let start = gono_forum_web::identity::now() / 30 * 30;
+    let read = |at: i64| {
+        let cache = cache.clone();
+        let global = services.global.clone();
+        async move {
+            let counts = Arc::new(gono_forum_web::metrics::RequestMetrics::new());
+            let statistics = gono_forum_web::metrics::scope(
+                counts.clone(),
+                gono_forum_web::content::layered_statistics(db, &global, &cache, at, offset),
+            )
+            .await
+            .unwrap();
+            (statistics.total, counts.sql())
+        }
+    };
+    let (before, cold) = read(start).await;
+    assert!(cold > 0, "the first figures are read by the request");
+    // One listed public thread fewer, from the next segment on.
+    let tid: i64 = gono_forum_web::db::query_scalar(
+        "SELECT MAX(tid) FROM gonof_forum_thread WHERE deleted_at=0 AND visibility='public' AND displayorder>=0",
+    )
+    .fetch_one(db.executor())
+    .await
+    .unwrap();
+    gono_forum_web::db::query("UPDATE gonof_forum_thread SET deleted_at=? WHERE tid=?")
+        .bind(start)
+        .bind(tid)
+        .execute(db.executor())
+        .await
+        .unwrap();
+    let fresh = gono_forum_web::content::statistics_at(db, (start + 30) as u64, offset)
+        .await
+        .unwrap()
+        .total;
+    assert_eq!(fresh + 1, before, "the change shows in a recount");
+    let (stale, statements) = read(start + 30).await;
+    assert_eq!(
+        (stale, statements),
+        (before, 0),
+        "the new segment's first request gets the previous figures and reads nothing"
+    );
+    let mut seen = Vec::new();
+    for _ in 0..50 {
+        let (total, _) = read(start + 31).await;
+        seen.push(total);
+        if total == fresh {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert_eq!(seen.last(), Some(&fresh), "{seen:?}");
+    assert_eq!(read(start + 32).await, (fresh, 0), "then a hit");
+    services.cleanup().await.unwrap();
+}
+
+/// A domain scope's first figures are read once however many requests ask at the same time: the others wait for the
+/// result instead of running the aggregates too.
+#[tokio::test]
+async fn concurrent_first_loads_of_a_scope_are_coalesced() {
+    let services = TestFixture::new().await.unwrap();
+    let fills = Arc::new(AtomicUsize::new(0));
+    let mut tasks = Vec::new();
+    for _ in 0..8 {
+        let global = services.global.clone();
+        let fills = fills.clone();
+        tasks.push(tokio::spawn(async move {
+            global
+                .statistics(&[7, 9], (1, 2), move || async move {
+                    fills.fetch_add(1, Ordering::SeqCst);
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    Ok(gono_forum_web::content::Statistics {
+                        total: 3,
+                        replies: 4,
+                        contributors: 5,
+                    })
+                })
+                .await
+                .unwrap()
+                .total
+        }));
+    }
+    for task in tasks {
+        assert_eq!(task.await.unwrap(), 3);
+    }
+    assert_eq!(fills.load(Ordering::SeqCst), 1);
     services.cleanup().await.unwrap();
 }

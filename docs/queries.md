@@ -134,6 +134,11 @@ ORDER BY t.displayorder DESC, t.lastpost DESC, t.tid DESC LIMIT ? OFFSET ?
 a page past the last one returns no rows and the handler answers 404. Paging uses `OFFSET`, whose depth the cap
 bounds.
 
+A member's lists follow the same cap (`content::member_list_pages`). The personal space's threads and replies take
+their total from `gonof_common_member_count` and show it as it is, but stop at page 1,000 (later pages are 404); the
+member's own lists (`/my/threads`, `/my/posts`) count with the capped `SELECT COUNT(*) FROM (SELECT 1 … LIMIT ?)`,
+so their total reads at most 1,000 pages of the member's posts and shows at most that many.
+
 ## Sidebars, the pinned block and feeds
 
 The asides of the home and board pages show hot and latest threads as `threads` blocks of their layout ([data.md](data.md);
@@ -157,7 +162,10 @@ The asides of the home and board pages show hot and latest threads as `threads` 
   between is in one of them, and the merge keeps a thread once. Withdrawn threads are left out; personal feeds add
   the owner's blocks, excluded forums and, when chosen, members-only threads.
 - **Statistics** (`content::statistics_in`, `content::forum_statistics_at`) are aggregate counts over public content,
-  cached by time period, not count-table reads; their thread counts leave out withdrawn threads.
+  cached by time period, not count-table reads; their thread counts leave out withdrawn threads. The site and scoped
+  statistics, which count every public post, are read ahead by a background task when their segment changes, so no
+  request waits for them ([settings-and-caching.md](settings-and-caching.md), "The process cache"); board
+  statistics are still read by the first request of their segment.
 
 ## Data sources
 
@@ -280,11 +288,21 @@ lifetimes, clearing and broadcasting.
 | Column | Holds | Written by |
 | --- | --- | --- |
 | `gonof_forum_thread.author` | the author's username; for a deleted account a fixed marker (`copies::DELETED_AUTHOR`, translated when shown by `copies::shown_name`) | the INSERT (`copies::ThreadCopies`); `copies::member_changed` on renames and account deletion |
-| `last_reply_pid`, `last_reply_author`, `last_reply_summary`, `lastpost`, `valid_replies` | the latest visible reply | the reply statement in `content/writes.rs`; `content::refresh_effective_replies` after moderation; `copies::member_changed` for the name |
-| `last_reply_uid` | the uid of the latest visible reply's author; `NULL` without a reply, for a reply without an author and once that account is deleted (indexed, foreign key to the member) | the same statements as `last_reply_author`, in the same `UPDATE`: the reply statement, `content::refresh_effective_replies`, and `copies::member_changed`, which finds a member's threads by `WHERE last_reply_uid = ?` on its index and writes `NULL` on account deletion; migration 0004 filled it from `last_reply_pid` |
+| `last_reply_pid`, `last_reply_author`, `last_reply_summary`, `lastpost`, `valid_replies` | the latest visible reply and the number of visible replies | the reply statement in `content/writes.rs`; `content::reply_visibility_changed` after moderation and erasure; `copies::member_changed` for the name |
+| `last_reply_uid` | the uid of the latest visible reply's author; `NULL` without a reply, for a reply without an author and once that account is deleted (indexed, foreign key to the member) | the same statements as `last_reply_author`, in the same `UPDATE`: the reply statement, `content::reply_visibility_changed`, and `copies::member_changed`, which finds a member's threads by `WHERE last_reply_uid = ?` on its index and writes `NULL` on account deletion; migration 0004 filled it from `last_reply_pid` |
 | `family_fid` | the parent forum's id, or the forum's own id for a top-level forum | the INSERT (`copies::ForumCopies`); `copies::move_thread`, in the statement that changes `fid`; `copies::resync_forum` when a forum gets another parent (`copies::forum_saved`) |
 | `displayorder` (negative values) | first post hidden, or a reserved state | `copies::sync_first_hidden` |
 | `gonof_forum_post.root_invisible` | the parent reply's `invisible` on nested replies; 0 on top-level replies and first posts | `copies::sync_root_invisible` when a top-level reply is hidden or unhidden |
+
+Moderation and erasure change one post at a time, and its thread's visible-reply copies move with it instead of being
+counted again (`content::reply_visibility_changed`, under the thread row lock): `valid_replies` moves by whether the
+post itself became visible or not, plus the nested replies a top-level reply's hiding reached, which
+`copies::sync_root_invisible` takes from the affected rows of a rewrite limited to the nested replies that are neither
+hidden nor withdrawn themselves. The last reply is looked for again only when the change can have moved it: the
+reply that stopped being visible was the last one (or the last one is a nested reply under the hidden floor), or a
+reply after the last one became visible. That search reads the thread's floors backwards on the primary key `(tid,
+position)` and stops at the first visible one, so "last" is by floor number. Fixture imports and tests that wrote
+posts with raw SQL recount a thread from scratch (`content::recount_effective_replies`).
 
 `replies`, `root_replies` and `maxposition` on the thread and `sub_replies_count` on the parent reply are incremented
 by the reply statements. `copies::update_keys` is the pattern for rewriting many rows: read the keys inside the

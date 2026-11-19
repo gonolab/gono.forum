@@ -225,7 +225,16 @@ Statistics live here too but are not cleared by writes. Site statistics, scoped 
 128 slots), the newest members for anonymous visitors and board statistics are keyed by a time segment of their
 configured length, plus the start of this week in the site time zone (site and scoped statistics, so this week's
 contributors start again at local Monday 00:00 however long the segment), the site day and time zone offset (board
-statistics) and the content revision (newest members). A new segment recomputes; a process miss reads Redis when it is on, and only then computes.
+statistics) and the content revision (newest members). A new segment recomputes; a process miss reads Redis when it is
+on, and only then computes.
+
+Site and scoped statistics are read ahead of requests, because their aggregates grow with the public posts (a few
+seconds at a million posts). Once a scope has figures, a request in a new segment gets the previous figures at once
+while one background task per scope reads the new ones; only a scope with no figures yet is read by a request, one
+per process, with the others waiting for its result. The web process's "site statistics" task asks for the site-wide
+figures every 30 seconds, so they are read at start and at each new segment before a page needs them; a domain's
+figures are first read when one of its pages asks. The figures can therefore be one segment old, and at the start of a
+week or after a time zone change they show the previous week's contributors until the new ones are read.
 
 Loading follows the same rules for every block: one request per process loads it while the others wait for the
 result; the generation number is compared before storing, so a block cleared during the load does not get a stale
