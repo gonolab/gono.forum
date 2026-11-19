@@ -2,7 +2,8 @@
 //! are plain text.
 //!
 //! The conversation list and unread counts query only the state table, with no `OR` and no sorting: who the other
-//! side is and the latest activity time are each stored as a display copy on the state row.
+//! side is and the latest activity time are each stored as a display copy on the state row. Conversations active in
+//! the same second are ordered in code by their latest message ([`inbox`]).
 use crate::db::Tx;
 use anyhow::Result;
 
@@ -92,15 +93,14 @@ pub async fn inbox(
     if page > (total as usize).div_ceil(page_size).max(1) {
         return Err(ContentWriteError::NotFound);
     }
-    let rows = crate::db::query(
-        "SELECT s.thread_id,s.counterpart_uid,s.unread,s.last_dateline,
-                other.username AS counterpart,other.account_state AS counterpart_state,
-                last.body AS preview
-         FROM gonof_home_message_member s
-         JOIN gonof_common_member other ON other.uid=s.counterpart_uid
-         JOIN gonof_home_message_thread t ON t.id=s.thread_id
-         LEFT JOIN gonof_home_message last ON last.id=t.last_message_id
-         WHERE s.uid=? ORDER BY s.last_dateline DESC,s.thread_id DESC LIMIT ? OFFSET ?",
+    // The page in the order of the inbox index (uid,last_dateline,thread_id): the latest activity first. The time
+    // has one-second precision, so conversations active in the same second are put in the order of their latest
+    // message (the conversation's last_message_id, which is not on the state row) instead of by conversation id. The
+    // page is read by the index, then the conversations of its first and last second are read in full, ordered in
+    // code, and the page is taken from them at its place: only the page and its ties are read, never the whole list.
+    let window = crate::db::query(
+        "SELECT thread_id,last_dateline FROM gonof_home_message_member
+         WHERE uid=? ORDER BY last_dateline DESC,thread_id DESC LIMIT ? OFFSET ?",
     )
     .bind(uid)
     .bind(page_size as i64)
@@ -108,31 +108,66 @@ pub async fn inbox(
     .fetch_all(db.executor())
     .await
     .map_err(|e| ContentWriteError::Internal(e.into()))?;
-    let list = rows
+    let (Some(first), Some(last)) = (window.first(), window.last()) else {
+        return Ok((Vec::new(), total));
+    };
+    let column = |row: &DbRow, name: &str| -> Result<i64, ContentWriteError> {
+        row.try_get(name)
+            .map_err(|e| ContentWriteError::Internal(e.into()))
+    };
+    let (newest, first_thread) = (column(first, "last_dateline")?, column(first, "thread_id")?);
+    let oldest = column(last, "last_dateline")?;
+    let rows = crate::db::query(
+        "SELECT s.thread_id,s.counterpart_uid,s.unread,s.last_dateline,t.last_message_id,
+                other.username AS counterpart,other.account_state AS counterpart_state,
+                last.body AS preview
+         FROM gonof_home_message_member s
+         JOIN gonof_common_member other ON other.uid=s.counterpart_uid
+         JOIN gonof_home_message_thread t ON t.id=s.thread_id
+         LEFT JOIN gonof_home_message last ON last.id=t.last_message_id
+         WHERE s.uid=? AND s.last_dateline>=? AND s.last_dateline<=?",
+    )
+    .bind(uid)
+    .bind(oldest)
+    .bind(newest)
+    .fetch_all(db.executor())
+    .await
+    .map_err(|e| ContentWriteError::Internal(e.into()))?;
+    let mut list = rows
         .into_iter()
         .map(|row| {
-            Ok(Conversation {
-                thread_id: row
-                    .try_get("thread_id")
-                    .map_err(|e| ContentWriteError::Internal(e.into()))?,
-                counterpart_uid: row
-                    .try_get("counterpart_uid")
-                    .map_err(|e| ContentWriteError::Internal(e.into()))?,
-                counterpart: text(&row, "counterpart")?,
-                counterpart_state: text(&row, "counterpart_state")?,
-                preview: row
-                    .try_get::<Option<String>, _>("preview")
-                    .map_err(|e| ContentWriteError::Internal(e.into()))?
-                    .unwrap_or_default(),
-                unread: row
-                    .try_get("unread")
-                    .map_err(|e| ContentWriteError::Internal(e.into()))?,
-                last_dateline: row
-                    .try_get("last_dateline")
-                    .map_err(|e| ContentWriteError::Internal(e.into()))?,
-            })
+            Ok((
+                column(&row, "last_message_id")?,
+                Conversation {
+                    thread_id: column(&row, "thread_id")?,
+                    counterpart_uid: column(&row, "counterpart_uid")?,
+                    counterpart: text(&row, "counterpart")?,
+                    counterpart_state: text(&row, "counterpart_state")?,
+                    preview: row
+                        .try_get::<Option<String>, _>("preview")
+                        .map_err(|e| ContentWriteError::Internal(e.into()))?
+                        .unwrap_or_default(),
+                    unread: column(&row, "unread")?,
+                    last_dateline: column(&row, "last_dateline")?,
+                },
+            ))
         })
         .collect::<Result<Vec<_>, ContentWriteError>>()?;
+    // In index order the page starts after the conversations of its first second with a larger id; in the order
+    // shown, those of that second still come first, so the page starts that many places into the ordered list.
+    let before = list
+        .iter()
+        .filter(|(_, c)| c.last_dateline == newest && c.thread_id > first_thread)
+        .count();
+    list.sort_by(|(a_last, a), (b_last, b)| {
+        (b.last_dateline, b_last, b.thread_id).cmp(&(a.last_dateline, a_last, a.thread_id))
+    });
+    let list = list
+        .into_iter()
+        .skip(before)
+        .take(window.len())
+        .map(|(_, conversation)| conversation)
+        .collect();
     Ok((list, total))
 }
 
@@ -153,29 +188,36 @@ pub async fn counterpart(
     .ok_or(ContentWriteError::NotFound)
 }
 
-/// Fetch one page of messages; the caller decides whether to use the pool or a connection in a transaction, and the
-/// page number must already be bounds-checked.
-async fn page_messages<'c, E>(
-    executor: E,
-    thread_id: i64,
+/// One page of the messages up to `up_to` (the snapshot of the conversation's last message). `total` is the number of
+/// those messages and the page number must already be bounds-checked. A page nearer the end is read backwards from
+/// `up_to`, so the latest page, the one a conversation opens on, skips no rows.
+async fn page_messages(
+    db: &Database,
+    (thread_id, up_to): (i64, i64),
     uid: i64,
-    page: usize,
-    page_size: usize,
-) -> Result<Vec<Message>, ContentWriteError>
-where
-    E: crate::db::Executor<'c>,
-{
-    let rows = crate::db::query(
+    (page, page_size): (usize, usize),
+    total: usize,
+) -> Result<Vec<Message>, ContentWriteError> {
+    let offset = (page - 1) * page_size;
+    let on_page = total.saturating_sub(offset).min(page_size);
+    let after = total.saturating_sub(offset + on_page);
+    let backwards = after < offset;
+    let rows = crate::db::query(if backwards {
         "SELECT id,sender_uid,body,dateline FROM gonof_home_message
-         WHERE thread_id=? ORDER BY id ASC LIMIT ? OFFSET ?",
-    )
+         WHERE thread_id=? AND id<=? ORDER BY id DESC LIMIT ? OFFSET ?"
+    } else {
+        "SELECT id,sender_uid,body,dateline FROM gonof_home_message
+         WHERE thread_id=? AND id<=? ORDER BY id ASC LIMIT ? OFFSET ?"
+    })
     .bind(thread_id)
-    .bind(page_size as i64)
-    .bind(((page - 1) * page_size) as i64)
-    .fetch_all(executor)
+    .bind(up_to)
+    .bind(if backwards { on_page } else { page_size } as i64)
+    .bind(if backwards { after } else { offset } as i64)
+    .fetch_all(db.executor())
     .await
     .map_err(|e| ContentWriteError::Internal(e.into()))?;
-    rows.into_iter()
+    let mut messages = rows
+        .into_iter()
         .map(|row| {
             let sender: i64 = row
                 .try_get("sender_uid")
@@ -191,23 +233,39 @@ where
                     .map_err(|e| ContentWriteError::Internal(e.into()))?,
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>, ContentWriteError>>()?;
+    if backwards {
+        messages.reverse();
+    }
+    Ok(messages)
 }
 
-async fn message_total<'c, E>(executor: E, thread_id: i64) -> Result<i64, ContentWriteError>
-where
-    E: crate::db::Executor<'c>,
-{
-    crate::db::query_scalar::<i64>("SELECT COUNT(*) FROM gonof_home_message WHERE thread_id=?")
-        .bind(thread_id)
-        .fetch_one(executor)
-        .await
-        .map_err(|e| ContentWriteError::Internal(e.into()))
+/// The number of messages of the conversation up to `up_to`, through the `(thread_id,id)` index.
+async fn message_total(
+    db: &Database,
+    thread_id: i64,
+    up_to: i64,
+) -> Result<i64, ContentWriteError> {
+    crate::db::query_scalar::<i64>(
+        "SELECT COUNT(*) FROM gonof_home_message WHERE thread_id=? AND id<=?",
+    )
+    .bind(thread_id)
+    .bind(up_to)
+    .fetch_one(db.executor())
+    .await
+    .map_err(|e| ContentWriteError::Internal(e.into()))
 }
 
 /// Open a conversation: without a page number it starts at the latest page, still in ascending time order within
 /// the page. Reads the messages and resets the member's unread to zero. Conversations not the member's own are
 /// always treated as nonexistent.
+///
+/// What is shown is a snapshot: the conversation's last message id at the moment the read position was settled.
+/// When there is something to mark read, a short write transaction takes the conversation lock (the one the send path
+/// takes), reads the last message id and advances the read position to it; when the position has already caught
+/// up, the id read with the state row is the snapshot and nothing is written. The messages are counted and read
+/// after that, without holding any lock, and only up to the snapshot: a message whose send commits meanwhile is not
+/// shown, and since its send raised unread again it stays unread instead of being shown as read.
 pub async fn conversation(
     db: &Database,
     uid: i64,
@@ -243,69 +301,70 @@ pub async fn conversation(
     let last_read_id: i64 = state
         .try_get("last_read_id")
         .map_err(|e| ContentWriteError::Internal(e.into()))?;
-    let snapshot_last_id: i64 = state
+    let observed_last_id: i64 = state
         .try_get("last_message_id")
         .map_err(|e| ContentWriteError::Internal(e.into()))?;
     let counterpart = text(&state, "counterpart")?;
     let counterpart_state = text(&state, "counterpart_state")?;
-    // With a page number, check the bounds with an unlocked count first: out-of-range requests need not pay for a
-    // write transaction and the conversation lock. Messages only grow, so this count can only underestimate the
-    // pages, and a page number that passes here is still in range under the lock.
-    let snapshot_total = message_total(db.executor(), thread_id).await?;
-    if page.is_some_and(|page| page > (snapshot_total as usize).div_ceil(page_size).max(1)) {
-        return Err(ContentWriteError::NotFound);
+    let pages = |total: i64| (total as usize).div_ceil(page_size).max(1);
+    // With a page number, check the bounds first: out-of-range requests need not pay for a write transaction and the
+    // conversation lock. Messages only grow, so this count can only underestimate the pages, and a page number that
+    // passes here is still in range for the snapshot below.
+    let mut counted = None;
+    if let Some(page) = page {
+        let total = message_total(db, thread_id, observed_last_id).await?;
+        if page > pages(total) {
+            return Err(ContentWriteError::NotFound);
+        }
+        counted = Some(total);
     }
-    // When the read position has already caught up with the conversation's latest message there is nothing to write,
-    // so the whole read takes the unlocked read-only path. Messages arriving after this only leave unread behind and
-    // are not swallowed by this open.
-    if unread == 0 && last_read_id >= snapshot_last_id {
-        let page = page.unwrap_or((snapshot_total as usize).div_ceil(page_size).max(1));
-        let messages = page_messages(db.executor(), thread_id, uid, page, page_size).await?;
-        return Ok(Thread {
-            thread_id,
-            counterpart_uid,
-            counterpart,
-            counterpart_state,
-            messages,
-            total: snapshot_total,
-            page,
-        });
-    }
-    // The read position needs to advance: use the same conversation lock as the send path; the read snapshot and
-    // clearing unread must happen in one transaction. Otherwise new messages arriving after the read would also be
-    // swallowed by the following unread=0.
-    let mut tx = db
-        .begin_write()
-        .await
-        .map_err(ContentWriteError::Internal)?;
-    let last_message_id: i64 = crate::db::query_scalar(
-        "SELECT last_message_id FROM gonof_home_message_thread WHERE id=? FOR UPDATE",
-    )
-    .bind(thread_id)
-    .fetch_one(db.observe(&mut *tx))
-    .await
-    .map_err(|e| ContentWriteError::Internal(e.into()))?;
-    let total = message_total(db.observe(&mut *tx), thread_id).await?;
-    let page = page.unwrap_or((total as usize).div_ceil(page_size).max(1));
-    let messages = page_messages(db.observe(&mut *tx), thread_id, uid, page, page_size).await?;
-    // Opening marks the current conversation as read, advancing the position to the latest message of this snapshot
-    // regardless of the page viewed. Messages arriving after the conversation lock is released raise the unread count
-    // again in their send transaction.
-    if last_message_id > 0 {
-        crate::db::query(
-            "UPDATE gonof_home_message_member SET unread=0,last_read_id=GREATEST(last_read_id,?)
-             WHERE thread_id=? AND uid=?",
+    let snapshot_last_id = if unread == 0 && last_read_id >= observed_last_id {
+        observed_last_id
+    } else {
+        // The read snapshot and clearing unread happen under the conversation lock, so a message arriving after the
+        // snapshot is not swallowed by unread=0: its send waits for the lock and raises unread again.
+        let mut tx = db
+            .begin_write()
+            .await
+            .map_err(ContentWriteError::Internal)?;
+        let last_message_id: i64 = crate::db::query_scalar(
+            "SELECT last_message_id FROM gonof_home_message_thread WHERE id=? FOR UPDATE",
         )
-        .bind(last_message_id)
         .bind(thread_id)
-        .bind(uid)
-        .execute(db.observe(&mut *tx))
+        .fetch_one(db.observe(&mut *tx))
         .await
         .map_err(|e| ContentWriteError::Internal(e.into()))?;
-    }
-    tx.commit()
-        .await
-        .map_err(|e| ContentWriteError::Internal(e.into()))?;
+        // Opening marks the conversation read up to this snapshot regardless of the page viewed.
+        if last_message_id > 0 {
+            crate::db::query(
+                "UPDATE gonof_home_message_member SET unread=0,last_read_id=GREATEST(last_read_id,?)
+                 WHERE thread_id=? AND uid=?",
+            )
+            .bind(last_message_id)
+            .bind(thread_id)
+            .bind(uid)
+            .execute(db.observe(&mut *tx))
+            .await
+            .map_err(|e| ContentWriteError::Internal(e.into()))?;
+        }
+        tx.commit()
+            .await
+            .map_err(|e| ContentWriteError::Internal(e.into()))?;
+        last_message_id
+    };
+    let total = match counted {
+        Some(total) if snapshot_last_id == observed_last_id => total,
+        _ => message_total(db, thread_id, snapshot_last_id).await?,
+    };
+    let page = page.unwrap_or_else(|| pages(total));
+    let messages = page_messages(
+        db,
+        (thread_id, snapshot_last_id),
+        uid,
+        (page, page_size),
+        total as usize,
+    )
+    .await?;
     Ok(Thread {
         thread_id,
         counterpart_uid,

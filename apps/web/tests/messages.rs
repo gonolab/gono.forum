@@ -599,3 +599,168 @@ async fn persistent_lock_conflicts_retry_then_report_a_conflict() {
     assert_eq!(inserts, 3, "the whole send is tried 3 times");
     fixture.cleanup().await.unwrap();
 }
+
+fn actor(uid: i64) -> gono_forum_web::identity::Actor {
+    gono_forum_web::identity::Actor {
+        uid,
+        credentials_version: 1,
+        api_key: None,
+    }
+}
+
+// What an open shows stops at the conversation's last message as read with the read position: a message committed
+// after that is not shown on the read-only path either, so a message on the page is never left unread.
+#[tokio::test]
+async fn an_open_shows_no_message_newer_than_its_read_position() {
+    let fixture = TestFixture::migrated().await.unwrap();
+    let db = &fixture.db;
+    members(db).await;
+    verified_emails(db).await;
+    let thread =
+        gono_forum_web::messages::send(db, actor(9201), 9202, "Existing message", &"a".repeat(64))
+            .await
+            .unwrap();
+    gono_forum_web::messages::conversation(db, 9202, thread, None, 20)
+        .await
+        .unwrap();
+    // A send between the open's state read and its page read: its message row is there, while the conversation's
+    // last message and the recipient's unread are what the open read (the send's own updates are left out here, to
+    // hold that moment).
+    db::query("INSERT INTO gonof_home_message(thread_id,sender_uid,body,dateline,event_key) VALUES(?,9201,'Committed after the state read',?,'late-message')")
+        .bind(thread)
+        .bind(gono_forum_web::identity::now())
+        .execute(db.executor())
+        .await
+        .unwrap();
+    for page in [None, Some(1)] {
+        let view = gono_forum_web::messages::conversation(db, 9202, thread, page, 20)
+            .await
+            .unwrap();
+        assert_eq!(
+            view.messages
+                .iter()
+                .map(|message| message.body.as_str())
+                .collect::<Vec<_>>(),
+            ["Existing message"],
+            "page {page:?}"
+        );
+        assert_eq!(view.total, 1);
+    }
+    fixture.cleanup().await.unwrap();
+}
+
+// Clearing unread holds the conversation lock only to read the last message id and advance the read position: the
+// messages are counted and read after the commit.
+#[tokio::test]
+async fn clearing_unread_counts_and_reads_after_the_lock() {
+    use gono_forum_web::debug::trace::{self, RequestProfile};
+
+    let fixture = TestFixture::migrated().await.unwrap();
+    let db = &fixture.db;
+    members(db).await;
+    verified_emails(db).await;
+    let mut thread = 0;
+    for n in 0..25 {
+        thread = gono_forum_web::messages::send(
+            db,
+            actor(9201),
+            9202,
+            &format!("Message {n}"),
+            &format!("{n:064x}"),
+        )
+        .await
+        .unwrap();
+    }
+    let profile = Arc::new(RequestProfile::new());
+    let view = trace::scope(
+        profile.clone(),
+        gono_forum_web::messages::conversation(db, 9202, thread, None, 20),
+    )
+    .await
+    .unwrap();
+    assert_eq!((view.page, view.total, view.messages.len()), (2, 25, 5));
+    assert_eq!(view.messages[0].body, "Message 20");
+    assert_eq!(view.messages[4].body, "Message 24");
+    assert_eq!(
+        gono_forum_web::messages::unread_conversations(db, 9202)
+            .await
+            .unwrap(),
+        0
+    );
+    let sql = profile
+        .snapshot()
+        .into_iter()
+        .map(|record| record.sql)
+        .collect::<Vec<_>>();
+    let position = |what: &str, test: &dyn Fn(&str) -> bool| {
+        sql.iter()
+            .position(|sql| test(sql))
+            .unwrap_or_else(|| panic!("no {what}: {sql:?}"))
+    };
+    let clear = position("unread reset", &|sql| {
+        sql.contains("UPDATE gonof_home_message_member")
+    });
+    let count = position("message count", &|sql| {
+        sql.contains("COUNT(*) FROM gonof_home_message WHERE")
+    });
+    let page = position("page read", &|sql| {
+        sql.contains("SELECT id,sender_uid,body,dateline FROM gonof_home_message")
+    });
+    assert!(
+        clear < count && clear < page,
+        "the count and the page are read inside the locking transaction: {sql:?}"
+    );
+    fixture.cleanup().await.unwrap();
+}
+
+// Conversations active in the same second are listed by their latest message, also across page boundaries.
+#[tokio::test]
+async fn conversations_of_the_same_second_follow_their_latest_message() {
+    let fixture = TestFixture::migrated().await.unwrap();
+    let db = &fixture.db;
+    members(db).await;
+    ok(
+        db,
+        "INSERT INTO gonof_common_member(uid,username,regdate) VALUES(9204,'message-9204',1)",
+    )
+    .await;
+    verified_emails(db).await;
+    let send = |from: i64, n: u8| async move {
+        let key = char::from(b'a' + n).to_string().repeat(64);
+        gono_forum_web::messages::send(db, actor(from), 9204, "In the same second", &key).await
+    };
+    // Conversation ids in creation order; the first one gets the latest message.
+    let first = send(9201, 0).await.unwrap();
+    let second = send(9202, 1).await.unwrap();
+    let third = send(9203, 2).await.unwrap();
+    assert_eq!(send(9201, 3).await.unwrap(), first);
+    ok(
+        db,
+        "UPDATE gonof_home_message_member SET last_dateline=1000000 WHERE uid=9204",
+    )
+    .await;
+    let order = |page: usize, size: usize| async move {
+        gono_forum_web::messages::inbox(db, 9204, page, size)
+            .await
+            .unwrap()
+            .0
+            .into_iter()
+            .map(|conversation| conversation.thread_id)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(order(1, 20).await, [first, third, second]);
+    assert_eq!(order(1, 2).await, [first, third]);
+    assert_eq!(order(2, 2).await, [second]);
+    for (page, expected) in [(1, first), (2, third), (3, second)] {
+        assert_eq!(order(page, 1).await, [expected], "page {page} of one");
+    }
+    // A newer second still comes first, whatever the message ids.
+    ok(
+        db,
+        &format!("UPDATE gonof_home_message_member SET last_dateline=1000001 WHERE uid=9204 AND thread_id={second}"),
+    )
+    .await;
+    assert_eq!(order(1, 20).await, [second, first, third]);
+    assert_eq!(order(2, 2).await, [third]);
+    fixture.cleanup().await.unwrap();
+}
