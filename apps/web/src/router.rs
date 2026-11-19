@@ -3279,9 +3279,25 @@ async fn rendered_content(
     state: &AppState,
     thread: &Thread,
 ) -> anyhow::Result<(String, std::collections::BTreeMap<u64, String>)> {
-    if state.viewer.session.is_some() || !state.cache.enabled() {
-        return render_thread_bodies(state, thread).await;
-    }
+    let bodies = if state.viewer.session.is_some() || !state.cache.enabled() {
+        render_thread_bodies(state, thread).await?
+    } else {
+        cached_thread_bodies(state, thread).await?
+    };
+    fill_thread_cards(state, bodies).await
+}
+
+/// The opening post and the replies of a thread page in floor order, rendered, with their card candidates still to
+/// fill.
+type ThreadBodies = (
+    crate::markdown::Rendered,
+    Vec<(u64, crate::markdown::Rendered)>,
+);
+
+/// [`render_thread_bodies`] for anonymous visitors through the render cache. It keeps the card candidates, not the
+/// cards: a card shows the linked thread's reply count, title and excerpt, which change without touching this thread,
+/// so [`fill_thread_cards`] reads them for each request.
+async fn cached_thread_bodies(state: &AppState, thread: &Thread) -> anyhow::Result<ThreadBodies> {
     let site_url = state.site_url();
     let variants: Vec<_> = thread
         .posts
@@ -3291,10 +3307,10 @@ async fn rendered_content(
     let key = crate::cache::CacheKey::new(
         &crate::cache::registry::RENDERED_BODIES,
         content::cache_revision(&state.db).await?,
-        // The value is the HTML rendered by markdown.rs. When the rendered output changes (tags, attributes, class
-        // names), bump the tag version in the registry (`registry::RENDERED_BODIES`, where each version's changes
-        // are recorded); otherwise old HTML stays until the TTL after a deploy, and during rolling releases old and
-        // new processes overwrite each other.
+        // The value is the HTML rendered by markdown.rs, with its card candidates. When the rendered output changes
+        // (tags, attributes, class names), bump the tag version in the registry (`registry::RENDERED_BODIES`, where
+        // each version's changes are recorded); otherwise old HTML stays until the TTL after a deploy, and during
+        // rolling releases old and new processes overwrite each other.
         &(
             &*crate::site::prefix(),
             site_url,
@@ -3311,10 +3327,7 @@ async fn rendered_content(
         .await
 }
 
-async fn render_thread_bodies(
-    state: &AppState,
-    thread: &Thread,
-) -> anyhow::Result<(String, std::collections::BTreeMap<u64, String>)> {
+async fn render_thread_bodies(state: &AppState, thread: &Thread) -> anyhow::Result<ThreadBodies> {
     let site_url = state.site_url();
     let opening = thread.body.join("\n\n");
     let mut sources = vec![opening.as_str()];
@@ -3332,7 +3345,7 @@ async fn render_thread_bodies(
     } else {
         crate::markdown::render_page(&opening, &names, Some(thread.first_pid), site_url)
     };
-    let posts: Vec<(u64, crate::markdown::Rendered)> = thread
+    let posts = thread
         .posts
         .iter()
         .map(|p| {
@@ -3350,9 +3363,16 @@ async fn render_thread_bodies(
             )
         })
         .collect();
-    // The card candidates of the whole page are deduplicated in floor order, at most 20 threads, fetched in one
-    // query under the reader's permissions; no query when there are no candidates. The result for the anonymous
-    // view is cached together with the render cache.
+    Ok((opening, posts))
+}
+
+/// Fills the card candidates of a thread page with the cards this reader can see. The candidates of the whole page
+/// are deduplicated in floor order, at most 20 threads, fetched in one query under the reader's permissions; no query
+/// when there are no candidates. Anonymous views run it on every request too, after the render cache.
+async fn fill_thread_cards(
+    state: &AppState,
+    (opening, posts): ThreadBodies,
+) -> anyhow::Result<(String, std::collections::BTreeMap<u64, String>)> {
     let tids = content::cards::page_tids(
         std::iter::once(&opening)
             .chain(posts.iter().map(|(_, rendered)| rendered))

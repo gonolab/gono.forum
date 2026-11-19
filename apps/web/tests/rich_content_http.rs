@@ -612,3 +612,68 @@ async fn topic_cards_follow_reader_visibility_and_cost_one_bounded_query() {
     }
     f.services.cleanup().await.unwrap();
 }
+
+/// The anonymous render cache keeps where the cards go, not the cards: a reply to the linked thread shows in the
+/// card's reply count on the next anonymous view, as it does for members, and every anonymous view reads the cards
+/// with one query.
+#[tokio::test]
+async fn anonymous_cards_show_the_linked_threads_current_reply_count() {
+    let f = Fixture::new().await;
+    let target = f
+        .publish(
+            TARGET,
+            f.fid,
+            "CARDCOUNTED",
+            "Body",
+            ThreadVisibility::Public,
+        )
+        .await;
+    let source = f
+        .publish(
+            AUTHOR,
+            f.fid,
+            "CARDCOUNTING",
+            &format!("[Link](/thread-{target})"),
+            ThreadVisibility::Public,
+        )
+        .await;
+    let path = format!("/thread-{source}");
+    let meta = |body: &str| {
+        body.split_once("class=\"topic-embed__meta\">")
+            .and_then(|(_, rest)| rest.split_once("</p>"))
+            .map(|(meta, _)| meta.to_owned())
+            .unwrap_or_default()
+    };
+    let card_queries = |profile: &RequestProfile| {
+        profile
+            .snapshot()
+            .into_iter()
+            .filter(|r| {
+                r.source == QuerySource::Application && r.sql.contains("firstpost.erased_at=0")
+            })
+            .count()
+    };
+    for _ in 0..2 {
+        let anonymous = f.get(&path, None).await.body;
+        assert!(meta(&anonymous).contains("0 replies"), "{anonymous}");
+    }
+    f.reply(AUTHOR, target, "A reply to the linked thread")
+        .await;
+    let member = f.get(&path, Some(READER)).await.body;
+    assert!(meta(&member).contains("1 reply"), "{member}");
+    let profile = Arc::new(RequestProfile::new());
+    let anonymous = f.send(f.request(&path, None), Some(profile.clone())).await;
+    assert_eq!(anonymous.status, StatusCode::OK);
+    assert!(
+        meta(&anonymous.body).contains("1 reply"),
+        "{}",
+        anonymous.body
+    );
+    assert_eq!(card_queries(&profile), 1);
+    assert!(
+        !anonymous.body.contains("title=\"gonof-"),
+        "{}",
+        anonymous.body
+    );
+    f.services.cleanup().await.unwrap();
+}

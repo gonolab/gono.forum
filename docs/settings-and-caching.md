@@ -285,7 +285,7 @@ callers read the database.
 | `forum-pins` | anonymous pin block on a board's first page | list version | list |
 | `feed-items` | feed entries, by scope, boards and language | list version | list |
 | `floors` | anonymous reply pages | content revision and thread revision | page |
-| `rendered-bodies` | rendered post HTML for anonymous visitors | content revision and post versions | page |
+| `rendered-bodies` | rendered post HTML for anonymous visitors, with the places of its thread cards (the cards are read for each request) | content revision and post versions | page |
 | `member-frame` | a member's own board filters and reading choices | deleted on write | member |
 | `data-threads` | anonymous thread lists of the data sources ([data.md](data.md)) | list version (and a list-lifetime segment for hot threads) | list |
 | `data-members` | the member lists of the data sources (`members.rank`, `members.honors`, `members.verified`), one copy per visitor class without anyone's blocks | list-lifetime segment | list |

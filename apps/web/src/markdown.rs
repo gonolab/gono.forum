@@ -471,15 +471,16 @@ enum Mode<'a> {
 }
 
 /// Rendering result and card candidates. `html` is sanitized; before [`fill_cards`], card candidates are paragraphs
-/// carrying a random marker.
-#[derive(Debug, Default)]
+/// carrying a random marker. The anonymous render cache stores it as it is, so the cards are filled for each request
+/// and show the linked threads as they are now.
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Rendered {
     pub html: String,
     pub cards: Vec<CardSlot>,
 }
 
 /// One in-site thread card candidate: the marked paragraph in the body and the thread it points to.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CardSlot {
     marker: String,
     pub tid: i64,
@@ -565,8 +566,10 @@ fn start_seconds(value: &str) -> Option<u32> {
     (number.is_empty() && total > 0 && total < 360_000).then_some(total)
 }
 
-/// The thread id an in-site thread link points to (`/thread-N`, `/thread-N-page`, or the same path starting with this
-/// site's URL; the query string and fragment do not matter).
+/// The thread id an in-site link to a whole thread points to: `/thread-N`, or the same path starting with this site's
+/// URL. A link with a page number (`/thread-N-2`), a query string (`?view=flat`, `?sub_root=…`) or an anchor
+/// (`#floor-52`) points into the thread, and a card, which links to the thread's first page, would lose that; it gets
+/// `None` and stays the link it was written as.
 pub fn thread_link(value: &str, site_url: &str) -> Option<i64> {
     // Root-relative forms first strip this request's path prefix: both `/bbs/thread-5` and `/thread-5` are recognised.
     let unprefixed = crate::site::unprefixed(value);
@@ -577,25 +580,24 @@ pub fn thread_link(value: &str, site_url: &str) -> Option<i64> {
         unprefixed.as_ref()
     } else {
         // Besides this site's URL, when multi-domain sites are on, all enabled registered domains and the forum URL
-        // also count as in-site.
+        // also count as in-site. The longest address that matches decides: with a root site and a site under
+        // `/community` on the same host, `…/community/thread-22` is the latter's thread, not the root site's path
+        // `/community/thread-22`.
         let siblings = crate::site::sibling_urls();
-        std::iter::once(site_url)
+        let mut sites: Vec<&str> = std::iter::once(site_url)
             .chain(siblings.iter().map(String::as_str))
             .map(|site| site.trim_end_matches('/'))
             .filter(|site| !site.is_empty())
-            .find_map(|site| {
-                value
-                    .strip_prefix(site)
-                    .filter(|rest| rest.starts_with('/'))
-            })?
+            .collect();
+        sites.sort_by_key(|site| std::cmp::Reverse(site.len()));
+        sites.into_iter().find_map(|site| {
+            value
+                .strip_prefix(site)
+                .filter(|rest| rest.starts_with('/'))
+        })?
     };
-    let path = path.split(['?', '#']).next()?;
-    let rest = path.strip_prefix("/thread-")?;
-    let (id, page) = rest
-        .split_once('-')
-        .map_or((rest, None), |(id, page)| (id, Some(page)));
-    let digits = |v: &str| !v.is_empty() && v.len() <= 18 && v.bytes().all(|b| b.is_ascii_digit());
-    if !digits(id) || page.is_some_and(|page| !digits(page) || page.starts_with('0')) {
+    let id = path.strip_prefix("/thread-")?;
+    if id.is_empty() || id.len() > 18 || !id.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
     id.parse::<i64>().ok().filter(|id| *id > 0)
@@ -1414,7 +1416,7 @@ mod tests {
     #[test]
     fn standalone_site_thread_links_become_card_slots() {
         let rendered = page(
-            "[look at this](/thread-5)\n\nhttps://forum.example/thread-6-2?view=flat#floor-3\n\n<https://forum.example/thread-7>\n\nIn a sentence [a link](/thread-8)\n\n> [in a quote](/thread-9)\n\n[bad](/thread-0)\n\n[bad](/thread-5x)\n\n[bad](//evil.example/thread-5)\n\n[bad](https://evil.example/thread-5)\n\n[bad](https://forum.example.evil/thread-5)\n\n[page number](/thread-5-01)",
+            "[look at this](/thread-5)\n\nhttps://forum.example/thread-6\n\n<https://forum.example/thread-7>\n\nIn a sentence [a link](/thread-8)\n\n> [in a quote](/thread-9)\n\n[bad](/thread-0)\n\n[bad](/thread-5x)\n\n[bad](//evil.example/thread-5)\n\n[bad](https://evil.example/thread-5)\n\n[bad](https://forum.example.evil/thread-5)\n\n[page number](/thread-5-01)",
         );
         assert_eq!(
             rendered
@@ -1423,6 +1425,12 @@ mod tests {
                 .map(|slot| slot.tid)
                 .collect::<Vec<_>>(),
             [5, 6, 7]
+        );
+        // A page, view or anchor stays a link (`links_into_a_thread_stay_links`).
+        assert!(
+            page("https://forum.example/thread-6-2?view=flat#floor-3")
+                .cards
+                .is_empty()
         );
         // Relative-path text on its own line is not a link and gets no card; text with an absolute URL is still
         // recognised.
@@ -1654,5 +1662,83 @@ mod tests {
         assert!(html.contains("<table>"));
         assert!(html.contains("<pre"));
         assert!(html.contains("let"));
+    }
+
+    /// A link to a page, a reading view or one reply of a thread keeps that destination: a card would only lead to
+    /// the thread's first page, so such links stay the links they were written as.
+    #[test]
+    fn links_into_a_thread_stay_links() {
+        for (source, shown) in [
+            (
+                "https://forum.example/thread-103-2?view=flat#floor-52",
+                "<p>https://forum.example/thread-103-2?view=flat#floor-52</p>",
+            ),
+            ("[second page](/thread-5-2)", "href=\"/thread-5-2\""),
+            (
+                "[flat view](/thread-5?view=flat)",
+                "href=\"/thread-5?view=flat\"",
+            ),
+            (
+                "[one reply](/thread-5#floor-52)",
+                "href=\"/thread-5#floor-52\"",
+            ),
+            (
+                "[its replies](/thread-5?sub_root=9&sub_page=2)",
+                "href=\"/thread-5?sub_root=9&amp;sub_page=2\"",
+            ),
+            (
+                "<https://forum.example/thread-5#floor-3>",
+                "href=\"https://forum.example/thread-5#floor-3\"",
+            ),
+        ] {
+            let rendered = page(source);
+            assert!(rendered.cards.is_empty(), "{source}");
+            let filled = fill_cards(&rendered.html, &rendered.cards, &BTreeMap::new());
+            assert!(filled.contains(shown), "{filled}");
+            assert!(!filled.contains("gonof-"), "{filled}");
+        }
+        // The thread itself still becomes a card, written relative or absolute.
+        assert_eq!(page("[the thread](/thread-5)").cards.len(), 1);
+        assert_eq!(page("https://forum.example/thread-5").cards.len(), 1);
+    }
+
+    /// With a root site and a site under `/community` on the same host, an absolute link under `/community` belongs
+    /// to the longer address, whichever order the sites come in.
+    #[test]
+    fn the_longest_registered_site_address_recognizes_a_thread_link() {
+        use crate::domains::{DomainMap, tests::row};
+        use crate::site::{Domains, Site, sync_scope};
+        for rows in [
+            vec![
+                row(1, "https://forum.example", &[]),
+                row(2, "https://forum.example/community", &[]),
+            ],
+            vec![
+                row(1, "https://forum.example/community", &[]),
+                row(2, "https://forum.example", &[]),
+            ],
+        ] {
+            let forum_url = rows[0].site_url.clone();
+            let site = Site {
+                domains: Some(std::sync::Arc::new(Domains {
+                    map: std::sync::Arc::new(DomainMap::new(rows)),
+                    forum_url: forum_url.into(),
+                    current: Some(1),
+                })),
+                ..Site::default()
+            };
+            sync_scope(site, || {
+                for site_url in ["https://forum.example", "https://forum.example/community"] {
+                    for (link, tid) in [
+                        ("https://forum.example/community/thread-22", Some(22)),
+                        ("https://forum.example/thread-23", Some(23)),
+                        ("https://forum.example/community/rules", None),
+                        ("https://forum.example/communityx/thread-24", None),
+                    ] {
+                        assert_eq!(thread_link(link, site_url), tid, "{link} on {site_url}");
+                    }
+                }
+            });
+        }
     }
 }

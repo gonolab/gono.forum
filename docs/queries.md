@@ -248,9 +248,14 @@ Redis read for every visitor. `members.recent`, `moderators`, `site.stats` and `
   directory; expired and disabled entries are dropped in code.
 - **Tips**: `activities::tip_summary` takes count and total from the thread row and reads the recent tippers only
   when `tips > 0`.
+- **Thread cards**: `content::cards::topic_cards` reads the threads that links standing alone in the page's bodies
+  point to (at most 20, deduplicated in floor order) by primary key with their first posts, under the reader's
+  permissions; no query when the page has no such link.
 
 For anonymous visitors with Redis enabled, floors and rendered bodies come from Redis, keyed by the site-wide content
-version and the thread's `cache_revision` (see "Cache versions"); members always read the database.
+version and the thread's `cache_revision` (see "Cache versions"); members always read the database. The rendered
+bodies keep the places of their thread cards, not the cards: those show the linked threads' reply counts, titles and
+excerpts, which change without touching this thread, so every view reads them.
 
 ## Process caches
 
