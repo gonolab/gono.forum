@@ -433,3 +433,132 @@ async fn a_boards_latest_thread_is_read_again_after_one_list_lifetime() {
     assert!(after.contains(&(fid, other)), "{after:?}");
     site.services.cleanup().await.unwrap();
 }
+
+/// A member who blocked a child board: the parent board's latest thread is not taken from it (only the counts show),
+/// and the outline of one of its threads is not found, as for every source (docs/data.md, "Rules").
+#[tokio::test]
+async fn a_blocked_child_board_shows_neither_its_latest_thread_nor_its_outlines() {
+    let site = Site::prepared(true, |db| async move {
+        let one = |sql: String| {
+            let db = db.clone();
+            async move {
+                gono_forum_web::db::query_scalar::<i64>(&sql)
+                    .fetch_one(db.executor())
+                    .await
+                    .unwrap()
+            }
+        };
+        let child = one("SELECT fid FROM gonof_forum_thread WHERE tid=103".into()).await;
+        let parent = one(format!(
+            "SELECT MIN(fid) FROM gonof_forum_forum WHERE fid<>{child}"
+        ))
+        .await;
+        let member = one("SELECT MAX(uid) FROM gonof_common_member".into()).await;
+        for sql in [
+            format!("UPDATE gonof_forum_forum SET parent_fid={parent} WHERE fid={child}"),
+            format!("UPDATE gonof_forum_thread SET family_fid={parent} WHERE fid={child}"),
+            format!(
+                "UPDATE gonof_forum_thread SET lastpost={} WHERE tid=103",
+                gono_forum_web::identity::now() + 3600
+            ),
+            format!(
+                "INSERT INTO gonof_home_forum_filter (uid,fid,filter_mode,dateline) VALUES ({member},{child},'block',1000)"
+            ),
+        ] {
+            gono_forum_web::db::query(&sql)
+                .execute(db.executor())
+                .await
+                .unwrap_or_else(|error| panic!("{sql}: {error}"));
+        }
+    })
+    .await;
+    let parent = site
+        .scalar(
+            "SELECT parent_fid FROM gonof_forum_forum WHERE fid=(SELECT fid FROM gonof_forum_thread WHERE tid=103)",
+        )
+        .await;
+    let latest = |body: Value| {
+        body["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|board| board["fid"] == parent)
+            .unwrap_or_else(|| panic!("{body}"))["last_post"]
+            .clone()
+    };
+    let path = "/data/v1/boards?last_post=true&counts=true";
+    assert_eq!(latest(site.get(path, None).await.json())["tid"], 103);
+    assert_eq!(
+        latest(site.get(path, Some(&site.member)).await.json()),
+        Value::Null
+    );
+    let outline = "/data/v1/thread.outline?tid=103";
+    assert_eq!(site.get(outline, None).await.status, StatusCode::OK);
+    let refused = site.get(outline, Some(&site.member)).await;
+    assert_eq!(refused.status, StatusCode::NOT_FOUND, "{}", refused.body);
+    site.services.cleanup().await.unwrap();
+}
+
+/// Thread links in records open the visitor's reading view, as list titles do: a member who reads flat gets
+/// `?view=flat` on a thread's first page.
+#[tokio::test]
+async fn thread_links_follow_the_members_reading_view() {
+    let site = Site::prepared(true, |db| async move {
+        let member: i64 =
+            gono_forum_web::db::query_scalar("SELECT MAX(uid) FROM gonof_common_member")
+                .fetch_one(db.executor())
+                .await
+                .unwrap();
+        gono_forum_web::db::query("INSERT INTO gonof_home_reading_preference (uid,thread_view,version,updated_at) VALUES (?,'flat',1,1000)")
+            .bind(member)
+            .execute(db.executor())
+            .await
+            .unwrap();
+    })
+    .await;
+    let hrefs = |body: Value| -> Vec<String> {
+        body["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["href"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    let path = "/data/v1/threads?sort=created&limit=5";
+    let flat = hrefs(site.get(path, Some(&site.member)).await.json());
+    assert!(!flat.is_empty());
+    for href in &flat {
+        assert!(
+            href.starts_with("/thread-") && href.ends_with("?view=flat"),
+            "{flat:?}"
+        );
+    }
+    for href in hrefs(site.get(path, None).await.json()) {
+        assert!(!href.contains('?'), "{href}");
+    }
+    // A board's latest thread without replies links its first page the same way.
+    site.execute("UPDATE gonof_forum_thread SET replies=0, last_reply_pid=NULL, last_reply_author='', last_reply_uid=NULL, last_reply_summary='' WHERE tid=103")
+        .await;
+    site.execute(&format!(
+        "UPDATE gonof_forum_thread SET lastpost={} WHERE tid=103",
+        gono_forum_web::identity::now() + 3600
+    ))
+    .await;
+    let boards = site
+        .get("/data/v1/boards?last_post=true", Some(&site.member))
+        .await
+        .json();
+    let post = boards["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find_map(|board| {
+            board["last_post"]
+                .as_object()
+                .filter(|post| post["tid"] == 103)
+        })
+        .unwrap_or_else(|| panic!("{boards}"))
+        .clone();
+    assert_eq!(post["href"], "/thread-103?view=flat");
+    site.services.cleanup().await.unwrap();
+}

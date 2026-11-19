@@ -446,7 +446,7 @@ pub(super) async fn fetch(
             let Target::Id(tid) = tid else {
                 return Err(FetchError::NotFound);
             };
-            outline(state, page, tid).await
+            outline(state, filters, page, tid).await
         }
         Params::Me => Err(FetchError::Unauthorized),
     }
@@ -517,7 +517,8 @@ pub(super) fn thread_record(state: &AppState, thread: &Thread) -> records::Threa
     records::ThreadRecord {
         tid,
         title: thread.title.clone(),
-        href: crate::site::href(format!("/thread-{tid}")),
+        // The first page in the visitor's reading view, as list titles link it.
+        href: crate::site::href(crate::urls::thread(thread.id, 1, state.frame.reading.flat)),
         board: forum.map(BoardRef::of),
         kind: Some(thread.kind_code()).filter(|kind| !kind.is_empty()),
         pin: thread.pin,
@@ -576,6 +577,7 @@ async fn boards_records(
     } else {
         None
     };
+    let flat = frame.reading.flat;
     let last_posts = if params.last_post {
         let members = state.viewer.session.is_some();
         let boards: Vec<(i64, bool)> = listed(frame, parent)
@@ -604,7 +606,7 @@ async fn boards_records(
         filters,
         parent,
         statistics.as_ref(),
-        &last_posts,
+        (&last_posts, flat),
     ))))
 }
 
@@ -626,16 +628,17 @@ pub(super) fn nav_boards(frame: &super::frame::SiteFrame) -> Vec<records::BoardR
         blocked: Vec::new(),
         listable: Vec::new(),
     };
-    board_items(frame, &filters, None, None, &[])
+    board_items(frame, &filters, None, None, (&[], false))
 }
 
-/// The records of the boards under `parent`, with the counts and last posts already read.
+/// The records of the boards under `parent`, with the counts and last posts already read; `flat` is the visitor's
+/// reading view, for the link of a last thread without replies.
 fn board_items(
     frame: &super::frame::SiteFrame,
     filters: &Filters,
     parent: Option<&ForumRecord>,
     statistics: Option<&content::ForumStatistics>,
-    last_posts: &[(i64, Thread)],
+    (last_posts, flat): (&[(i64, Thread)], bool),
 ) -> Vec<records::BoardRecord> {
     let shown = |forum: &&ForumRecord| !frame.forum_filters.is_blocked(forum.fid);
     listed(frame, parent)
@@ -675,14 +678,16 @@ fn board_items(
                     .iter()
                     .find(|(fid, _)| *fid == forum.fid)
                     .map(|(_, thread)| thread)
-                    // The latest thread's last poster (or author) is someone the visitor blocked: only the counts.
+                    // The latest thread's last poster (or author) is someone the visitor blocked, or it is in a child
+                    // board the visitor blocked (a top-level board's latest thread comes from its whole family): only
+                    // the counts.
                     .filter(|thread| {
                         let poster = if thread.last_reply_pid.is_some() {
                             thread.last_reply_uid
                         } else {
                             thread.authorid
                         };
-                        !filters.blocks(poster)
+                        !filters.blocks(poster) && !frame.forum_filters.is_blocked(thread.fid)
                     })
                     .map(|thread| {
                         let tid = i64::try_from(thread.id).unwrap_or(0);
@@ -707,7 +712,7 @@ fn board_items(
                             title: thread.title.clone(),
                             href: crate::site::href(&match thread.last_reply_pid {
                                 Some(pid) => format!("/posts/{pid}"),
-                                None => format!("/thread-{tid}"),
+                                None => crate::urls::thread(thread.id, 1, flat),
                             }),
                             at: Time::of(i64::try_from(thread.updated).unwrap_or(0)),
                             member,
@@ -724,15 +729,28 @@ fn board_items(
 /// At most this many page and date marks together.
 const OUTLINE_MARKS: usize = 200;
 
-async fn outline(state: &AppState, page: PageContext<'_>, tid: i64) -> Result<Output, FetchError> {
+async fn outline(
+    state: &AppState,
+    filters: &Filters,
+    page: PageContext<'_>,
+    tid: i64,
+) -> Result<Output, FetchError> {
     let (max_position, revision) = match page
         .thread
         .filter(|thread| i64::try_from(thread.id) == Ok(tid))
     {
         Some(thread) => (thread.max_position, thread.cache_revision),
-        None => content::sources::outline_head(&state.db, tid, state.readable())
-            .await?
-            .ok_or(FetchError::NotFound)?,
+        // Another thread is read as every source reads: this site's boards the visitor may read, minus those they
+        // hid or blocked (docs/data.md, "Rules"), not every board readable site-wide.
+        None => {
+            let readable = content::Readable {
+                uid: state.viewer.session.as_ref().map(|s| s.member.uid),
+                forums: &filters.listable,
+            };
+            content::sources::outline_head(&state.db, tid, readable)
+                .await?
+                .ok_or(FetchError::NotFound)?
+        }
     };
     let per_page = i64::try_from(crate::urls::Paging::from_settings(&state.frame.settings).replies)
         .unwrap_or(1)

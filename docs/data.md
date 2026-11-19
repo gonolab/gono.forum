@@ -71,7 +71,7 @@ Pinned threads of every level come first in `latest`, `created`, `featured` and 
 | --- | --- |
 | `tid` | The thread id. |
 | `title` | The title; withdrawn and erased threads show their placeholder, as in lists. |
-| `href` | The thread's first page. |
+| `href` | The thread's first page in the visitor's reading view (`?view=flat` for a member who reads flat), as list titles link it. |
 | `board` | The thread's own board (a Board), or `null` when the visitor cannot see it. |
 | `kind` | The thread's kind or `null`. |
 | `pin` | The pin level, 0 to 3. |
@@ -115,7 +115,7 @@ directory home").
 | `glyph` | A built-in glyph name or `null`. |
 | `access` | `public` or `members`. |
 | `counts` | With `counts`: `{"threads", "today"}` (threads, and posts today, of the board with its child boards), for boards anonymous visitors can read; `null` otherwise, since board statistics count public content only. |
-| `last_post` | With `last_post`: `{"tid", "title", "href", "at", "member", "summary", "max_position"}` for the board's newest listed thread by last activity (`member` its last poster, `summary` the last reply's excerpt or `null` for a thread without replies, `max_position` its highest floor number), or `null`; also `null` when the visitor blocked that poster. |
+| `last_post` | With `last_post`: `{"tid", "title", "href", "at", "member", "summary", "max_position"}` for the board's newest listed thread by last activity, its child boards' included (`href` the last reply's permanent address `/posts/<pid>`, or for a thread without replies its first page in the visitor's reading view; `member` its last poster, `summary` the last reply's excerpt or `null` for a thread without replies, `max_position` its highest floor number), or `null`; also `null` when the visitor blocked that poster or the child board the thread is in. |
 | `children` | The child boards the visitor sees (Boards). |
 
 ### `members.recent`
@@ -200,9 +200,11 @@ other than the main one) or `directory` (every listed link, by category). Only a
 
 ### `thread.outline`
 
-Parameter `tid`: a thread id, or `current` in a block on a thread page. One item: where a long thread's pages and
-days begin, for a timeline or a reading position. Positions are floor numbers (`#floor-N`), counted in the flat view
-(floor 1 the opening post, then the replies in order); hidden floors keep their numbers.
+Parameter `tid`: a thread id, or `current` in a block on a thread page. One item: where a long thread's pages and days
+begin, for a timeline or a reading position. Away from the thread's own page, a thread in a board the visitor cannot
+list (another domain's board, or one they hid or blocked) is not found, as in rule 2. Positions are floor numbers
+(`#floor-N`), counted in the flat view (floor 1 the opening post, then the replies in order); hidden floors keep their
+numbers.
 
 | Field | Value |
 | --- | --- |
