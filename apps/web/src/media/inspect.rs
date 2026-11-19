@@ -356,6 +356,8 @@ fn animation(
         BufWriter::new(output_io(File::create(destination))?),
         config.file_max_bytes,
     );
+    // Frames are all RGBA: one transform serves the whole animation.
+    let color = color.and_then(|color| color.transform_8bit(moxcms::Layout::Rgba));
     let encoded: anyhow::Result<()> = (|| {
         let mut encoder = image::codecs::gif::GifEncoder::new(&mut output);
         if let Some(repeat) = repeat {
@@ -374,8 +376,8 @@ fn animation(
                 count <= config.animation_max_frames && pixels <= config.animation_max_pixels,
                 "the animation has too many frames or pixels"
             );
-            if let Some(color) = &color {
-                color.apply_rgba8(frame.buffer_mut());
+            if let Some(transform) = &color {
+                convert(transform.as_ref(), frame.buffer_mut(), 4);
             }
             encoder.encode_frame(frame)?;
         }
@@ -451,7 +453,11 @@ impl SrgbConversion {
                     convert(transform.as_ref(), buffer, 3);
                 }
             }
-            image::DynamicImage::ImageRgba8(buffer) => self.apply_rgba8(buffer),
+            image::DynamicImage::ImageRgba8(buffer) => {
+                if let Some(transform) = self.transform_8bit(Layout::Rgba) {
+                    convert(transform.as_ref(), buffer, 4);
+                }
+            }
             image::DynamicImage::ImageRgb16(buffer) => {
                 if let Some(transform) = self.transform_16bit(Layout::Rgb) {
                     convert(transform.as_ref(), buffer, 3);
@@ -463,12 +469,6 @@ impl SrgbConversion {
                 }
             }
             _ => {}
-        }
-    }
-
-    fn apply_rgba8(&self, buffer: &mut image::RgbaImage) {
-        if let Some(transform) = self.transform_8bit(moxcms::Layout::Rgba) {
-            convert(transform.as_ref(), buffer, 4);
         }
     }
 }
