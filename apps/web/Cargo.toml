@@ -49,6 +49,12 @@ hmac = "0.12"
 libc = "0.2"
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls", "ring", "webpki-roots"] }
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+# The loop count of an uploaded GIF as written in the file: image reports a GIF without a loop extension, which plays
+# once, the same as one that loops forever. Already in the dependency tree via image.
+gif = "0.14"
+# Converts uploaded images with an embedded ICC profile (Display P3 and the like) to sRGB before re-encoding drops the
+# profile. Already in the dependency tree via image, with the same features; BSD-3-Clause OR Apache-2.0.
+moxcms = "0.8"
 percent-encoding = "2"
 pulldown-cmark = "0.13.4"
 qrcodegen = "1.8"

@@ -155,6 +155,12 @@ Uploads land in a private staging directory first, are checked and re-encoded in
 outside any transaction, and are stored in a private S3-compatible bucket. Images are served through the forum
 (`/media/<aid>`, `/thumb/<tid>/<aid>`), which checks permissions on every request.
 
+Re-encoding drops metadata, the ICC profile included, and browsers read an image without a profile as sRGB. An image
+with an RGB profile other than sRGB (Display P3 and the like) is therefore converted to sRGB first, with moxcms; the
+list thumbnail is scaled from the converted image, and every frame of an animation is converted the same way. A
+profile that does not parse, or one moxcms cannot convert from, leaves the pixels as they are. Animated WebP and APNG
+become GIFs; the output keeps the source's loop count (a GIF without a loop extension still plays once).
+
 ## Caches
 
 There are two layers, registered in `cache/registry.rs`:
