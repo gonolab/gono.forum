@@ -847,6 +847,62 @@ async fn personal_feed_tokens_store_digests_rotate_disable_and_filter() {
     f.services.cleanup().await.unwrap();
 }
 
+/// A settings page that fails after the feed URL was issued (here its token query) keeps the one-time reveal cookie,
+/// so a refresh can still show the URL instead of leaving the member to issue another.
+#[tokio::test]
+async fn a_failed_feed_page_keeps_the_reveal_cookie() {
+    let f = Fixture::new().await;
+    let issued = f.post("/my/feed/enable", &[]).await;
+    assert_eq!(issued.status, StatusCode::SEE_OTHER, "{}", issued.body);
+    let reveal = issued
+        .headers
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .map(|value| value.to_str().unwrap())
+        .find(|value| value.starts_with("gonof_feed_reveal__port58833="))
+        .expect("issuing sets the one-time reveal cookie")
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    db::raw_sql("ALTER TABLE gonof_home_feed_token RENAME TO gonof_home_feed_token_away")
+        .execute(f.db().executor())
+        .await
+        .unwrap();
+    let failed = f.feed_with(&reveal).await;
+    db::raw_sql("ALTER TABLE gonof_home_feed_token_away RENAME TO gonof_home_feed_token")
+        .execute(f.db().executor())
+        .await
+        .unwrap();
+    assert!(failed.status.is_server_error(), "{}", failed.status);
+    assert!(
+        !failed
+            .headers
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .any(|value| value
+                .to_str()
+                .unwrap()
+                .starts_with("gonof_feed_reveal__port58833=")),
+        "a failed page keeps the cookie"
+    );
+    let shown = f.feed_with(&reveal).await;
+    assert_eq!(shown.status, StatusCode::OK);
+    assert!(
+        shown.body.contains("shown only this once"),
+        "{}",
+        shown.body
+    );
+    let token = token_in(&shown.body);
+    assert_eq!(
+        f.get(&format!("/feeds/private/{token}/feed.xml"), None)
+            .await
+            .status,
+        StatusCode::OK
+    );
+    f.services.cleanup().await.unwrap();
+}
+
 async fn reply(writer: &ContentWriter, tid: i64, body: &str) -> i64 {
     writer
         .reply(

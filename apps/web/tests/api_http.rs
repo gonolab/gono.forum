@@ -2009,6 +2009,31 @@ async fn settings_page_generates_rotates_and_disables_tokens() {
     assert_eq!(header(&headers, header::LOCATION), "/my/api");
     assert!(!html.contains("data-api-secret"));
     let reveal = reveal_cookie(&headers);
+    // A display page that fails (here its token query) keeps the cookie, so a refresh can still show the token.
+    let rename = |from: &str, to: &str| format!("ALTER TABLE {from} RENAME TO {to}");
+    db::raw_sql(&rename(
+        "gonof_common_member_api_key",
+        "gonof_common_member_api_key_away",
+    ))
+    .execute(f.db.executor())
+    .await
+    .unwrap();
+    let (status, headers, _) = f.page_with("/my/api", &grant, &reveal).await;
+    db::raw_sql(&rename(
+        "gonof_common_member_api_key_away",
+        "gonof_common_member_api_key",
+    ))
+    .execute(f.db.executor())
+    .await
+    .unwrap();
+    assert!(status.is_server_error(), "{status}");
+    assert!(
+        !headers.get_all(header::SET_COOKIE).iter().any(|value| value
+            .to_str()
+            .unwrap()
+            .starts_with("gonof_api_reveal__port58833=")),
+        "a failed display page keeps the cookie"
+    );
     let (status, headers, html) = f.page_with("/my/api", &grant, &reveal).await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("shown only this once"));

@@ -29,7 +29,8 @@ Members manage their token on the API page of their personal settings (`/my/api`
 
 - **Turn on the API** asks for your current password and creates a token. The page shows the token once, together with
   an example `curl` command. Copy it right away: it does not appear again after a refresh, and the site keeps only its
-  SHA-256 digest, so nobody, administrators included, can look it up again.
+  SHA-256 digest, so nobody, administrators included, can look it up again. If that page fails to load, refreshing it
+  within 10 minutes still shows the token.
 - **Generate a new token** asks for your current password again. The old token stops working at once.
 - **Turn off the API** revokes the token at once. What you posted with it stays.
 

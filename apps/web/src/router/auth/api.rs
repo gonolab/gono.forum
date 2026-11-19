@@ -126,7 +126,8 @@ async fn api_response(
 }
 
 /// The one GET after generation takes the plaintext from the reveal cookie, shows it and clears the cookie: it does
-/// not appear again on refresh.
+/// not appear again on refresh. A page that failed (a database error, say) keeps the cookie, so a refresh can still
+/// show the token instead of leaving the member to generate another.
 async fn api_page(
     Page(state): Page,
     headers: HeaderMap,
@@ -144,7 +145,9 @@ async fn api_page(
         .and_then(|session| super::API_REVEAL.read(&state, &headers, session.member.uid))
         .unwrap_or_default();
     let mut response = api_response(&state, &secret, message, success, StatusCode::OK).await;
-    super::API_REVEAL.set(&mut response, &state.viewer, "", 0);
+    if response.status().is_success() {
+        super::API_REVEAL.set(&mut response, &state.viewer, "", 0);
+    }
     response
 }
 

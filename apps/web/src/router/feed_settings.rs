@@ -198,7 +198,8 @@ async fn failure(state: &AppState, error: ContentWriteError) -> Response {
 }
 
 /// The single GET after generation takes the plaintext from the reveal cookie, shows it and clears the cookie: it does
-/// not appear again on refresh.
+/// not appear again on refresh. A page that failed (a database error, say) keeps the cookie, so a refresh can still
+/// show the URL instead of leaving the member to generate another.
 async fn feed_page(
     Page(state): Page,
     headers: HeaderMap,
@@ -218,7 +219,9 @@ async fn feed_page(
         .and_then(|session| auth::FEED_REVEAL.read(&state, &headers, session.member.uid))
         .unwrap_or_default();
     let mut response = feed_response(&state, &secret, message, success, StatusCode::OK).await;
-    auth::FEED_REVEAL.set(&mut response, &state.viewer, "", 0);
+    if response.status().is_success() {
+        auth::FEED_REVEAL.set(&mut response, &state.viewer, "", 0);
+    }
     response
 }
 
