@@ -113,6 +113,8 @@ ORDER BY t.displayorder DESC, t.lastpost DESC, t.tid DESC LIMIT ? OFFSET ?
 - **Category** (0–5, the thread's activity kind) adds `t.category = ?` and combines only with `Latest` and
   `Created`; other combinations redirect.
 - **Search** adds `t.deleted_at = 0 AND LOWER(t.subject) LIKE LOWER(?) ESCAPE '!'`, which needs the table row.
+  `LOWER` is MySQL's mapping on both backends (`db/lower.rs`). A search whose capped count is 0 runs no list
+  statement.
 - **Thumbnails**: `thread_images::attach` reads the page's thumbnails in one `IN` query on
   `gonof_forum_thread_image`, skipping withdrawn and erased threads. `thread_images::rewrite` rewrites a thread's set
   when the thread is posted or its first post edited; erasing the first post deletes it.

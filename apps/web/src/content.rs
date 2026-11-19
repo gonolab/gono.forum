@@ -738,7 +738,9 @@ pub async fn list_threads_for_viewer(
 /// replies, latest threads and categories read the forum thread counter table,
 /// summed over the forums this visitor can see, minus the threads of blocked members; the pinned and highlighted
 /// sets are small and counted straight from the index; search cannot be counted that way and stays a capped count.
-/// A page number past the last page returns an empty page, and the page gives a 404.
+/// A page number past the last page returns an empty page, and the page gives a 404. When a count read here is 0 (an
+/// exact figure, unlike the counter table's), the list statement is not run at all: an empty search would otherwise
+/// match the pattern against the candidate titles a second time.
 #[allow(clippy::too_many_arguments)]
 pub async fn list_scope_for_viewer(
     db: &Database,
@@ -786,7 +788,8 @@ pub async fn list_scope_for_viewer(
     }
     let search = search.filter(|v| !v.is_empty()).map(search_pattern);
     if let Some(pattern) = &search {
-        // Both sides go through MySQL's LOWER: it differs from Rust's to_lowercase on letters such as Σ, İ and ẞ.
+        // Both sides go through LOWER, MySQL's mapping on both backends (`db::lower`); Rust's to_lowercase differs
+        // from it on letters such as Σ, İ and ẞ.
         filter.push_str(" AND t.deleted_at = 0 AND LOWER(t.subject) LIKE LOWER(?) ESCAPE '!'");
         args.push(Arg::Text(pattern.clone()));
     }
@@ -799,6 +802,8 @@ pub async fn list_scope_for_viewer(
     let cap = MAX_LIST_PAGES
         .checked_mul(page_size)
         .context("page limit out of range")?;
+    // Whether `total` was counted here from the rows themselves (rather than read from the counter table).
+    let counted = search.is_some() || matches!(sort, Sort::Pinned | Sort::Featured);
     let total = if search.is_some() {
         // Search has no counter to read: a capped count, reading at most as many rows as the cap.
         let mut count_args = args.clone();
@@ -823,7 +828,7 @@ pub async fn list_scope_for_viewer(
         counted_threads(db, scope, category, viewer).await?
     };
     let total = usize::try_from(total.max(0))?.min(cap);
-    if page > total.div_ceil(page_size).max(1) {
+    if (counted && total == 0) || page > total.div_ceil(page_size).max(1) {
         return Ok(ThreadPage { total, ..empty() });
     }
     let offset = (page - 1)

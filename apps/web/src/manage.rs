@@ -1432,12 +1432,12 @@ pub async fn member(db: &Database, actor: Actor, uid: i64) -> Result<RoleMember>
         forum_ids,
     })
 }
+/// A `LIKE` pattern for a column written as `LOWER(column)`: lowered with MySQL's mapping, as `LOWER` is on both
+/// backends (`db::lower`), not with Rust's.
 fn like(value: &str) -> String {
     format!(
         "%{}%",
-        value
-            .trim()
-            .to_lowercase()
+        crate::db::lower::lower(value.trim())
             .replace('!', "!!")
             .replace('%', "!%")
             .replace('_', "!_")

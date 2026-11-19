@@ -150,7 +150,7 @@ async fn register_lower(connection: &mut SqliteConnection) -> Result<(), sqlx::E
             1,
             ffi::SQLITE_UTF8 | ffi::SQLITE_DETERMINISTIC,
             std::ptr::null_mut(),
-            Some(unicode_lower),
+            Some(mysql_lower),
             None,
             None,
             None,
@@ -166,8 +166,8 @@ async fn register_lower(connection: &mut SqliteConnection) -> Result<(), sqlx::E
 }
 
 /// `lower(X)`: NULL is returned as NULL; anything else is taken as text (numbers are converted to text first, as the
-/// built-in lower does) and lowercased character by character by Unicode rules.
-unsafe extern "C" fn unicode_lower(
+/// built-in lower does) and lowercased character by character as MySQL's `LOWER` does ([`super::lower`]).
+unsafe extern "C" fn mysql_lower(
     context: *mut ffi::sqlite3_context,
     count: c_int,
     values: *mut *mut ffi::sqlite3_value,
@@ -191,12 +191,11 @@ unsafe extern "C" fn unicode_lower(
             return;
         }
         let length = usize::try_from(ffi::sqlite3_value_bytes(value)).unwrap_or(0);
-        // Lowercase character by character, not with str::to_lowercase: that one turns a word-final Σ into ς by
-        // context, which MySQL's LOWER does not do.
-        let lowered: String = String::from_utf8_lossy(std::slice::from_raw_parts(text, length))
-            .chars()
-            .flat_map(char::to_lowercase)
-            .collect();
+        // MySQL's mapping, not Rust's: Rust lowers letters MySQL keeps, expands `İ` and turns a word-final Σ
+        // into ς by context.
+        let lowered = super::lower::lower(&String::from_utf8_lossy(std::slice::from_raw_parts(
+            text, length,
+        )));
         let Ok(length) = c_int::try_from(lowered.len()) else {
             ffi::sqlite3_result_error_toobig(context);
             return;

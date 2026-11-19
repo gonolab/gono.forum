@@ -111,9 +111,11 @@ own pages.
   `db::DbRow`), which dispatch on the connection URL. SQL is written for MySQL; on SQLite it passes through a
   rewriter (`db/dialect.rs`) with a fixed set of rules (locking reads and index hints dropped, `GREATEST` → `max`,
   upserts → `ON CONFLICT`, …) that refuses anything it does not know. A unit test prepares every static statement on
-  SQLite, so a statement that only works on MySQL fails the build's tests. SQLite has a read pool and a single
-  writer; write transactions start with `BEGIN IMMEDIATE` and retry on lock conflicts, so they must not wait on the
-  network, the disk or password hashing.
+  SQLite, so a statement that only works on MySQL fails the build's tests. SQLite's `lower()` is replaced by MySQL's
+  mapping (`db/lower.rs`, read from MySQL and compared with it code point by code point in
+  `tests/search_lowercase.rs`), so `LOWER` and patterns lowered in Rust match the same titles on both. SQLite has a
+  read pool and a single writer; write transactions start with `BEGIN IMMEDIATE` and retry on lock conflicts, so they
+  must not wait on the network, the disk or password hashing.
 - **Schema.** The schema starts from one baseline, `0001_baseline.sql`. Later changes are appended as `0002_…`,
   `0003_…`, each a pair of files with the same name in `db/migrations/mysql/` and `db/migrations/sqlite/`, registered
   in `db/migrations.rs`; a unit test checks the two directories against the registry, and `tests/sqlite_schema.rs`

@@ -6,6 +6,7 @@
 //! SQLite; what cannot be rewritten is written by hand at the call site with `.sqlite(…)`.
 mod conn;
 pub mod dialect;
+pub mod lower;
 pub mod migrations;
 mod observed;
 mod queries;
