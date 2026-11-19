@@ -297,17 +297,23 @@ member card in the home sidebar. Every visitor sees the same number, except that
 
 | Column | Kept by |
 | --- | --- |
-| `gonof_forum_post.reactions`, `downvotes` | `counters::recount_reactions`, `counters::recount_downvotes` |
-| `gonof_forum_thread.favorites` | `counters::recount_favorites` |
+| `gonof_forum_post.reactions`, `downvotes` | `counters::set_mark` |
+| `gonof_forum_thread.favorites` | `counters::set_mark` |
 | `gonof_forum_thread.tips`, `tip_total` | `counters::add_tip` |
 
 All in `interaction/counters.rs`, in the transaction that writes the detail rows; the caller holds an exclusive lock
 on the thread row (`interaction::lock_target`, or the tip transaction), so writes to one thread queue up.
 
-- **Likes, downvotes, favorites**: after inserting or deleting a detail row, the count is redone from the detail rows
-  with a locking read (`LOCK IN SHARE MODE`, dropped on SQLite, where the single writer serializes) and written back.
-  It does not rely on upsert affected-row counts: the connection reports found rows, so an insert and an existing row
-  both return 1. A like removes the member's downvote on the same post and the reverse, each recounted.
+- **Likes, downvotes, favorites** are counted incrementally: the member's own detail row is read by primary key with a
+  current read (`FOR UPDATE`, dropped on SQLite, where the single writer serializes), and only when the state really
+  changes is the row inserted or deleted and the counter moved by one, so a like costs the same however many likes the
+  post has. It does not rely on upsert affected-row counts: the connection reports found rows, so an insert and an
+  existing row both return 1. A like removes the member's downvote on the same post and the reverse, each moving its
+  own counter. On MySQL the read of a missing row takes a gap lock, so marks on adjacent posts of different threads
+  can deadlock; the like, downvote and favorite transactions are retried up to twice on a lock conflict.
+- **Growth points** read the like counter: a post's likes are `reactions` less the author's own like, found by primary
+  key (`growth::sync_posts`, run after likes and after posting, hiding, accepting, highlighting, erasing and the
+  rest), instead of counting the post's likes.
 - **Tips** only grow: after the payment and receipt ledger rows are written, `tips + 1` and `tip_total + amount`.
 - **Account deletion** leaves the member's likes, downvotes and favorites in place, so these counts do not change.
 

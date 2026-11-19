@@ -242,7 +242,7 @@ impl Interaction {
         desired: bool,
         key: &str,
     ) -> Result<()> {
-        self.set(actor, tid, desired, key, true).await
+        retry_locks(|| self.set(actor, tid, desired, key, true)).await
     }
 
     pub async fn set_reaction(
@@ -252,7 +252,7 @@ impl Interaction {
         desired: bool,
         key: &str,
     ) -> Result<()> {
-        self.set(actor, pid, desired, key, false).await
+        retry_locks(|| self.set(actor, pid, desired, key, false)).await
     }
 
     async fn set(
@@ -336,54 +336,33 @@ impl Interaction {
                 crate::i18n::current().my_error_like_own(),
             ));
         }
-        let (table, column) = if favorite {
-            ("gonof_home_favorite", "tid")
-        } else {
-            ("gonof_forum_post_reaction", "pid")
-        };
-        // Likes count towards the author's growth value: lock this post's growth row before writing the like relation,
-        // so that counting likes sees all committed likes.
+        // Likes count towards the author's growth value: lock this post's growth row before writing the like relation
+        // (the lock order of `growth`).
         if !favorite {
             crate::growth::lock_post(&self.db, &mut tx, pid).await?;
         }
-        if desired {
-            let conflict = " ON DUPLICATE KEY UPDATE uid=uid";
-            // This table only has the relation primary key; INSERT IGNORE, which would swallow foreign key/check
-            // failures, is not used.
-            crate::db::query(&format!(
-                "INSERT INTO {table}(uid,{column},dateline) VALUES(?,?,?){conflict}"
-            ))
-            .bind(actor.uid)
-            .bind(id)
-            .bind(identity::now())
-            .execute(self.db.observe(&mut *tx))
+        // The thread row is exclusively locked: the member's own row is read by primary key, and the detail row and
+        // its counter column (`favorites`, `reactions`) change only when the state does.
+        let now = identity::now();
+        let mark = if favorite {
+            counters::Mark::Favorite
+        } else {
+            counters::Mark::Reaction
+        };
+        counters::set_mark(&self.db, &mut tx, mark, actor.uid, id, desired, now).await?;
+        // Likes and downvotes are mutually exclusive: liking withdraws the member's downvote on this floor in the
+        // same transaction.
+        if !favorite && desired {
+            counters::set_mark(
+                &self.db,
+                &mut tx,
+                counters::Mark::Downvote,
+                actor.uid,
+                id,
+                false,
+                now,
+            )
             .await?;
-            // Likes and downvotes are mutually exclusive: liking withdraws the member's downvote on this floor in the
-            // same transaction.
-            if !favorite {
-                let undone =
-                    crate::db::query("DELETE FROM gonof_forum_post_downvote WHERE pid=? AND uid=?")
-                        .bind(id)
-                        .bind(actor.uid)
-                        .execute(self.db.observe(&mut *tx))
-                        .await?;
-                if undone.rows_affected() > 0 {
-                    counters::recount_downvotes(&self.db, &mut tx, id).await?;
-                }
-            }
-        } else {
-            crate::db::query(&format!("DELETE FROM {table} WHERE uid=? AND {column}=?"))
-                .bind(actor.uid)
-                .bind(id)
-                .execute(self.db.observe(&mut *tx))
-                .await?;
-        }
-        // Favorite and like counts (the `favorites` and `reactions` counter columns): the thread row is exclusively
-        // locked; recount from the details and write back.
-        if favorite {
-            counters::recount_favorites(&self.db, &mut tx, id).await?;
-        } else {
-            counters::recount_reactions(&self.db, &mut tx, id).await?;
         }
         if !favorite {
             let cause = if desired {
@@ -418,6 +397,10 @@ impl Interaction {
         desired: bool,
         key: &str,
     ) -> Result<()> {
+        retry_locks(|| self.downvote(actor, pid, desired, key)).await
+    }
+
+    async fn downvote(&self, actor: Actor, pid: i64, desired: bool, key: &str) -> Result<()> {
         if pid <= 0 || !identity::valid_request_key(key) {
             return Err(ContentWriteError::Validation(
                 crate::i18n::current().my_error_interaction_target(),
@@ -480,24 +463,27 @@ impl Interaction {
             // A downvote withdraws the member's like, and the author's growth value is deducted accordingly: same lock
             // order as likes, locking this post's growth row first.
             crate::growth::lock_post(&self.db, &mut tx, pid).await?;
-            crate::db::query(
-                "INSERT INTO gonof_forum_post_downvote(pid,uid,dateline) VALUES(?,?,?) ON DUPLICATE KEY UPDATE uid=uid",
+            let now = identity::now();
+            counters::set_mark(
+                &self.db,
+                &mut tx,
+                counters::Mark::Downvote,
+                actor.uid,
+                pid,
+                true,
+                now,
             )
-            .bind(pid)
-            .bind(actor.uid)
-            .bind(identity::now())
-            .execute(self.db.observe(&mut *tx))
             .await?;
-            counters::recount_downvotes(&self.db, &mut tx, pid).await?;
-            let unliked =
-                crate::db::query("DELETE FROM gonof_forum_post_reaction WHERE pid=? AND uid=?")
-                    .bind(pid)
-                    .bind(actor.uid)
-                    .execute(self.db.observe(&mut *tx))
-                    .await?;
-            if unliked.rows_affected() > 0 {
-                counters::recount_reactions(&self.db, &mut tx, pid).await?;
-            }
+            counters::set_mark(
+                &self.db,
+                &mut tx,
+                counters::Mark::Reaction,
+                actor.uid,
+                pid,
+                false,
+                now,
+            )
+            .await?;
             crate::growth::sync_posts(
                 &self.db,
                 &mut tx,
@@ -507,15 +493,16 @@ impl Interaction {
             )
             .await?;
         } else {
-            let undone =
-                crate::db::query("DELETE FROM gonof_forum_post_downvote WHERE pid=? AND uid=?")
-                    .bind(pid)
-                    .bind(actor.uid)
-                    .execute(self.db.observe(&mut *tx))
-                    .await?;
-            if undone.rows_affected() > 0 {
-                counters::recount_downvotes(&self.db, &mut tx, pid).await?;
-            }
+            counters::set_mark(
+                &self.db,
+                &mut tx,
+                counters::Mark::Downvote,
+                actor.uid,
+                pid,
+                false,
+                identity::now(),
+            )
+            .await?;
         }
         crate::identity::rules::insert_post_request(
             &self.db,
@@ -530,6 +517,26 @@ impl Interaction {
         tx.commit().await?;
         Ok(())
     }
+}
+
+/// Runs a like, downvote or favorite transaction again, at most twice, when it lost a lock conflict: on MySQL the
+/// primary-key read of a missing mark row takes a gap lock, so marks on adjacent posts of different threads can
+/// deadlock (`counters::set_mark`). The whole transaction rolled back, and its request key was not recorded, so the
+/// retry starts over.
+async fn retry_locks<F, Fut>(mut operation: F) -> Result<()>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<()>>,
+{
+    for attempt in 0..3 {
+        match operation().await {
+            Err(error) if attempt < 2 && error.retryable() => {
+                tokio::time::sleep(std::time::Duration::from_millis(20 * (attempt + 1))).await;
+            }
+            result => return result,
+        }
+    }
+    unreachable!("the final attempt returns its result")
 }
 
 /// Whether `owner` has blocked `uid`. Called in a transaction that already locked both members or the content.

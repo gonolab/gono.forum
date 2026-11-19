@@ -10,7 +10,12 @@
 //!
 //! Lock order: the business's own locks (member rows, forum, thread, posts) come first, then each post's growth row in
 //! pid order, and finally the growth accounts in uid order. A like transaction locks the post's growth row before
-//! writing the like relation (see [`lock_post`]), so counting likes sees every committed like.
+//! writing the like relation (see [`lock_post`]).
+//!
+//! The likes a post earns from are its like counter (`gonof_forum_post.reactions`, docs/queries.md, "Counter
+//! columns"), which the like transaction moves together with the like rows, less the author's own like found by
+//! primary key: the cost of a like, or of any other change that recomputes the points, does not grow with the post's
+//! number of likes.
 use crate::db::Tx;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -308,7 +313,8 @@ pub async fn sync_posts(
 }
 
 /// The points this post should currently be credited: base points + likes × like points + highlight points + acceptance
-/// points while it is valid, otherwise 0.
+/// points while it is valid, otherwise 0. Likes are the post's like counter less the author's own like, if any
+/// (imported or from before liking one's own post was refused).
 ///
 /// Only the post's own state matters: making the thread members-only, moving forums or hiding the parent
 /// floor has no effect.
@@ -320,7 +326,7 @@ async fn target(
     points: Points,
 ) -> Result<i64> {
     let post = crate::db::query(
-        "SELECT p.tid,p.first,p.invisible,p.deleted_at,p.erased_at,t.digest FROM gonof_forum_post p JOIN gonof_forum_thread t ON t.tid=p.tid WHERE p.pid=? LOCK IN SHARE MODE",
+        "SELECT p.tid,p.first,p.invisible,p.deleted_at,p.erased_at,p.reactions,t.digest FROM gonof_forum_post p JOIN gonof_forum_thread t ON t.tid=p.tid WHERE p.pid=? LOCK IN SHARE MODE",
     )
     .bind(pid)
     .fetch_one(db.observe(&mut **tx))
@@ -332,13 +338,19 @@ async fn target(
         return Ok(0);
     }
     let first = post.try_get::<i64, _>("first")? == 1;
-    let likes: i64 = crate::db::query_scalar(
-        "SELECT COUNT(*) FROM gonof_forum_post_reaction WHERE pid=? AND uid<>? LOCK IN SHARE MODE",
-    )
-    .bind(pid)
-    .bind(author)
-    .fetch_one(db.observe(&mut **tx))
-    .await?;
+    let mut likes: i64 = post.try_get("reactions")?;
+    if likes > 0
+        && crate::db::query(
+            "SELECT uid FROM gonof_forum_post_reaction WHERE pid=? AND uid=? LOCK IN SHARE MODE",
+        )
+        .bind(pid)
+        .bind(author)
+        .fetch_optional(db.observe(&mut **tx))
+        .await?
+        .is_some()
+    {
+        likes -= 1;
+    }
     let mut total = points.base + likes * points.like;
     if first && post.try_get::<i64, _>("digest")? > 0 {
         total += points.digest;
