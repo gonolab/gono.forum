@@ -1435,3 +1435,43 @@ async fn a_conversation_offers_no_reply_that_sending_would_refuse() {
     assert!(html.contains("Private messages are unavailable while the site is read-only"));
     fixture._services.cleanup_ref().await.unwrap();
 }
+
+// "Mark all as read" marks only the listed category, so it shows only where that category has something unread.
+#[tokio::test]
+async fn mark_all_read_shows_only_where_the_category_has_unread() {
+    let fixture = Fixture::new().await;
+    add_member(&fixture.db, 9302, "notice-author").await;
+    let pid: i64 = gono_forum_web::db::query_scalar(
+        "SELECT pid FROM gonof_forum_post WHERE tid=103 AND first=1",
+    )
+    .fetch_one(fixture.db.executor())
+    .await
+    .unwrap();
+    use gono_forum_web::notifications::record::{Kind, NewNotice, Target};
+    gono_forum_web::test_support::insert_notification(
+        &fixture.db,
+        &NewNotice {
+            uid: 9301,
+            authorid: 9302,
+            kind: Kind::Reply,
+            target: Target::Post(pid),
+            event_key: "one-reply",
+            reason: "",
+            dateline: 100,
+        },
+    )
+    .await
+    .unwrap();
+    let button = "action=\"/my/notifications/read-all\"";
+    for (path, shown) in [
+        ("/my/notifications", true),
+        ("/my/notifications?category=replies", true),
+        ("/my/notifications?category=following", false),
+        ("/my/notifications?category=system", false),
+    ] {
+        let (status, _, html) = fixture.get(path, true).await;
+        assert_eq!(status, StatusCode::OK, "{path}");
+        assert_eq!(html.contains(button), shown, "{path}");
+    }
+    fixture._services.cleanup_ref().await.unwrap();
+}

@@ -22,6 +22,7 @@ pub(super) fn routes() -> Router<Arc<AppState>> {
         .route(LIST, get(filters_page))
         .route("/api/forums/{id}/filter", post(change))
         .layer(DefaultBodyLimit::max(16 * 1024))
+        .layer(axum::middleware::from_fn(super::interaction_errors))
 }
 
 /// The button for one setting level; each button is an independent native form with its own request key.
@@ -287,9 +288,8 @@ async fn change(
             }
         },
     };
-    // Shares the same limit as following and blocking members.
-    // The count is the admin setting `settings.limit.social_per_5min` (window of 5 minutes, a constant), shared by
-    // following, blocking and forum filters.
+    // The count is the admin setting `settings.limit.social_per_5min` (window of 5 minutes, a constant), shared with
+    // thread and forum follows and blocks.
     match state
         .limit(&[Rule::new(
             "social-write",

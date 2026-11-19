@@ -51,7 +51,11 @@ impl Notification {
 pub struct NotificationPage {
     pub items: Vec<Notification>,
     pub total: i64,
+    /// The member's unread count over all categories (the header link and the card's dot).
     pub unread: i64,
+    /// Whether the listed category has an unread notification up to `max_id`: what "Mark all as read" would change,
+    /// since it marks only the listed category.
+    pub category_unread: bool,
     pub max_id: i64,
 }
 
@@ -159,6 +163,20 @@ pub async fn list_in_category(
     if page > (total as usize).div_ceil(page_size).max(1) {
         return Err(ContentWriteError::NotFound);
     }
+    let filter = type_filter(category);
+    let category_unread = if filter.is_empty() {
+        unread > 0
+    } else {
+        // Through gonof_notification_unread (uid,read_at,…), stopping at the first row.
+        crate::db::query_scalar::<i64>(&format!(
+            "SELECT 1 FROM gonof_home_notification n WHERE n.uid=? AND n.read_at=0 AND n.id<=?{filter} LIMIT 1"
+        ))
+        .bind(actor.uid)
+        .bind(max_id)
+        .fetch_optional(db.executor())
+        .await?
+        .is_some()
+    };
     // Forum readability comes from the joined forum table, post visibility from the denormalized copies of this floor
     // and its parent floor; blocking is judged by joining the block table on its primary
     // key (anti-join), without an extra query.
@@ -251,6 +269,7 @@ pub async fn list_in_category(
         items,
         total,
         unread,
+        category_unread,
         max_id,
     })
 }

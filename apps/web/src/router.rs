@@ -2142,6 +2142,32 @@ fn if_none_match(headers: &axum::http::HeaderMap) -> Option<&str> {
         .and_then(|value| value.to_str().ok())
 }
 
+/// Layer for routes whose controls submit with htmx and expect no page back (likes, favorites, notification
+/// actions, follows, blocks, forum filters): an HTML error page answering such a request is marked with
+/// `X-Interaction-Page`, which site.js swaps in as a deliberate response instead of dropping it as an error, and
+/// retargeted to the whole body, so a refused change (read-only site, rate limit, …) shows its reason instead of
+/// leaving the page as it was.
+async fn interaction_errors(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let htmx = posting::hx(request.headers());
+    let mut response = next.run(request).await;
+    if htmx
+        && (response.status().is_client_error() || response.status().is_server_error())
+        && response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .is_some_and(|value| value.as_bytes().starts_with(b"text/html"))
+    {
+        let headers = response.headers_mut();
+        headers.insert("X-Interaction-Page", HeaderValue::from_static("true"));
+        headers.insert("HX-Retarget", HeaderValue::from_static("body"));
+        headers.insert("HX-Reswap", HeaderValue::from_static("innerHTML"));
+    }
+    response
+}
+
 fn error_page(state: &AppState, status: StatusCode, message: &str) -> Response {
     if !state.frame.loaded {
         return plain_error(

@@ -20,33 +20,7 @@ pub(super) fn routes() -> Router<Arc<AppState>> {
         .route("/my/notifications/{id}/read", post(read))
         .route("/my/notifications/{id}/open", post(open))
         .layer(DefaultBodyLimit::max(16 * 1024))
-        .layer(axum::middleware::from_fn(interaction_errors))
-}
-
-async fn interaction_errors(
-    request: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> Response {
-    let htmx = posting::hx(request.headers());
-    let mut response = next.run(request).await;
-    if htmx
-        && (response.status().is_client_error() || response.status().is_server_error())
-        && response
-            .headers()
-            .get(header::CONTENT_TYPE)
-            .is_some_and(|value| value.as_bytes().starts_with(b"text/html"))
-    {
-        response
-            .headers_mut()
-            .insert("X-Interaction-Page", HeaderValue::from_static("true"));
-        response
-            .headers_mut()
-            .insert("HX-Retarget", HeaderValue::from_static("body"));
-        response
-            .headers_mut()
-            .insert("HX-Reswap", HeaderValue::from_static("innerHTML"));
-    }
-    response
+        .layer(axum::middleware::from_fn(super::interaction_errors))
 }
 
 #[derive(Deserialize)]
@@ -227,6 +201,8 @@ struct NotificationsTemplate<'a> {
     page: usize,
     max_id: i64,
     category: String,
+    /// Whether the listed category has something for "Mark all as read" to change.
+    category_unread: bool,
     can_change: bool,
     fragment: bool,
     request_key: String,
@@ -876,6 +852,7 @@ async fn notifications_response(
         page,
         max_id: list.max_id,
         category: category.to_owned(),
+        category_unread: list.category_unread,
         fragment: htmx,
         request_key: identity::random_token(),
         can_change: state

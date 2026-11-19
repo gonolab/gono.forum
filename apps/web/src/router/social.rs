@@ -31,6 +31,7 @@ pub(super) fn routes() -> Router<Arc<AppState>> {
         .route("/api/users/{id}/block", post(block_member))
         .route("/api/users/{id}/follow", post(follow_member))
         .layer(DefaultBodyLimit::max(16 * 1024))
+        .layer(axum::middleware::from_fn(super::interaction_errors))
 }
 
 pub(super) struct Control {
@@ -491,25 +492,28 @@ async fn change(
         return login(base(relation));
     };
     // The count is the admin setting `settings.limit.social_per_5min` (a 5-minute window, constant), shared by
-    // following, blocking and forum filters.
-    match state
-        .limit(&[Rule::new(
-            "social-write",
-            session.member.uid,
-            u32::try_from(state.frame.settings.limit.social_per_5min).unwrap_or(0),
-            300,
-        )])
-        .await
-    {
-        Ok(true) => {}
-        Ok(false) => {
-            return error_page(
-                &state,
-                StatusCode::TOO_MANY_REQUESTS,
-                crate::i18n::current().my_error_too_many_actions(),
-            );
+    // thread and forum follows, blocks and forum filters. Following a member counts toward the interaction limits
+    // instead (`follow_member`), as the admin settings list it, and not toward both.
+    if relation != Relation::Member {
+        match state
+            .limit(&[Rule::new(
+                "social-write",
+                session.member.uid,
+                u32::try_from(state.frame.settings.limit.social_per_5min).unwrap_or(0),
+                300,
+            )])
+            .await
+        {
+            Ok(true) => {}
+            Ok(false) => {
+                return error_page(
+                    &state,
+                    StatusCode::TOO_MANY_REQUESTS,
+                    crate::i18n::current().my_error_too_many_actions(),
+                );
+            }
+            Err(unavailable) => return unavailable,
         }
-        Err(unavailable) => return unavailable,
     }
     if let Err(error) = social::set(
         &state.db,
@@ -605,7 +609,7 @@ async fn follow_member(
     headers: HeaderMap,
     CsrfForm(form): CsrfForm<StateForm>,
 ) -> Response {
-    // Following members shares the toggle count with favorites and likes.
+    // Following members shares the toggle count with favorites and likes, and only that one.
     if let Some(session) = &state.viewer.session
         && let Some(response) = super::interaction::toggle_limited(&state, session.member.uid).await
     {
