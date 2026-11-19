@@ -443,7 +443,7 @@ pub struct StorageInput {
     pub secret_key: String,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 struct Profile {
     id: String,
     endpoint: String,

@@ -1057,6 +1057,87 @@ async fn equivalent_endpoint_spellings_share_key_rotation() {
     fixture._services.cleanup_ref().await.unwrap();
 }
 
+/// Saving the storage settings as they are writes nothing, and a configuration saved before becomes active again
+/// instead of being added once more, so the one settings row holding every profile does not grow with each save.
+#[tokio::test]
+async fn unchanged_storage_saves_do_not_grow_the_settings_record() {
+    let fixture = Fixture::new(MediaConfig::default()).await;
+    let server = FakeS3::new(fixture.db.clone()).await;
+    let first = fixture.configure(&server.endpoint).await;
+    let secrets = fixture.media.directory.join("secrets");
+    let files = || std::fs::read_dir(&secrets).unwrap().count();
+    let keep_keys = |revision: i64| StorageInput {
+        access_key: String::new(),
+        secret_key: String::new(),
+        ..storage_input(&server.endpoint, revision)
+    };
+    let record = || async {
+        crate::db::query_scalar::<String>("SELECT svalue FROM gonof_common_settings WHERE skey=?")
+            .bind(SETTING)
+            .fetch_one(fixture.db.executor())
+            .await
+            .unwrap()
+    };
+    let saved = record().await;
+    for _ in 0..30 {
+        let settings = fixture
+            .media
+            .save_settings(fixture.uid, keep_keys(1))
+            .await
+            .unwrap();
+        assert_eq!(settings.revision, 1, "an unchanged save changes nothing");
+    }
+    assert_eq!(record().await, saved);
+    assert_eq!(files(), 1);
+    // Another prefix is another configuration; switching back uses the first one again.
+    let moved = fixture
+        .media
+        .save_settings(
+            fixture.uid,
+            StorageInput {
+                prefix: "elsewhere".into(),
+                ..keep_keys(1)
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(moved.revision, 2);
+    assert_ne!(moved.profile_id, first.profile_id);
+    let back = fixture
+        .media
+        .save_settings(fixture.uid, keep_keys(2))
+        .await
+        .unwrap();
+    assert_eq!(back.revision, 3);
+    assert_eq!(back.profile_id, first.profile_id);
+    assert_eq!(fixture.media.stored().await.unwrap().profiles.len(), 2);
+    assert_eq!(files(), 1, "keeping the keys writes no copy of them");
+    // New keys for the same bucket rotate both profiles, and the active one is kept rather than copied.
+    let rotated = fixture
+        .media
+        .save_settings(
+            fixture.uid,
+            StorageInput {
+                access_key: "rotated-access-key".into(),
+                secret_key: "rotated-secret-key".into(),
+                ..storage_input(&server.endpoint, 3)
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(rotated.revision, 4);
+    assert_eq!(rotated.profile_id, first.profile_id);
+    assert_eq!(fixture.media.stored().await.unwrap().profiles.len(), 2);
+    assert_eq!(files(), 1);
+    let again = fixture
+        .media
+        .save_settings(fixture.uid, keep_keys(4))
+        .await
+        .unwrap();
+    assert_eq!(again.revision, 4);
+    fixture._services.cleanup_ref().await.unwrap();
+}
+
 /// A muted member cannot upload (docs/roles.md, "Mutes"); the upload is rejected before the attachment row
 /// is written and takes no quota; after the mute expires, uploads work as usual.
 #[tokio::test]

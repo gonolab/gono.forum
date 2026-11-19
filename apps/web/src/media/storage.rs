@@ -134,9 +134,15 @@ impl Media {
             }
         };
         let id = identity::random_token();
+        // Empty keys keep the current ones: the profile names the current credentials file rather than a copy of it,
+        // so saving the same settings again yields the same configuration (`save_profile`).
+        let secret_ref = match current.profiles.get(&current.active) {
+            Some(previous) if !new_keys => previous.secret_ref.clone(),
+            _ => id.clone(),
+        };
         Ok((
             Profile {
-                id: id.clone(),
+                id,
                 endpoint,
                 region: region.into(),
                 bucket: bucket.into(),
@@ -146,7 +152,7 @@ impl Media {
                     format!("{prefix}/")
                 },
                 path_style: input.path_style,
-                secret_ref: id,
+                secret_ref,
             },
             credentials,
             new_keys,
@@ -178,17 +184,23 @@ impl Media {
         }
         let (profile, credentials, new_keys) = self.candidate(&input, &before).await?;
         let directory = self.directory.join("secrets");
-        private_directory(&directory).await?;
-        let path = directory.join(&profile.secret_ref);
-        let written = async {
-            let mut file = private_file(&path).await?;
-            let bytes = serde_json::to_vec(&credentials)
-                .context("cannot encode the storage credentials")?;
-            file.write_all(&bytes).await?;
-            file.sync_all().await?;
-            sync_directory(&directory).await
-        }
-        .await;
+        // Only new keys get a file of their own; empty keys keep naming the current one.
+        let path = new_keys.then(|| directory.join(&profile.secret_ref));
+        let written = match &path {
+            Some(path) => {
+                async {
+                    private_directory(&directory).await?;
+                    let mut file = private_file(path).await?;
+                    let bytes = serde_json::to_vec(&credentials)
+                        .context("cannot encode the storage credentials")?;
+                    file.write_all(&bytes).await?;
+                    file.sync_all().await?;
+                    sync_directory(&directory).await
+                }
+                .await
+            }
+            None => Ok(()),
+        };
         let saved = match written {
             Ok(()) => {
                 self.save_profile(actor, input.revision, profile, new_keys)
@@ -200,7 +212,9 @@ impl Media {
             Ok(saved) => saved,
             Err(e) => {
                 // Not committed; these credentials are not referenced by any configuration.
-                let _ = tokio::fs::remove_file(&path).await;
+                if let Some(path) = &path {
+                    let _ = tokio::fs::remove_file(path).await;
+                }
                 return Err(e);
             }
         };
@@ -225,8 +239,13 @@ impl Media {
     ///
     /// New keys for the endpoint (compared in canonical form) and bucket of earlier profiles replace theirs too:
     /// attachments keep the profile they were stored with, and once the old keys are revoked they could not be read
-    /// any more. The transaction is handed
-    /// back to the caller to commit, with the credentials no profile references any more.
+    /// any more.
+    ///
+    /// Profiles are kept for good (attachments name theirs), all in one settings row, so a configuration is never
+    /// stored twice: when an existing profile has the same endpoint, region, bucket, prefix, addressing and keys (after
+    /// the rotation above), it becomes the active one again instead of a copy being added, and saving the settings as
+    /// they are writes nothing and leaves the revision alone. The transaction is handed back to the caller to commit,
+    /// with the credentials no profile references any more.
     async fn save_profile(
         &self,
         actor: identity::Actor,
@@ -249,8 +268,7 @@ impl Media {
                 crate::i18n::current().media_manage_error_stale().into(),
             ));
         }
-        current.revision += 1;
-        current.active = profile.id.clone();
+        let (active, profiles) = (current.active.clone(), current.profiles.clone());
         let before: std::collections::BTreeSet<String> = current
             .profiles
             .values()
@@ -268,7 +286,23 @@ impl Media {
                 }
             }
         }
-        current.profiles.insert(profile.id.clone(), profile);
+        let same = current
+            .profiles
+            .values()
+            .find(|other| same_configuration(other, &profile))
+            .map(|other| other.id.clone());
+        current.active = match same {
+            Some(id) => id,
+            None => {
+                let id = profile.id.clone();
+                current.profiles.insert(id.clone(), profile);
+                id
+            }
+        };
+        if current.active == active && current.profiles == profiles {
+            return Ok((tx, current, Vec::new()));
+        }
+        current.revision += 1;
         let retired: Vec<String> = before
             .into_iter()
             .filter(|secret_ref| {
@@ -772,6 +806,16 @@ const POST_ACCESS_JOINS: &str = "JOIN gonof_forum_thread t ON t.tid=p.tid
 /// one endpoint (an upper-case scheme or host, an explicit default port such as `:443`) are stored as one.
 fn canonical_endpoint(address: url::Url) -> String {
     address.as_str().trim_end_matches('/').to_owned()
+}
+
+/// Whether a stored profile is the configuration `candidate` describes (`save_profile`).
+fn same_configuration(stored: &Profile, candidate: &Profile) -> bool {
+    stored_endpoint(&stored.endpoint) == candidate.endpoint
+        && stored.region == candidate.region
+        && stored.bucket == candidate.bucket
+        && stored.prefix == candidate.prefix
+        && stored.path_style == candidate.path_style
+        && stored.secret_ref == candidate.secret_ref
 }
 
 /// A stored endpoint in canonical form; one that no longer parses is compared as it is.
