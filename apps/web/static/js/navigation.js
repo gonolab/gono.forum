@@ -51,8 +51,16 @@
     if (list) {
       const items = [...list.querySelectorAll('[data-thread-id]')];
       const header = stickyTop();
-      const anchor = items.find(item => item.dataset.threadId === departure)
+      // Only a row the reader can see anchors the position: when the list starts below the window (a board
+      // directory above it, on a phone), restoring by a row out of view would scroll the page to that row; then the
+      // scroll offset alone is kept.
+      const visible = item => {
+        const box = item.getBoundingClientRect();
+        return box.bottom > header && box.top < innerHeight;
+      };
+      const candidate = items.find(item => item.dataset.threadId === departure)
         || items.find(item => item.getBoundingClientRect().bottom > header);
+      const anchor = candidate && visible(candidate) ? candidate : null;
       entry.position = { y: scrollY, tid: anchor?.dataset.threadId, offset: anchor?.getBoundingClientRect().top };
     }
     write();

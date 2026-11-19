@@ -242,6 +242,32 @@ test('the open phone drawer leaves the page it covers inert', async () => {
   }
 });
 
+test('going back from a board keeps the home page where it was on a phone', async () => {
+  const context = await currentBrowser.newContext(phone);
+  const page = await context.newPage();
+  try {
+    await page.goto(`${instance.origin}/`);
+    await page.waitForLoadState('load');
+    // The board directory comes first; the thread list starts below the first screen.
+    const list = await page.locator('ul[data-scroll-list]').evaluate((element) => element.getBoundingClientRect().top);
+    expect(list).toBeGreaterThan(page.viewportSize().height);
+    expect(await page.evaluate(() => scrollY)).toBe(0);
+    const board = page.locator('.board-dir__name a[href]').first();
+    const before = await board.evaluate((link) => link.getBoundingClientRect().top);
+    await board.click();
+    await page.waitForURL((url) => url.pathname !== '/');
+    await page.goBack();
+    await page.waitForURL(`${instance.origin}/`);
+    await page.waitForLoadState('load');
+    // navigation.js restores after the fonts and two frames.
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => scrollY)).toBe(0);
+    expect(await page.locator('.board-dir__name a[href]').first().evaluate((link) => link.getBoundingClientRect().top)).toBe(before);
+  } finally {
+    await context.close();
+  }
+});
+
 test('pressing the timeline thumb without dragging stays on the floor being read', async ({ page }) => {
   await page.goto(`${instance.origin}/thread-${LONG}`);
   const handle = page.locator('[data-block="outline"] .timeline__handle');
