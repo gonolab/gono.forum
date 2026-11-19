@@ -1,5 +1,5 @@
 {% extends "layout/manage.html" %}{% block panel %}
-{#- Appearance › Layout (docs/skins.md, "Editing a layout"): every place with its blocks and plain forms to change them in a draft, then preview, publish or discard the draft. Works without JavaScript. #}
+{#- Appearance › Layout (docs/skins.md, "Editing a layout"): every place with its blocks and plain forms to change them in a draft, then preview, publish or discard the draft. Works without JavaScript. Every form that changes the layout carries the revision shown here, and blocks are named by id. #}
 {%- if !notice.is_empty() %}<p class="form-feedback form-feedback--success" role="status">{{ notice }}</p>{% endif %}
 {%- if !error.is_empty() %}<p class="form-feedback" role="alert" data-layout-error>{{ error }}</p>{% endif %}
 <section class="panel" id="section-layout" aria-labelledby="section-layout-title"><h1 class="panel__title" id="section-layout-title">{% if domain_name.is_empty() %}{{ p.t.layout_heading_site() }}{% else %}{{ p.t.layout_heading_domain(domain_name.as_str()) }}{% endif %}</h1>
@@ -18,8 +18,8 @@
 {%- if draft %}
 <div class="form-actions">
 <form method="post" action="{{ crate::site::base() }}/manage/layout/preview"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain" value="{{ domain }}"><button class="button button--secondary" type="submit">{{ p.t.layout_preview() }}</button></form>
-<form method="post" action="{{ crate::site::base() }}/manage/layout/publish"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain" value="{{ domain }}"><button class="button" type="submit">{{ p.t.layout_publish() }}</button></form>
-<form method="post" action="{{ crate::site::base() }}/manage/layout/discard"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain" value="{{ domain }}"><button class="button button--secondary" type="submit">{{ p.t.layout_discard() }}</button></form>
+<form method="post" action="{{ crate::site::base() }}/manage/layout/publish"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain" value="{{ domain }}"><input type="hidden" name="revision" value="{{ revision }}"><button class="button" type="submit">{{ p.t.layout_publish() }}</button></form>
+<form method="post" action="{{ crate::site::base() }}/manage/layout/discard"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain" value="{{ domain }}"><input type="hidden" name="revision" value="{{ revision }}"><button class="button button--secondary" type="submit">{{ p.t.layout_discard() }}</button></form>
 </div>
 {%- endif %}
 </div>
@@ -28,7 +28,7 @@
 <section class="panel" id="section-layout-home" data-layout-home="{% if let Some(home) = home %}{{ home }}{% else %}inherit{% endif %}" aria-labelledby="section-layout-home-title"><h2 class="panel__title" id="section-layout-home-title">{{ p.t.layout_home_heading() }}</h2>
 <p class="form-note">{{ p.t.layout_home_lead() }}</p>
 <p>{% if home.is_some() %}{% if domain_name.is_empty() %}{{ p.t.layout_home_own_site() }}{% else %}{{ p.t.layout_home_own_domain() }}{% endif %}{% else %}{{ p.t.layout_home_inherited(below_home.1, below_home.0) }}{% endif %}</p>
-<form class="fields" method="post" action="{{ crate::site::base() }}/manage/layout/home"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain" value="{{ domain }}">
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/layout/home"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain" value="{{ domain }}"><input type="hidden" name="revision" value="{{ revision }}">
 <fieldset class="option-group"><legend class="option-group__legend">{{ p.t.layout_home_field() }}</legend>
 <div class="option-group__options">
 <div class="checkline"><label class="checkline__label"><input type="radio" name="home" value="inherit"{% if home.is_none() %} checked{% endif %}><span>{{ p.t.layout_home_inherit() }} ({{ below_home.0 }})</span></label></div>
@@ -51,9 +51,9 @@
   <li class="layout-blocks__item"><span class="layout-blocks__name">{{ block.label }}</span> <span class="layout-blocks__detail">{{ block.detail }}{% if !block.show.is_empty() %} · {{ block.show }}{% endif %}</span>
     {%- if place.own %}
     <span class="layout-blocks__actions">
-      <form method="post" action="{{ crate::site::base() }}/manage/layout/move"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain" value="{{ domain }}"><input type="hidden" name="place" value="{{ place.name }}"><input type="hidden" name="index" value="{{ block.index }}"><input type="hidden" name="direction" value="up"><button class="button button--small button--secondary" type="submit"{% if loop.first %} disabled{% endif %}>{{ p.t.layout_move_up() }}</button></form>
-      <form method="post" action="{{ crate::site::base() }}/manage/layout/move"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain" value="{{ domain }}"><input type="hidden" name="place" value="{{ place.name }}"><input type="hidden" name="index" value="{{ block.index }}"><input type="hidden" name="direction" value="down"><button class="button button--small button--secondary" type="submit"{% if loop.last %} disabled{% endif %}>{{ p.t.layout_move_down() }}</button></form>
-      <form method="post" action="{{ crate::site::base() }}/manage/layout/remove"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain" value="{{ domain }}"><input type="hidden" name="place" value="{{ place.name }}"><input type="hidden" name="index" value="{{ block.index }}"><button class="button button--small button--secondary" type="submit">{{ p.t.layout_remove() }}</button></form>
+      <form method="post" action="{{ crate::site::base() }}/manage/layout/move"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain" value="{{ domain }}"><input type="hidden" name="place" value="{{ place.name }}"><input type="hidden" name="block" value="{{ block.id }}"><input type="hidden" name="revision" value="{{ revision }}"><input type="hidden" name="direction" value="up"><button class="button button--small button--secondary" type="submit"{% if loop.first %} disabled{% endif %}>{{ p.t.layout_move_up() }}</button></form>
+      <form method="post" action="{{ crate::site::base() }}/manage/layout/move"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain" value="{{ domain }}"><input type="hidden" name="place" value="{{ place.name }}"><input type="hidden" name="block" value="{{ block.id }}"><input type="hidden" name="revision" value="{{ revision }}"><input type="hidden" name="direction" value="down"><button class="button button--small button--secondary" type="submit"{% if loop.last %} disabled{% endif %}>{{ p.t.layout_move_down() }}</button></form>
+      <form method="post" action="{{ crate::site::base() }}/manage/layout/remove"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain" value="{{ domain }}"><input type="hidden" name="place" value="{{ place.name }}"><input type="hidden" name="block" value="{{ block.id }}"><input type="hidden" name="revision" value="{{ revision }}"><button class="button button--small button--secondary" type="submit">{{ p.t.layout_remove() }}</button></form>
     </span>
     {%- endif %}
   </li>
@@ -62,13 +62,13 @@
 {%- endif %}
 <div class="form-actions">
 {%- if place.own %}
-<form method="post" action="{{ crate::site::base() }}/manage/layout/inherit"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain" value="{{ domain }}"><input type="hidden" name="place" value="{{ place.name }}"><button class="button button--secondary" type="submit">{% if domain_name.is_empty() %}{{ p.t.layout_inherit_site() }}{% else %}{{ p.t.layout_inherit_domain() }}{% endif %}</button></form>
+<form method="post" action="{{ crate::site::base() }}/manage/layout/inherit"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain" value="{{ domain }}"><input type="hidden" name="place" value="{{ place.name }}"><input type="hidden" name="revision" value="{{ revision }}"><button class="button button--secondary" type="submit">{% if domain_name.is_empty() %}{{ p.t.layout_inherit_site() }}{% else %}{{ p.t.layout_inherit_domain() }}{% endif %}</button></form>
 {%- else %}
-<form method="post" action="{{ crate::site::base() }}/manage/layout/own"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain" value="{{ domain }}"><input type="hidden" name="place" value="{{ place.name }}"><button class="button button--secondary" type="submit">{{ p.t.layout_own() }}</button></form>
+<form method="post" action="{{ crate::site::base() }}/manage/layout/own"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain" value="{{ domain }}"><input type="hidden" name="place" value="{{ place.name }}"><input type="hidden" name="revision" value="{{ revision }}"><button class="button button--secondary" type="submit">{{ p.t.layout_own() }}</button></form>
 {%- endif %}
 </div>
 {%- if place.blocks.len() < place.capacity %}
-<form class="fields fields--inline" method="get" action="{{ crate::site::base() }}/manage/layout/add"><input type="hidden" name="domain" value="{{ domain }}"><input type="hidden" name="place" value="{{ place.name }}">
+<form class="fields fields--inline" method="get" action="{{ crate::site::base() }}/manage/layout/add"><input type="hidden" name="domain" value="{{ domain }}"><input type="hidden" name="place" value="{{ place.name }}"><input type="hidden" name="revision" value="{{ revision }}">
 <div class="field">
   <label class="field__label" for="add-{{ place.name }}">{{ p.t.layout_add_source() }}</label>
   <select id="add-{{ place.name }}" name="source">{% for (value, label) in place.sources %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select>

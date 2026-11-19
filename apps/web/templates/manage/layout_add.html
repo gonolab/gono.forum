@@ -2,7 +2,7 @@
 {#- Adding a block (docs/skins.md, "Editing a layout"): the fields come from the source's parameter lists, and the block joins the place's list in the draft. #}
 <section class="panel" id="section-layout-add" aria-labelledby="section-layout-add-title"><h1 class="panel__title" id="section-layout-add-title">{{ p.t.layout_add_heading(source_label.as_str(), place_label) }}</h1>
 {%- if !error.is_empty() %}<p class="form-feedback" role="alert" data-layout-error>{{ error }}</p>{% endif %}
-<form class="fields" method="post" action="{{ crate::site::base() }}/manage/layout/add"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain" value="{{ domain }}"><input type="hidden" name="place" value="{{ place }}"><input type="hidden" name="source" value="{{ source }}">
+<form class="fields" method="post" action="{{ crate::site::base() }}/manage/layout/add"><input type="hidden" name="_csrf" value="{{ p.csrf }}"><input type="hidden" name="domain" value="{{ domain }}"><input type="hidden" name="place" value="{{ place }}"><input type="hidden" name="source" value="{{ source }}"><input type="hidden" name="revision" value="{{ revision }}">
 {%- for field in fields %}
 {%- match field.kind %}
 {%- when FieldKind::Select with (options) %}

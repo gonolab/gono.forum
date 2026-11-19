@@ -533,9 +533,17 @@ form button.
 - **Draft.** Every change is saved to a draft, `settings.layout_draft.site.{body,title,updated_at}` or
   `settings.layout_draft.<domain id>.…`, after the strict checks of a saved layout; visitors never see it. **Preview the
   draft** shows it to this administrator on every page (on the domain's own address for a domain's draft), with the
-  preview bar; **Publish the draft** writes the places and the home page into the document under the same locks and checks as a
-  skin choice, records `layout.save` with the places and the home page before and after, deletes the draft and ends the preview; **Discard the
-  draft** deletes it. Deleting a domain deletes its draft too.
+  preview bar; **Publish the draft** reads the draft under a lock on its rows, checks it strictly, writes the places and
+  the home page into the document under the same locks and checks as a skin choice, records `layout.save` with the
+  places and the home page before and after and deletes the draft, all in one transaction, and ends the preview; a
+  draft saved meanwhile waits for that transaction, so it is neither lost nor published unseen. **Discard the draft**
+  deletes it. Deleting a domain deletes its draft too.
+- **Pages left open.** Every form that changes the layout (the add form included) carries the revision of the layout
+  the page showed: a hash of the places and home page the editor works on, the draft's or, without one, the
+  document's. Move up, Move down and Remove name the block by its id. A form whose revision is no longer the layout's,
+  because another tab or administrator changed it, or that names a block the place no longer lists, changes nothing and
+  answers 409 with the editor as it is now and a note saying so; the revision is compared again under the draft's lock
+  in the transaction that writes. The preview bar's **Publish** carries no revision and publishes the draft as it is.
 
 **Changing skins.** When the document whose skin changes (the site's at `/manage/skins`, a domain's on its page) sets
 places of its own, choosing a skin first asks: **Keep my layout**, or **Use the new skin's layout**, which clears the

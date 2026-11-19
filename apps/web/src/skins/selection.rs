@@ -309,11 +309,7 @@ pub async fn save_colors(
     .await
 }
 
-/// Changes a layout document: locks its rows, checks the administrator, that the domain exists and, for an imported
-/// skin, that its row still exists (a delete takes it under a lock); then writes what `change` makes of the stored
-/// document, records `kind` with the data `change` returns and clears the settings block after commit. A document
-/// left with nothing of its own is emptied (the site's rows are seeded and stay) or, for a domain, deleted, so the
-/// domain follows the site again.
+/// Changes a layout document in its own transaction ([`edit_in`]) and clears the settings block after commit.
 async fn edit(
     db: &Database,
     global: &GlobalCache,
@@ -323,35 +319,55 @@ async fn edit(
     kind: &str,
     change: impl FnOnce(Option<Layout>) -> (Layout, serde_json::Value),
 ) -> Result<(), IdentityError> {
-    let prefix = match domain_id {
+    let mut tx = db.begin_write().await?;
+    edit_in(db, &mut tx, actor, domain_id, imported, kind, change).await?;
+    tx.commit().await?;
+    global
+        .announce(&[Block::Settings])
+        .await
+        .map_err(IdentityError::Internal)?;
+    Ok(())
+}
+
+/// The key prefix of the site's document or a domain's.
+fn document_prefix(domain_id: Option<i64>) -> String {
+    match domain_id {
         None => LAYOUT_PREFIX.to_owned(),
         Some(id) => domain_prefix(id),
-    };
+    }
+}
+
+/// Changes a layout document in `tx`: locks its rows, checks the administrator, that the domain exists and, for an
+/// imported skin, that its row still exists (a delete takes it under a lock); then writes what `change` makes of the
+/// stored document and records `kind` with the data `change` returns. A document left with nothing of its own is
+/// emptied (the site's rows are seeded and stay) or, for a domain, deleted, so the domain follows the site again. The
+/// caller commits and clears the settings block.
+async fn edit_in(
+    db: &Database,
+    tx: &mut Tx<'_>,
+    actor: Actor,
+    domain_id: Option<i64>,
+    imported: Option<&str>,
+    kind: &str,
+    change: impl FnOnce(Option<Layout>) -> (Layout, serde_json::Value),
+) -> Result<(), IdentityError> {
+    let prefix = document_prefix(domain_id);
     let keys = ["body", "title", "updated_at"].map(|field| format!("{prefix}{field}"));
-    let mut tx = db.begin_write().await?;
     let rows = db::query(crate::runtime::DOCUMENT_LOCK_SQL)
         .bind(&keys[0])
         .bind(&keys[1])
         .bind(&keys[2])
-        .fetch_all(db.observe(&mut *tx))
+        .fetch_all(db.observe(&mut **tx))
         .await?;
-    crate::runtime::admin_locked(db, &mut tx, actor).await?;
+    crate::runtime::admin_locked(db, tx, actor).await?;
     if let Some(id) = domain_id {
-        let found = db::query(
-            "SELECT domain_id FROM gonof_common_site_domain WHERE domain_id=? LOCK IN SHARE MODE",
-        )
-        .bind(id)
-        .fetch_optional(db.observe(&mut *tx))
-        .await?;
-        if found.is_none() {
-            return Err(IdentityError::NotFound);
-        }
+        domain_exists(db, tx, id).await?;
     }
     if let Some(id) = imported {
         let found =
             db::query("SELECT skin_id FROM gonof_common_skin WHERE skin_id=? LOCK IN SHARE MODE")
                 .bind(id)
-                .fetch_optional(db.observe(&mut *tx))
+                .fetch_optional(db.observe(&mut **tx))
                 .await?;
         if found.is_none() {
             return Err(IdentityError::Validation(
@@ -375,29 +391,15 @@ async fn edit(
         && layout.places.is_null()
         && layout.home.is_none();
     match (empty, domain_id) {
-        (true, Some(_)) => {
-            db::query("DELETE FROM gonof_common_settings WHERE skey IN (?,?,?)")
-                .bind(&keys[0])
-                .bind(&keys[1])
-                .bind(&keys[2])
-                .execute(db.observe(&mut *tx))
-                .await?;
-        }
+        (true, Some(_)) => delete_rows(db, tx, &prefix).await?,
         (true, None) => {
-            crate::runtime::write_document(
-                db,
-                &mut tx,
-                &prefix,
-                "",
-                &title,
-                crate::identity::now(),
-            )
-            .await?;
+            crate::runtime::write_document(db, tx, &prefix, "", &title, crate::identity::now())
+                .await?;
         }
         (false, _) => {
             crate::runtime::write_document(
                 db,
-                &mut tx,
+                tx,
                 &prefix,
                 &layout.body(),
                 &title,
@@ -406,34 +408,88 @@ async fn edit(
             .await?;
         }
     }
-    crate::runtime::audit(db, &mut tx, actor, kind, data).await?;
-    tx.commit().await?;
-    global
-        .announce(&[Block::Settings])
-        .await
-        .map_err(IdentityError::Internal)?;
+    crate::runtime::audit(db, tx, actor, kind, data).await?;
+    Ok(())
+}
+
+/// Checks, with a shared lock, that the domain still exists.
+async fn domain_exists(db: &Database, tx: &mut Tx<'_>, id: i64) -> Result<(), IdentityError> {
+    let found = db::query(
+        "SELECT domain_id FROM gonof_common_site_domain WHERE domain_id=? LOCK IN SHARE MODE",
+    )
+    .bind(id)
+    .fetch_optional(db.observe(&mut **tx))
+    .await?;
+    match found {
+        Some(_) => Ok(()),
+        None => Err(IdentityError::NotFound),
+    }
+}
+
+/// Deletes the three rows of a document or draft.
+async fn delete_rows(db: &Database, tx: &mut Tx<'_>, prefix: &str) -> Result<(), IdentityError> {
+    db::query("DELETE FROM gonof_common_settings WHERE skey IN (?,?,?)")
+        .bind(format!("{prefix}body"))
+        .bind(format!("{prefix}title"))
+        .bind(format!("{prefix}updated_at"))
+        .execute(db.observe(&mut **tx))
+        .await?;
     Ok(())
 }
 
 /// A layout draft (docs/skins.md, "Editing a layout"): the places it sets and its choice of home page; what it
-/// leaves out comes from the next layout down, as in a document.
+/// leaves out comes from the next layout down, as in a document. The layout editor works on the draft when there is
+/// one, else on the published places and home page, in the same form.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Draft {
     pub places: crate::layout::Places,
     pub home: Option<super::manifest::HomeView>,
 }
 
-/// Saves the places and the home page of the site's document or a domain's ([`edit`]), from a published draft: no
-/// place (or `None`) changes none, so every place comes from the next layout again, and `home: None` inherits it.
-/// The skin, palette and colors stay as they are. Records `layout.save` with the places and home page before and
-/// after.
-pub async fn save_places(
-    db: &Database,
-    global: &GlobalCache,
-    actor: Actor,
+impl Draft {
+    /// The places and home page of a stored document body, read leniently; `None` when it sets neither.
+    pub fn of_document(body: &str) -> Option<Self> {
+        let layout = Layout::parse(body).ok().flatten()?;
+        let places = layout.places("the layout editor");
+        (places.is_some() || layout.home.is_some()).then(|| Self {
+            places: places.unwrap_or_default(),
+            home: layout.home,
+        })
+    }
+
+    /// A stored draft body, read leniently; `None` when it is no document.
+    fn of_draft(body: &str) -> Option<Self> {
+        Layout::parse(body).ok().flatten().map(|layout| Self {
+            places: crate::layout::Places::read(&layout.places, "a layout draft"),
+            home: layout.home,
+        })
+    }
+
+    /// The revision token of a working layout: the first 16 hex digits of the SHA-256 of its places and home page as
+    /// a document stores them. Every form of the layout editor carries the token of the layout it showed, and a
+    /// change to a layout with another token is refused (docs/skins.md, "Editing a layout").
+    pub fn revision(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let text = serde_json::json!({
+            "places": self.places.json(),
+            "home": self.home.map(super::manifest::HomeView::name),
+        })
+        .to_string();
+        Sha256::digest(text.as_bytes())
+            .iter()
+            .take(8)
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+}
+
+/// What [`save_places`] and [`publish_draft`] make of the document: the places and home page of `draft` (no place,
+/// or `None`, changes none, so every place comes from the next layout again, and `home: None` inherits it), with the
+/// `layout.save` data of the places and home page before and after.
+fn places_change(
     domain_id: Option<i64>,
     draft: Option<&Draft>,
-) -> Result<(), IdentityError> {
+) -> impl FnOnce(Option<Layout>) -> (Layout, serde_json::Value) {
     let places = draft.map(|draft| &draft.places);
     let home = draft.and_then(|draft| draft.home);
     let value = places
@@ -445,6 +501,37 @@ pub async fn save_places(
             .map(|places| places.keys().cloned().collect())
             .unwrap_or_default()
     };
+    move |before| {
+        let mut layout = before.unwrap_or(Layout {
+            v: 1,
+            ..Layout::default()
+        });
+        let data = serde_json::json!({
+            "domain_id": domain_id,
+            "places": names(&value),
+            "previous": names(&layout.places),
+            "blocks": value
+                .as_object()
+                .map_or(0, |places| places.values().filter_map(|blocks| blocks.as_array()).map(Vec::len).sum::<usize>()),
+            "home": home.map(super::manifest::HomeView::name),
+            "previous_home": layout.home.map(super::manifest::HomeView::name),
+        });
+        layout.places = value;
+        layout.home = home;
+        (layout, data)
+    }
+}
+
+/// Saves the places and the home page of the site's document or a domain's ([`edit`]): no place (or `None`)
+/// changes none, so every place comes from the next layout again, and `home: None` inherits it. The skin, palette and
+/// colors stay as they are. Records `layout.save` with the places and home page before and after.
+pub async fn save_places(
+    db: &Database,
+    global: &GlobalCache,
+    actor: Actor,
+    domain_id: Option<i64>,
+    draft: Option<&Draft>,
+) -> Result<(), IdentityError> {
     edit(
         db,
         global,
@@ -452,27 +539,66 @@ pub async fn save_places(
         domain_id,
         None,
         "layout.save",
-        |before| {
-            let mut layout = before.unwrap_or(Layout {
-                v: 1,
-                ..Layout::default()
-            });
-            let data = serde_json::json!({
-                "domain_id": domain_id,
-                "places": names(&value),
-                "previous": names(&layout.places),
-                "blocks": value
-                    .as_object()
-                    .map_or(0, |places| places.values().filter_map(|blocks| blocks.as_array()).map(Vec::len).sum::<usize>()),
-                "home": home.map(super::manifest::HomeView::name),
-                "previous_home": layout.home.map(super::manifest::HomeView::name),
-            });
-            layout.places = value;
-            layout.home = home;
-            (layout, data)
-        },
+        places_change(domain_id, draft),
     )
     .await
+}
+
+/// What publishing a layout draft came to.
+#[derive(Debug)]
+pub enum Published {
+    /// The draft's places and home page are the document's, and the draft is gone.
+    Done,
+    /// There is no draft: it was published or discarded meanwhile.
+    NoDraft,
+    /// The draft no longer passes the strict checks of a saved layout; nothing changed.
+    Refused(crate::layout::LayoutError),
+}
+
+/// Publishes the draft of the site's or a domain's places and home page in one transaction (docs/skins.md, "Editing
+/// a layout"): locks the draft's rows and reads it, checks it strictly and, with `expected`, that it is still the
+/// revision the administrator saw ([`Draft::revision`], `Conflict` otherwise); then writes it into the document under
+/// [`edit_in`]'s locks and checks, records `layout.save` and deletes the draft. A draft saved meanwhile waits for the
+/// lock, so it is neither published unseen nor deleted. The preview bar publishes with `expected: None`, the draft
+/// as it is.
+pub async fn publish_draft(
+    db: &Database,
+    global: &GlobalCache,
+    actor: Actor,
+    domain_id: Option<i64>,
+    expected: Option<&str>,
+) -> Result<Published, IdentityError> {
+    let prefix = draft_prefix(domain_id);
+    let mut tx = db.begin_write().await?;
+    let body = locked_draft(db, &mut tx, &prefix).await?;
+    let Some(draft) = body.as_deref().and_then(Draft::of_draft) else {
+        return Ok(Published::NoDraft);
+    };
+    if expected.is_some_and(|expected| expected != draft.revision()) {
+        return Err(IdentityError::Conflict(
+            crate::i18n::current().layout_draft_changed(),
+        ));
+    }
+    if let Err(problem) = crate::layout::Places::parse(&draft.places.json()) {
+        return Ok(Published::Refused(problem));
+    }
+    edit_in(
+        db,
+        &mut tx,
+        actor,
+        domain_id,
+        None,
+        "layout.save",
+        places_change(domain_id, Some(&draft)),
+    )
+    .await?;
+    delete_rows(db, &mut tx, &prefix).await?;
+    tx.commit().await?;
+    global
+        .announce(&[Block::Settings])
+        .await
+        .map_err(IdentityError::Internal)?;
+    Ok(Published::Done)
 }
 
 pub const DRAFT_PREFIX: &str = "settings.layout_draft.";
@@ -487,6 +613,28 @@ pub fn draft_prefix(domain_id: Option<i64>) -> String {
     }
 }
 
+/// Locks the three rows of the draft at `prefix` and returns its body, `None` without one. Every write of a draft
+/// takes this lock first, then the document's rows, then the administrator's row.
+async fn locked_draft(
+    db: &Database,
+    tx: &mut Tx<'_>,
+    prefix: &str,
+) -> Result<Option<String>, IdentityError> {
+    let body = format!("{prefix}body");
+    let rows = db::query(crate::runtime::DOCUMENT_LOCK_SQL)
+        .bind(&body)
+        .bind(format!("{prefix}title"))
+        .bind(format!("{prefix}updated_at"))
+        .fetch_all(db.observe(&mut **tx))
+        .await?;
+    for row in &rows {
+        if db::text(row, "skey")? == body {
+            return Ok(Some(db::text(row, "svalue")?));
+        }
+    }
+    Ok(None)
+}
+
 /// The draft of the site's or a domain's places and home page, read leniently; `None` without one.
 pub async fn read_draft(db: &Database, domain_id: Option<i64>) -> anyhow::Result<Option<Draft>> {
     let body: Option<String> =
@@ -494,43 +642,48 @@ pub async fn read_draft(db: &Database, domain_id: Option<i64>) -> anyhow::Result
             .bind(format!("{}body", draft_prefix(domain_id)))
             .fetch_optional(db.executor())
             .await?;
-    Ok(body
-        .and_then(|body| Layout::parse(&body).ok().flatten())
-        .map(|layout| Draft {
-            places: crate::layout::Places::read(&layout.places, "a layout draft"),
-            home: layout.home,
-        }))
+    Ok(body.as_deref().and_then(Draft::of_draft))
 }
 
 /// Writes the draft of the site's or a domain's places and home page, whose places the caller checked strictly
-/// (`layout::Places::parse`); `None` deletes it. Drafts are not seen by visitors, so writing one records nothing in
-/// the action log; publishing does (`layout.save`).
+/// (`layout::Places::parse`); `None` deletes it. `expected` is the revision of the layout the administrator changed
+/// ([`Draft::revision`]): it is compared, under the draft's lock, with the working layout (the draft, else the
+/// published places and home page, read with a shared lock), and a change to another layout is refused with
+/// `Conflict`, so an editor page left open cannot change or discard a layout it did not show. Drafts are not seen by
+/// visitors, so writing one records nothing in the action log; publishing does (`layout.save`).
 pub async fn write_draft(
     db: &Database,
     actor: Actor,
     domain_id: Option<i64>,
     draft: Option<&Draft>,
+    expected: &str,
 ) -> Result<(), IdentityError> {
     let prefix = draft_prefix(domain_id);
-    let keys = ["body", "title", "updated_at"].map(|field| format!("{prefix}{field}"));
     let mut tx = db.begin_write().await?;
-    db::query(crate::runtime::DOCUMENT_LOCK_SQL)
-        .bind(&keys[0])
-        .bind(&keys[1])
-        .bind(&keys[2])
-        .fetch_all(db.observe(&mut *tx))
-        .await?;
+    let body = locked_draft(db, &mut tx, &prefix).await?;
+    let working = match body.as_deref().and_then(Draft::of_draft) {
+        Some(working) => working,
+        None => {
+            let document: Option<String> = db::query_scalar(
+                "SELECT svalue FROM gonof_common_settings WHERE skey=? LOCK IN SHARE MODE",
+            )
+            .bind(format!("{}body", document_prefix(domain_id)))
+            .fetch_optional(db.observe(&mut *tx))
+            .await?;
+            document
+                .as_deref()
+                .and_then(Draft::of_document)
+                .unwrap_or_default()
+        }
+    };
+    if working.revision() != expected {
+        return Err(IdentityError::Conflict(
+            crate::i18n::current().layout_draft_changed(),
+        ));
+    }
     crate::runtime::admin_locked(db, &mut tx, actor).await?;
     if let Some(id) = domain_id {
-        let found = db::query(
-            "SELECT domain_id FROM gonof_common_site_domain WHERE domain_id=? LOCK IN SHARE MODE",
-        )
-        .bind(id)
-        .fetch_optional(db.observe(&mut *tx))
-        .await?;
-        if found.is_none() {
-            return Err(IdentityError::NotFound);
-        }
+        domain_exists(db, &mut tx, id).await?;
     }
     match draft {
         Some(draft) => {
@@ -542,14 +695,7 @@ pub async fn write_draft(
             crate::runtime::write_document(db, &mut tx, &prefix, &body, "", crate::identity::now())
                 .await?;
         }
-        None => {
-            db::query("DELETE FROM gonof_common_settings WHERE skey IN (?,?,?)")
-                .bind(&keys[0])
-                .bind(&keys[1])
-                .bind(&keys[2])
-                .execute(db.observe(&mut *tx))
-                .await?;
-        }
+        None => delete_rows(db, &mut tx, &prefix).await?,
     }
     tx.commit().await?;
     Ok(())

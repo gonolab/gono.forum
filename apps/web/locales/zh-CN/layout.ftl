@@ -51,6 +51,7 @@ layout-discard = 放弃草稿
 layout-published = 布局已发布。
 layout-draft-saved = 已存进草稿。
 layout-draft-discarded = 草稿已放弃。
+layout-draft-changed = 打开这个页面以后，布局已在别的标签页或被其他管理员改过，这次没有做任何修改。请看下面的当前布局，再操作一次。
 layout-preview-bar = 你正在预览布局草稿，访客看到的仍是已发布的布局。
 layout-capacity = { $count ->
        *[other] 最多 { $count } 个块。

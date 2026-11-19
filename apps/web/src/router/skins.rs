@@ -723,7 +723,7 @@ async fn publish(AdminPage(state): AdminPage, CsrfForm(_): CsrfForm<CsrfOnly>) -
         return response;
     };
     if let Some(draft) = preview.layout {
-        return super::layout_admin::publish_draft(&state, draft.domain).await;
+        return super::layout_admin::publish_draft(&state, draft.domain, None).await;
     }
     if !preview.colors.inherits() || preview.domain.is_some() {
         return match skins::selection::save_colors(

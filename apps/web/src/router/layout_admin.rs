@@ -1,7 +1,8 @@
 //! Appearance › Layout (`/manage/layout`, docs/skins.md, "Editing a layout"): the places and the home page of the
 //! site, or with `?domain=<id>` of one domain, edited as a draft with plain forms (move up, move down, remove, add,
 //! follow the next layout again, choose what the home page opens with), previewed by the administrator alone and
-//! published with `layout.save`. Administrators only.
+//! published with `layout.save`. Every form carries the revision of the layout it showed ([`selection::Draft::
+//! revision`]) and a change to a layout that changed since is refused with 409. Administrators only.
 use std::collections::HashMap;
 
 use super::extract::{AdminPage, CsrfForm, csrf_forms};
@@ -35,6 +36,8 @@ struct PageQuery {
     saved: String,
     place: String,
     source: String,
+    /// The revision of the layout the editor page showed, carried into the add form.
+    revision: String,
 }
 
 #[derive(Default, Deserialize)]
@@ -43,9 +46,12 @@ struct PlaceForm {
     _csrf: String,
     domain: i64,
     place: String,
-    index: usize,
+    /// The id of the block to move or remove.
+    block: String,
     /// `up` or `down`.
     direction: String,
+    /// The revision of the layout the page showed.
+    revision: String,
 }
 csrf_forms!(PlaceForm);
 
@@ -75,15 +81,7 @@ pub(super) async fn published(
             .bind(key)
             .fetch_optional(state.db.executor())
             .await?;
-    Ok(body
-        .and_then(|body| selection::Layout::parse(&body).ok().flatten())
-        .and_then(|layout| {
-            let places = layout.places("the layout editor");
-            (places.is_some() || layout.home.is_some()).then(|| selection::Draft {
-                places: places.unwrap_or_default(),
-                home: layout.home,
-            })
-        }))
+    Ok(body.as_deref().and_then(selection::Draft::of_document))
 }
 
 /// What the editor works on: the draft when there is one, else the published places and home page.
@@ -92,6 +90,8 @@ struct Working {
     /// The home page this layout chooses; `None` follows the next layout down.
     home: Option<HomeView>,
     draft: bool,
+    /// The revision of the places and home page above, which the forms carry.
+    revision: String,
     /// The places of the next layout down, which a place this one leaves out shows.
     below: Places,
     /// Where `below` comes from, per place.
@@ -157,6 +157,7 @@ async fn working(state: &AppState, domain: Option<i64>) -> anyhow::Result<Workin
         ));
     }
     Ok(Working {
+        revision: own.revision(),
         places: own.places,
         home: own.home,
         draft: draft.is_some(),
@@ -167,7 +168,7 @@ async fn working(state: &AppState, domain: Option<i64>) -> anyhow::Result<Workin
 }
 
 struct BlockRow {
-    index: usize,
+    id: String,
     label: String,
     detail: String,
     show: &'static str,
@@ -194,6 +195,8 @@ struct LayoutTemplate<'a> {
     domain_name: String,
     domains: Vec<(i64, String)>,
     draft: bool,
+    /// The revision of the layout shown, which every form carries.
+    revision: String,
     previewing: bool,
     notice: &'static str,
     error: String,
@@ -348,9 +351,8 @@ async fn render_page(
                 .or_else(|| working.below.get(place))
                 .unwrap_or(&[])
                 .iter()
-                .enumerate()
-                .map(|(index, block)| BlockRow {
-                    index,
+                .map(|block| BlockRow {
+                    id: block.id.clone(),
                     label: block
                         .title
                         .as_ref()
@@ -400,6 +402,7 @@ async fn render_page(
         domain_name,
         domains,
         draft: working.draft,
+        revision: working.revision,
         previewing: state.frame.preview_layout,
         notice,
         error,
@@ -409,17 +412,63 @@ async fn render_page(
     })
 }
 
+/// The editor with a problem and its status.
+async fn refused(
+    state: &AppState,
+    domain: Option<i64>,
+    error: String,
+    status: StatusCode,
+) -> Response {
+    let mut response = render_page(state, domain, "", error).await;
+    *response.status_mut() = status;
+    response
+}
+
+/// The editor of the layout as it is now, 409: the form came from a page that showed another revision.
+async fn stale(state: &AppState, domain: Option<i64>) -> Response {
+    refused(
+        state,
+        domain,
+        crate::i18n::current().layout_draft_changed().into(),
+        StatusCode::CONFLICT,
+    )
+    .await
+}
+
+/// The working layout, when it is still the revision the form's page showed; otherwise the response to send.
+async fn current(
+    state: &AppState,
+    domain: Option<i64>,
+    revision: &str,
+) -> Result<Working, Response> {
+    match working(state, domain).await {
+        Ok(working) if working.revision == revision => Ok(working),
+        Ok(_) => Err(stale(state, domain).await),
+        Err(error) => Err(database_error(state, error)),
+    }
+}
+
+/// What an edit of one place's blocks came to.
+enum Edited {
+    Changed,
+    /// Nothing to change (the first block moved up): no draft is written.
+    Unchanged,
+    /// The form names a block the place does not list.
+    Missing,
+}
+
 /// Changes the working places of one place and saves them as the draft; a change the strict checks refuse shows
-/// the editor with the problem.
+/// the editor with the problem, and one naming a block the place does not list shows it as changed meanwhile.
 async fn change(
     state: &AppState,
     domain: Option<i64>,
     place: Place,
-    edit: impl FnOnce(&mut Vec<Block>) -> bool,
+    revision: &str,
+    edit: impl FnOnce(&mut Vec<Block>) -> Edited,
 ) -> Response {
-    let working = match working(state, domain).await {
+    let working = match current(state, domain, revision).await {
         Ok(working) => working,
-        Err(error) => return database_error(state, error),
+        Err(response) => return response,
     };
     let mut places = working.places;
     let mut blocks = places
@@ -427,33 +476,49 @@ async fn change(
         .or_else(|| working.below.get(place))
         .map(<[Block]>::to_vec)
         .unwrap_or_default();
-    if !edit(&mut blocks) {
-        return auth::redirect(&address(domain));
+    match edit(&mut blocks) {
+        Edited::Changed => {}
+        Edited::Unchanged => return auth::redirect(&address(domain)),
+        Edited::Missing => return stale(state, domain).await,
     }
     places.set(place, Some(blocks));
-    save(state, domain, places, working.home).await
+    save(state, domain, places, working.home, revision).await
 }
 
+/// Saves the draft over the working layout of `revision`.
 async fn save(
     state: &AppState,
     domain: Option<i64>,
     places: Places,
     home: Option<HomeView>,
+    revision: &str,
 ) -> Response {
     let t = crate::i18n::current();
     if let Err(problem) = Places::parse(&places.json()) {
-        let mut response = render_page(state, domain, "", problem.message(t)).await;
-        *response.status_mut() = StatusCode::UNPROCESSABLE_ENTITY;
-        return response;
+        return refused(
+            state,
+            domain,
+            problem.message(t),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        )
+        .await;
     }
     let draft = selection::Draft { places, home };
-    match selection::write_draft(&state.db, super::skins::actor(state), domain, Some(&draft)).await
+    match selection::write_draft(
+        &state.db,
+        super::skins::actor(state),
+        domain,
+        Some(&draft),
+        revision,
+    )
+    .await
     {
         Ok(()) => auth::redirect(&format!(
             "{}{}saved=draft",
             address(domain),
             if domain.is_some() { "&" } else { "?" }
         )),
+        Err(crate::identity::IdentityError::Conflict(_)) => stale(state, domain).await,
         Err(error) => auth::identity_error(state, error),
     }
 }
@@ -474,19 +539,24 @@ async fn move_block(AdminPage(state): AdminPage, CsrfForm(form): CsrfForm<PlaceF
         Ok(place) => place,
         Err(response) => return response,
     };
-    let (index, up) = (form.index, form.direction == "up");
-    change(&state, target(form.domain), place, |blocks| {
+    let up = form.direction == "up";
+    let domain = target(form.domain);
+    change(&state, domain, place, &form.revision, |blocks| {
+        let Some(index) = blocks.iter().position(|block| block.id == form.block) else {
+            return Edited::Missing;
+        };
         let other = if up {
             index.checked_sub(1)
         } else {
-            index.checked_add(1)
+            Some(index + 1).filter(|other| *other < blocks.len())
         };
-        match other.filter(|other| *other < blocks.len() && index < blocks.len()) {
+        // The first block cannot go up nor the last down; the buttons are disabled there.
+        match other {
             Some(other) => {
                 blocks.swap(index, other);
-                true
+                Edited::Changed
             }
-            None => false,
+            None => Edited::Unchanged,
         }
     })
     .await
@@ -497,14 +567,19 @@ async fn remove(AdminPage(state): AdminPage, CsrfForm(form): CsrfForm<PlaceForm>
         Ok(place) => place,
         Err(response) => return response,
     };
-    change(&state, target(form.domain), place, |blocks| {
-        if form.index < blocks.len() {
-            blocks.remove(form.index);
-            true
-        } else {
-            false
-        }
-    })
+    change(
+        &state,
+        target(form.domain),
+        place,
+        &form.revision,
+        |blocks| match blocks.iter().position(|block| block.id == form.block) {
+            Some(index) => {
+                blocks.remove(index);
+                Edited::Changed
+            }
+            None => Edited::Missing,
+        },
+    )
     .await
 }
 
@@ -514,7 +589,10 @@ async fn own(AdminPage(state): AdminPage, CsrfForm(form): CsrfForm<PlaceForm>) -
         Ok(place) => place,
         Err(response) => return response,
     };
-    change(&state, target(form.domain), place, |_| true).await
+    change(&state, target(form.domain), place, &form.revision, |_| {
+        Edited::Changed
+    })
+    .await
 }
 
 /// Leaves a place to the next layout down again.
@@ -524,13 +602,13 @@ async fn inherit(AdminPage(state): AdminPage, CsrfForm(form): CsrfForm<PlaceForm
         Err(response) => return response,
     };
     let domain = target(form.domain);
-    let working = match working(&state, domain).await {
+    let working = match current(&state, domain, &form.revision).await {
         Ok(working) => working,
-        Err(error) => return database_error(&state, error),
+        Err(response) => return response,
     };
     let mut places = working.places;
     places.set(place, None);
-    save(&state, domain, places, working.home).await
+    save(&state, domain, places, working.home, &form.revision).await
 }
 
 #[derive(Default, Deserialize)]
@@ -540,6 +618,7 @@ struct HomeForm {
     domain: i64,
     /// `threads`, `boards`, or `inherit` to follow the next layout down.
     home: String,
+    revision: String,
 }
 csrf_forms!(HomeForm);
 
@@ -559,11 +638,11 @@ async fn home(AdminPage(state): AdminPage, CsrfForm(form): CsrfForm<HomeForm>) -
         },
     };
     let domain = target(form.domain);
-    let working = match working(&state, domain).await {
+    let working = match current(&state, domain, &form.revision).await {
         Ok(working) => working,
-        Err(error) => return database_error(&state, error),
+        Err(response) => return response,
     };
-    save(&state, domain, working.places, home).await
+    save(&state, domain, working.places, home, &form.revision).await
 }
 
 #[derive(Default, Deserialize)]
@@ -571,6 +650,8 @@ async fn home(AdminPage(state): AdminPage, CsrfForm(form): CsrfForm<HomeForm>) -
 struct TargetForm {
     _csrf: String,
     domain: i64,
+    /// The revision of the layout the page showed (publish and discard).
+    revision: String,
 }
 csrf_forms!(TargetForm);
 
@@ -600,27 +681,29 @@ async fn preview(AdminPage(state): AdminPage, CsrfForm(form): CsrfForm<TargetFor
     }
 }
 
-/// Publishes a draft: its places become the document's (`layout.save`), and the draft and any preview of it end.
-pub(super) async fn publish_draft(state: &AppState, domain: Option<i64>) -> Response {
+/// Publishes a draft in one transaction ([`selection::publish_draft`]): its places become the document's
+/// (`layout.save`), and the draft and any preview of it end. `expected` is the revision the editor page showed; the
+/// preview bar passes `None` and publishes the draft as it is.
+pub(super) async fn publish_draft(
+    state: &AppState,
+    domain: Option<i64>,
+    expected: Option<&str>,
+) -> Response {
     let actor = super::skins::actor(state);
-    let draft = match selection::read_draft(&state.db, domain).await {
-        Ok(Some(draft)) => draft,
-        Ok(None) => return auth::redirect(&address(domain)),
-        Err(error) => return database_error(state, error),
-    };
-    if let Err(problem) = Places::parse(&draft.places.json()) {
-        let mut response =
-            render_page(state, domain, "", problem.message(crate::i18n::current())).await;
-        *response.status_mut() = StatusCode::UNPROCESSABLE_ENTITY;
-        return response;
-    }
-    if let Err(error) =
-        selection::save_places(&state.db, &state.global, actor, domain, Some(&draft)).await
-    {
-        return auth::identity_error(state, error);
-    }
-    if let Err(error) = selection::write_draft(&state.db, actor, domain, None).await {
-        return auth::identity_error(state, error);
+    match selection::publish_draft(&state.db, &state.global, actor, domain, expected).await {
+        Ok(selection::Published::Done) => {}
+        Ok(selection::Published::NoDraft) => return auth::redirect(&address(domain)),
+        Ok(selection::Published::Refused(problem)) => {
+            return refused(
+                state,
+                domain,
+                problem.message(crate::i18n::current()),
+                StatusCode::UNPROCESSABLE_ENTITY,
+            )
+            .await;
+        }
+        Err(crate::identity::IdentityError::Conflict(_)) => return stale(state, domain).await,
+        Err(error) => return auth::identity_error(state, error),
     }
     let mut response = auth::redirect(&format!(
         "{}{}saved=published",
@@ -632,12 +715,20 @@ pub(super) async fn publish_draft(state: &AppState, domain: Option<i64>) -> Resp
 }
 
 async fn publish(AdminPage(state): AdminPage, CsrfForm(form): CsrfForm<TargetForm>) -> Response {
-    publish_draft(&state, target(form.domain)).await
+    publish_draft(&state, target(form.domain), Some(&form.revision)).await
 }
 
 async fn discard(AdminPage(state): AdminPage, CsrfForm(form): CsrfForm<TargetForm>) -> Response {
     let domain = target(form.domain);
-    match selection::write_draft(&state.db, super::skins::actor(&state), domain, None).await {
+    match selection::write_draft(
+        &state.db,
+        super::skins::actor(&state),
+        domain,
+        None,
+        &form.revision,
+    )
+    .await
+    {
         Ok(()) => {
             let mut response = auth::redirect(&format!(
                 "{}{}saved=discarded",
@@ -649,6 +740,7 @@ async fn discard(AdminPage(state): AdminPage, CsrfForm(form): CsrfForm<TargetFor
             }
             response
         }
+        Err(crate::identity::IdentityError::Conflict(_)) => stale(&state, domain).await,
         Err(error) => auth::identity_error(&state, error),
     }
 }
@@ -680,6 +772,8 @@ struct AddTemplate<'a> {
     place_label: &'static str,
     source: &'static str,
     source_label: String,
+    /// The revision of the layout the editor page showed.
+    revision: String,
     fields: Vec<Field>,
     values: HashMap<String, String>,
     error: String,
@@ -1041,6 +1135,7 @@ async fn render_add(
         place_label: place_label(place).0,
         source: kind.name(),
         source_label: kind_label(kind),
+        revision: query.revision.clone(),
         fields: fields(state, place, kind, &honors),
         values,
         error,
@@ -1167,6 +1262,7 @@ async fn add(
         place: get("place"),
         source: get("source"),
         saved: String::new(),
+        revision: get("revision"),
     };
     let (Some(place), Some(kind)) = (Place::parse(&query.place), Kind::parse(&query.source)) else {
         return error_page(
@@ -1176,9 +1272,9 @@ async fn add(
         );
     };
     let domain = target(query.domain);
-    let working = match working(&state, domain).await {
+    let working = match current(&state, domain, &query.revision).await {
         Ok(working) => working,
-        Err(error) => return database_error(&state, error),
+        Err(response) => return response,
     };
     let below = working.below.get(place).unwrap_or(&[]).to_vec();
     let id = fresh_id(kind, &working.places, &below);
@@ -1212,5 +1308,5 @@ async fn add(
         )
         .await;
     }
-    save(&state, domain, places, working.home).await
+    save(&state, domain, places, working.home, &query.revision).await
 }

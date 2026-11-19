@@ -61,6 +61,7 @@ layout-discard = Discard the draft
 layout-published = The layout was published.
 layout-draft-saved = Saved to the draft.
 layout-draft-discarded = The draft was discarded.
+layout-draft-changed = The layout changed after this page was opened, in another tab or by another administrator, so nothing was changed. Check it below and try again.
 layout-preview-bar = You are previewing a layout draft. Visitors still see the published layout.
 # $count is the most blocks the place takes.
 layout-capacity = { $count ->

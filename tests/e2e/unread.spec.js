@@ -244,7 +244,9 @@ test('the board directory marks a board whose latest thread is unread', async ({
   const csrf = layout.match(/name="_csrf" value="([^"]+)"/)[1];
   const headers = { origin: instance.origin };
   for (const [path, form] of [['/manage/layout/home', { _csrf: csrf, domain: '0', home: 'boards' }], ['/manage/layout/publish', { _csrf: csrf, domain: '0' }]]) {
-    const answer = await admin.post(path, { headers, form, maxRedirects: 0 });
+    // Each form carries the revision of the layout its page showed.
+    const revision = (await (await admin.get('/manage/layout')).text()).match(/name="revision" value="([^"]+)"/)[1];
+    const answer = await admin.post(path, { headers, form: { ...form, revision }, maxRedirects: 0 });
     expect(answer.status(), path).toBe(303);
   }
   await admin.dispose();
