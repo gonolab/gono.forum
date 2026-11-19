@@ -516,7 +516,7 @@ pub(super) fn write_error(error: ContentWriteError) -> (StatusCode, String) {
             crate::i18n::current().editor_error_target().into(),
         ),
         ContentWriteError::Conflict(m) => (StatusCode::CONFLICT, m.into()),
-        ContentWriteError::Quota(m) => (StatusCode::TOO_MANY_REQUESTS, m.into()),
+        ContentWriteError::Quota(m, _) => (StatusCode::TOO_MANY_REQUESTS, m.into()),
         ContentWriteError::Restricted(m) => (StatusCode::FORBIDDEN, m),
         ContentWriteError::Internal(error) => {
             // Committed but other processes could not be notified (docs/settings-and-caching.md, "Invalidation"):

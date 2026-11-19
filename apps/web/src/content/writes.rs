@@ -121,7 +121,8 @@ pub enum ContentWriteError {
     Forbidden(&'static str),
     NotFound,
     Conflict(&'static str),
-    Quota(&'static str),
+    /// A posting limit, with the seconds until it may allow the action again (the member API's `Retry-After`).
+    Quota(&'static str, i64),
     /// A rejection (403) whose text is computed from the current settings, such as the new-member external link block
     /// that must state the observation period in days.
     Restricted(String),
@@ -134,7 +135,7 @@ impl fmt::Display for ContentWriteError {
             Self::Validation(message)
             | Self::Forbidden(message)
             | Self::Conflict(message)
-            | Self::Quota(message) => f.write_str(message),
+            | Self::Quota(message, _) => f.write_str(message),
             Self::Restricted(message) => f.write_str(message),
             Self::Unauthorized => f.write_str(crate::i18n::current().editor_error_unauthorized()),
             Self::NotFound => f.write_str(crate::i18n::current().editor_error_not_found()),
@@ -915,12 +916,24 @@ impl ContentWriter {
         let total: i64 = crate::db::query_scalar("SELECT COUNT(*) FROM gonof_forum_post WHERE authorid = ? AND first = ? AND dateline >= ?").bind(uid).bind(i64::from(first)).bind(since)
             .fetch_one(self.db.observe(&mut **tx)).await?;
         if total >= limit {
-            return Err(ContentWriteError::Quota(match (new_member, first) {
-                (true, true) => crate::i18n::current().editor_error_new_member_threads(),
-                (true, false) => crate::i18n::current().editor_error_new_member_replies(),
-                (false, true) => crate::i18n::current().editor_error_daily_threads(),
-                (false, false) => crate::i18n::current().editor_error_daily_replies(),
-            }));
+            // The new-member allowance lasts until the period ends; the daily one until the next day starts in the
+            // site time zone.
+            let resets = if new_member {
+                author
+                    .regdate
+                    .saturating_add(quota.new_member_hours.saturating_mul(3600))
+            } else {
+                since.saturating_add(86_400)
+            };
+            return Err(ContentWriteError::Quota(
+                match (new_member, first) {
+                    (true, true) => crate::i18n::current().editor_error_new_member_threads(),
+                    (true, false) => crate::i18n::current().editor_error_new_member_replies(),
+                    (false, true) => crate::i18n::current().editor_error_daily_threads(),
+                    (false, false) => crate::i18n::current().editor_error_daily_replies(),
+                },
+                resets.saturating_sub(timestamp),
+            ));
         }
         Ok(())
     }

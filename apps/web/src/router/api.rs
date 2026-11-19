@@ -90,6 +90,9 @@ pub(super) fn routes() -> Router<Arc<AppState>> {
     router
 }
 
+/// `Retry-After` of a 503: Redis or the broadcast to other processes is expected back within seconds.
+const UNAVAILABLE_RETRY_SECONDS: i64 = 3;
+
 /// Uniform JSON error, the same as `/data/v1`'s (docs/api.md, "Responses"): `{"code","error"}`, the stable code and
 /// the text for people.
 pub(super) struct ApiError {
@@ -177,7 +180,21 @@ impl From<ContentWriteError> for ApiError {
         {
             return Self::new(StatusCode::FORBIDDEN, "read_only", message.clone());
         }
+        if let ContentWriteError::Quota(message, seconds) = error {
+            return Self {
+                retry_after: Some(seconds),
+                ..Self::new(StatusCode::TOO_MANY_REQUESTS, "quota", message)
+            };
+        }
         let (status, message) = posting::write_error(error);
+        // A write that failed on Redis, or saved but could not tell the other processes, is temporary
+        // (docs/api.md, "Status and error codes"); a retry with the same key replays what was saved.
+        if status == StatusCode::SERVICE_UNAVAILABLE {
+            return Self {
+                retry_after: Some(UNAVAILABLE_RETRY_SECONDS),
+                ..Self::new(status, "internal", message)
+            };
+        }
         let code = match status {
             StatusCode::UNPROCESSABLE_ENTITY => "validation",
             StatusCode::UNAUTHORIZED => "unauthorized",
@@ -230,7 +247,7 @@ impl From<anyhow::Error> for ApiError {
             let detail = crate::debug::visible_error(&error);
             tracing::error!(error = %detail, "cache unavailable");
             return Self {
-                retry_after: Some(3),
+                retry_after: Some(UNAVAILABLE_RETRY_SECONDS),
                 ..Self::new(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "unavailable",
@@ -825,10 +842,13 @@ async fn create_thread(
         Ok(()) => publish(&state, &actor, thread, deadline_text.as_deref()).await?,
         // A retry of a publication that succeeded replays with its original result even after its activity has
         // ended (docs/api.md, "Idempotency keys"): the transaction looks the key up before anything else. A new
-        // request fails inside the transaction as well, and gets the message of this check.
+        // request is refused inside the transaction as well, and only that refusal gives way to this check's
+        // message; any other answer, such as `409` for a key already used for a different request, is the
+        // transaction's.
         Err(invalid) => match publish(&state, &actor, thread, deadline_text.as_deref()).await {
             Ok(published) => published,
-            Err(_) => return Err(invalid),
+            Err(error) if refuses_activity(&error) => return Err(invalid),
+            Err(error) => return Err(error.into()),
         },
     };
     // A new thread points to the thread page itself, without the first post's floor anchor.
@@ -848,6 +868,17 @@ async fn create_thread(
             "url": url,
         }),
     ))
+}
+
+/// The publish transaction's validation errors: a field it refuses, or the activity rules (`ActivityFailure`).
+fn refuses_activity(error: &ContentWriteError) -> bool {
+    match error {
+        ContentWriteError::Validation(_) => true,
+        ContentWriteError::Internal(error) => error
+            .downcast_ref::<activities::ActivityFailure>()
+            .is_some(),
+        _ => false,
+    }
 }
 
 /// A deadline sent as text is a local time in the site's time zone; the publish transaction keeps that text, not the
@@ -1339,4 +1370,47 @@ async fn set_like(
         StatusCode::OK,
         json!({"pid": pid, "liked": value.active, "count": value.count}),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn retry_after(error: ContentWriteError) -> (StatusCode, Option<String>) {
+        let response = ApiError::from(error).into_response();
+        let seconds = response
+            .headers()
+            .get(header::RETRY_AFTER)
+            .map(|value| value.to_str().unwrap().to_owned());
+        (response.status(), seconds)
+    }
+
+    /// `429` and `503` answers carry `Retry-After` (docs/api.md, "Responses"): a posting limit says how long it lasts,
+    /// and a write that failed on Redis, or saved without telling the other processes, says to retry shortly.
+    #[test]
+    fn posting_limits_and_unavailable_writes_say_when_to_retry() {
+        assert_eq!(
+            retry_after(ContentWriteError::Quota("posting too fast", 42)),
+            (StatusCode::TOO_MANY_REQUESTS, Some("42".into()))
+        );
+        assert_eq!(
+            retry_after(ContentWriteError::Internal(anyhow::Error::new(
+                crate::cache::Unavailable
+            ))),
+            (StatusCode::SERVICE_UNAVAILABLE, Some("3".into()))
+        );
+        assert_eq!(
+            retry_after(ContentWriteError::Internal(anyhow::Error::new(
+                crate::cache::Unpublished {
+                    ttl_seconds: Some(60),
+                    detail: "broadcast failed".into(),
+                }
+            ))),
+            (StatusCode::SERVICE_UNAVAILABLE, Some("3".into()))
+        );
+        assert_eq!(
+            retry_after(ContentWriteError::Conflict("changed")),
+            (StatusCode::CONFLICT, None)
+        );
+    }
 }

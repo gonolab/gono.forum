@@ -963,6 +963,77 @@ async fn authors_edit_their_threads_and_replies_with_version_checks() {
     f.services.cleanup_ref().await.unwrap();
 }
 
+/// Posting limits answer `429 quota` with `Retry-After`, the seconds until the limit lets the member post again.
+#[tokio::test]
+async fn posting_limits_say_how_long_to_wait() {
+    let f = Fixture::new(&[
+        ("settings.posting.daily_threads", "1"),
+        ("settings.posting.reply_interval_seconds", "600"),
+    ])
+    .await;
+    let (_, secret) = f.key(MEMBER).await;
+    let (status, _, created) = f
+        .api(
+            "POST",
+            "/api/v1/threads",
+            Some(&secret),
+            Some(r#"{"forum":"daily","title":"The only one today","body":"Body"}"#),
+            &[],
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let (status, headers, refused) = f
+        .api(
+            "POST",
+            "/api/v1/threads",
+            Some(&secret),
+            Some(r#"{"forum":"daily","title":"One more today","body":"Body"}"#),
+            &[],
+        )
+        .await;
+    assert_eq!(
+        (status, refused["code"].as_str()),
+        (StatusCode::TOO_MANY_REQUESTS, Some("quota")),
+        "{refused}"
+    );
+    // The daily allowance starts again at midnight in the site's time zone (UTC+8 in the fixture).
+    let now = identity::now();
+    let offset = 8 * 3600;
+    let midnight = (now + offset).div_euclid(86_400) * 86_400 + 86_400 - offset;
+    let wait: i64 = header(&headers, header::RETRY_AFTER)
+        .parse()
+        .expect("a posting limit carries Retry-After");
+    assert!((midnight - now - wait).abs() <= 5, "{wait}");
+
+    let replies = format!("/api/v1/threads/{}/replies", created["tid"]);
+    let (status, _, reply) = f
+        .api(
+            "POST",
+            &replies,
+            Some(&secret),
+            Some(r#"{"body":"First reply"}"#),
+            &[],
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{reply}");
+    let (status, headers, refused) = f
+        .api(
+            "POST",
+            &replies,
+            Some(&secret),
+            Some(r#"{"body":"Second reply"}"#),
+            &[],
+        )
+        .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{refused}");
+    let wait: i64 = header(&headers, header::RETRY_AFTER).parse().unwrap();
+    assert!(
+        (590..=600).contains(&wait),
+        "the reply interval has the rest of its 600 seconds to run: {wait}"
+    );
+    f.services.cleanup_ref().await.unwrap();
+}
+
 /// A retry of a published thread replays even when the board's slug or the site's time zone changed since: the
 /// transaction finds the request by its key, so the API takes the board from the record when the slug finds none, and a
 /// deadline typed as a local time enters the digest as the text sent, not as the moment it was read as.
@@ -1140,6 +1211,25 @@ async fn ended_activities_still_replay_their_publication() {
     assert_eq!(
         (&replayed["tid"], &replayed["pid"]),
         (&created["tid"], &created["pid"])
+    );
+    // The key with different content is a reused key whether or not the activity has ended: 409, not the ended
+    // deadline's 422.
+    let changed = format!(
+        r#"{{"forum":"daily","title":"Another bounty","body":"Quick question","category":1,"budget":10,"deadline":{deadline}}}"#
+    );
+    let (status, _, conflict) = f
+        .api(
+            "POST",
+            "/api/v1/threads",
+            Some(&secret),
+            Some(&changed),
+            &key,
+        )
+        .await;
+    assert_eq!(
+        (status, conflict["code"].as_str()),
+        (StatusCode::CONFLICT, Some("conflict")),
+        "{conflict}"
     );
     let (status, _, refused) = f
         .api(

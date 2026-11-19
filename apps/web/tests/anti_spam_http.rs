@@ -158,8 +158,21 @@ fn versions(post: EditablePost) -> (i64, i64) {
 
 fn quota(result: Result<Published, ContentWriteError>, expected: &str) {
     match result {
-        Err(ContentWriteError::Quota(message)) => assert!(message.contains(expected), "{message}"),
+        Err(ContentWriteError::Quota(message, _)) => {
+            assert!(message.contains(expected), "{message}")
+        }
         other => panic!("expected the quota error {expected:?}: {other:?}"),
+    }
+}
+
+/// A posting limit that lets the member post again in `seconds`.
+fn waits(result: Result<Published, ContentWriteError>, expected: &str, seconds: i64) {
+    match result {
+        Err(ContentWriteError::Quota(message, wait)) => {
+            assert!(message.contains(expected), "{message}");
+            assert_eq!(wait, seconds, "{message}");
+        }
+        other => panic!("expected a posting limit, got {other:?}"),
     }
 }
 
@@ -247,11 +260,12 @@ async fn rules_are_checked_inside_the_write_transaction() {
     let t0 = NOW + 1_000;
     let first = topic(fid, "interval one");
     let published = writer.publish_at(9912, first.clone(), t0).await.unwrap();
-    quota(
+    waits(
         writer
             .publish_at(9912, topic(fid, "interval two"), t0 + 59)
             .await,
         "You are posting threads too fast",
+        1,
     );
     assert_eq!(
         writer.publish_at(9912, first, t0 + 59).await.unwrap(),
@@ -289,7 +303,7 @@ async fn rules_are_checked_inside_the_write_transaction() {
         .reply_at(9912, reply(tid, "reply one"), t0 + 300)
         .await
         .unwrap();
-    quota(
+    waits(
         writer
             .reply_at(
                 9912,
@@ -298,6 +312,7 @@ async fn rules_are_checked_inside_the_write_transaction() {
             )
             .await,
         "You are replying too fast",
+        1,
     );
     writer
         .reply_at(9912, child(tid, root.pid, "nested reply"), t0 + 330)
@@ -321,18 +336,31 @@ async fn rules_are_checked_inside_the_write_transaction() {
         .reply_at(9913, reply(own.tid, "hourly three"), h + 2)
         .await
         .unwrap();
-    quota(
+    // The oldest of the hour's three posts leaves the window first: at h + 3600.
+    waits(
         writer
             .reply_at(9913, child(own.tid, floor.pid, "hourly four"), h + 3)
             .await,
         "You have reached the hourly posting limit",
+        3_597,
     );
-    quota(
+    waits(
         writer
             .publish_at(9913, topic(fid, "hourly four"), h + 3_599)
             .await,
         "You have reached the hourly posting limit",
+        1,
     );
+    // With the limit lowered below the hour's count, two posts must leave first: the second oldest goes at h + 3601.
+    set(&db, "settings.posting.hourly_limit", "2").await;
+    waits(
+        writer
+            .publish_at(9913, topic(fid, "hourly four"), h + 10)
+            .await,
+        "You have reached the hourly posting limit",
+        3_591,
+    );
+    set(&db, "settings.posting.hourly_limit", "3").await;
     writer
         .publish_at(9913, topic(fid, "first post left the window"), h + 3_600)
         .await

@@ -400,8 +400,20 @@ async fn submit_inner(
     .fetch_one(db.observe(&mut *tx))
     .await?;
     if count >= rules.daily_limit {
+        // Another request fits once the one at position `count - limit` from the oldest leaves the 24 hours.
+        let leaving: Option<i64> = crate::db::query_scalar(
+            "SELECT dateline FROM gonof_forum_restore_request WHERE uid=? AND dateline>? ORDER BY dateline LIMIT 1 OFFSET ?",
+        )
+        .bind(actor.uid)
+        .bind(now - 86_400)
+        .bind(count.saturating_sub(rules.daily_limit))
+        .fetch_optional(db.observe(&mut *tx))
+        .await?;
         return Err(ContentWriteError::Quota(
             crate::i18n::current().governance_error_restoration_quota(),
+            leaving.map_or(86_400, |dateline| {
+                dateline.saturating_add(86_400).saturating_sub(now)
+            }),
         ));
     }
     let hidden_by = if target.hidden {

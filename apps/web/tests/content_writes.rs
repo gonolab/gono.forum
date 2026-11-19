@@ -504,7 +504,7 @@ async fn assert_quota_boundaries(db: &Database, fid: i64) {
         results
             .iter()
             .filter(|result| result.is_err())
-            .all(|result| matches!(result, Err(ContentWriteError::Quota(_))))
+            .all(|result| matches!(result, Err(ContentWriteError::Quota(..))))
     );
     let tid = results.into_iter().find_map(|r| r.ok()).unwrap().tid;
     let request = reply(tid);
@@ -515,7 +515,7 @@ async fn assert_quota_boundaries(db: &Database, fid: i64) {
         results
             .iter()
             .filter(|result| result.is_err())
-            .all(|result| matches!(result, Err(ContentWriteError::Quota(_))))
+            .all(|result| matches!(result, Err(ContentWriteError::Quota(..))))
     );
     assert_eq!(
         writer.reply_at(1200, request, NOW).await.unwrap(),
@@ -525,12 +525,15 @@ async fn assert_quota_boundaries(db: &Database, fid: i64) {
         },
         "the same request still returns the original result after the quota is reached"
     );
-    assert!(matches!(
-        writer
-            .publish_at(1200, topic(fid), registered + 86_399)
-            .await,
-        Err(ContentWriteError::Quota(_))
-    ));
+    assert!(
+        matches!(
+            writer
+                .publish_at(1200, topic(fid), registered + 86_399)
+                .await,
+            Err(ContentWriteError::Quota(_, 1))
+        ),
+        "the new-member allowance lasts one more second"
+    );
     writer
         .publish_at(1200, topic(fid), registered + 86_400)
         .await
@@ -543,6 +546,13 @@ async fn assert_quota_boundaries(db: &Database, fid: i64) {
     let results =
         join_all((0..12).map(|_| writer.publish_at(1201, topic(fid), day_start + 86_399))).await;
     assert_eq!(results.iter().filter(|r| r.is_ok()).count(), 5);
+    assert!(
+        results
+            .iter()
+            .filter(|r| r.is_err())
+            .all(|r| matches!(r, Err(ContentWriteError::Quota(_, 1)))),
+        "the daily allowance starts again in one second, at the site's midnight"
+    );
     writer
         .publish_at(1201, topic(fid), day_start + 86_400)
         .await
@@ -555,7 +565,7 @@ async fn assert_quota_boundaries(db: &Database, fid: i64) {
         results
             .iter()
             .filter(|r| r.is_err())
-            .all(|r| matches!(r, Err(ContentWriteError::Quota(_))))
+            .all(|r| matches!(r, Err(ContentWriteError::Quota(..))))
     );
     writer
         .reply_at(1202, reply(tid), day_start + 86_400)
@@ -590,9 +600,9 @@ async fn assert_quota_boundaries(db: &Database, fid: i64) {
     assert!(
         matches!(
             writer.publish_at(1203, topic(fid), utc_midnight + 1).await,
-            Err(ContentWriteError::Quota(_))
+            Err(ContentWriteError::Quota(_, 57_599))
         ),
-        "back in UTC+8 both moments are the same day and the quota is used up"
+        "back in UTC+8 both moments are the same day and the quota is used up until the next UTC+8 midnight"
     );
     // Deleting/hiding does not refund the quota.
     execute(
@@ -604,7 +614,7 @@ async fn assert_quota_boundaries(db: &Database, fid: i64) {
         writer
             .publish_at(1201, topic(fid), day_start + 86_399)
             .await,
-        Err(ContentWriteError::Quota(_))
+        Err(ContentWriteError::Quota(..))
     ));
     let results = join_all((0..12).map(|_| writer.publish_at(1001, topic(fid), NOW))).await;
     assert!(

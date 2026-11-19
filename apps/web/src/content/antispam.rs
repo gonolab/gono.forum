@@ -111,12 +111,15 @@ pub(crate) async fn check_post(
             .bind(i64::from(first))
             .fetch_optional(db.observe(&mut **tx))
             .await?;
-        if last.is_some_and(|last| timestamp.saturating_sub(last) < interval) {
-            return Err(ContentWriteError::Quota(if first {
-                crate::i18n::current().editor_error_thread_interval()
-            } else {
-                crate::i18n::current().editor_error_reply_interval()
-            }));
+        if let Some(last) = last.filter(|last| timestamp.saturating_sub(*last) < interval) {
+            return Err(ContentWriteError::Quota(
+                if first {
+                    crate::i18n::current().editor_error_thread_interval()
+                } else {
+                    crate::i18n::current().editor_error_reply_interval()
+                },
+                last.saturating_add(interval).saturating_sub(timestamp),
+            ));
         }
     }
     if rules.hourly_limit > 0 {
@@ -129,8 +132,20 @@ pub(crate) async fn check_post(
             .fetch_one(db.observe(&mut **tx))
             .await?;
         if total >= rules.hourly_limit {
+            // Another post fits once enough of the last hour's posts leave the window: the one at position
+            // `total - limit` from the oldest is the last of them to go.
+            let sql = "SELECT dateline FROM gonof_forum_post WHERE authorid = ? AND first IN (0, 1) AND dateline > ? ORDER BY dateline LIMIT 1 OFFSET ?";
+            let leaving: Option<i64> = db::query_scalar(sql)
+                .bind(poster.uid)
+                .bind(timestamp.saturating_sub(HOUR))
+                .bind(total.saturating_sub(rules.hourly_limit))
+                .fetch_optional(db.observe(&mut **tx))
+                .await?;
             return Err(ContentWriteError::Quota(
                 crate::i18n::current().editor_error_hourly(),
+                leaving.map_or(HOUR, |dateline| {
+                    dateline.saturating_add(HOUR).saturating_sub(timestamp)
+                }),
             ));
         }
     }

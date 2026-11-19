@@ -138,7 +138,10 @@ responses carry `Retry-After` in seconds.
   failure, and an address may fail 30 times in 5 minutes by default. Past that, every request with a token from that
   address, valid or not, gets `429 rate_limited` with `Retry-After: 300` until the window passes. A missing or
   malformed header does not count as a failure, but is also refused with `429` while the address is blocked.
-- **Posting limits** are the site's own rules, the same as on the website, and answer with `429 quota`.
+- **Posting limits** are the site's own rules, the same as on the website, and answer with `429 quota`. Its
+  `Retry-After` is the time until the limit lets you post again: the next midnight in the site's time zone for the
+  daily allowance, the end of the new-member period for the new-member allowance, the rest of the minimum interval,
+  or the time until enough of the last hour's posts leave the hourly window.
 
 ### Idempotency keys
 
