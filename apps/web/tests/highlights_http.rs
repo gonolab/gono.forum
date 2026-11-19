@@ -734,3 +734,56 @@ async fn native_votes_redirect_to_real_floors_and_htmx_updates_clear_page_highli
     );
     f._services.cleanup_ref().await.unwrap();
 }
+
+/// A highlighted reply's summary is a bounded excerpt cut on the server (two lines are shown): the long reply is
+/// sent in full only in its floor, and a like's response does not carry it at all.
+#[tokio::test]
+async fn highlight_summaries_send_a_bounded_excerpt_of_long_replies() {
+    let f = Fixture::new().await;
+    gono_forum_web::db::query("UPDATE gonof_forum_post SET message=? WHERE pid=?")
+        .bind(format!(
+            "HIGHLIGHT_LONG_START **{}** HIGHLIGHT_LONG_END",
+            LONG.repeat(18_000)
+        ))
+        .bind(EARLY)
+        .execute(f.db.executor())
+        .await
+        .unwrap();
+    gono_forum_web::test_support::resync_copies(&f.db)
+        .await
+        .unwrap();
+    f.like(EARLY, 1).await;
+    let summary = |html: &str| -> String {
+        highlights(html)
+            .split_once("<p class=\"highlight-excerpt\">")
+            .and_then(|(_, rest)| rest.split_once("</p>"))
+            .map(|(summary, _)| summary.to_owned())
+            .expect("a highlight summary")
+    };
+    for user in [None, Some(MEMBER)] {
+        let page = f.get("/thread-103", user).await;
+        assert_page(&page);
+        let text = summary(&page.html);
+        assert!(
+            text.starts_with(&format!("HIGHLIGHT_LONG_START {LONG}")),
+            "{text}"
+        );
+        assert!(text.chars().count() <= 300, "{}", text.chars().count());
+        assert_eq!(page.html.matches("HIGHLIGHT_LONG_END").count(), 1);
+    }
+    let fields = f.fields(MEMBER, true, "/thread-103");
+    let voted = f
+        .call(
+            "POST",
+            &format!("/api/comments/{EARLY}/vote"),
+            Some(MEMBER),
+            &fields,
+            true,
+            ORIGIN,
+        )
+        .await;
+    assert_eq!(voted.status, StatusCode::OK);
+    assert!(summary(&voted.html).chars().count() <= 300);
+    assert!(!voted.html.contains("HIGHLIGHT_LONG_END"));
+    f._services.cleanup_ref().await.unwrap();
+}

@@ -1,6 +1,10 @@
 //! A separate summary keeps ranked replies out of the permanent floor order.
 use super::*;
 
+/// Characters of a highlighted reply's summary. The page shows two lines of it (`.highlight-excerpt`); the rest is
+/// cut on the server, so neither the page nor a like's response carries a long reply a second time.
+const SUMMARY_CHARS: usize = 300;
+
 pub(super) struct Row {
     pub pid: i64,
     pub count: i64,
@@ -11,6 +15,7 @@ pub(super) struct Row {
     pub dateline: u64,
     pub avatar: AvatarView,
     pub href: String,
+    /// Plain text, escaped by the template.
     pub summary: String,
 }
 
@@ -75,7 +80,7 @@ async fn render_ranked(
                 flat,
                 urls::Paging::from_settings(&state.frame.settings),
             )?;
-            let summary = crate::markdown::summary(&post.body, &names);
+            let summary = crate::markdown::excerpt(&post.body, &names, SUMMARY_CHARS);
             Some(Row {
                 pid: post.pid as i64,
                 count,

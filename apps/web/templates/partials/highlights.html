@@ -16,7 +16,7 @@
           <time class="row-time" datetime="{{ crate::clock::iso(row.dateline as i64) }}">{{ row.time }}</time>
           <span class="highlight-count">{% include "partials/reaction_icon.html" %}{{ p.t.topic_highlight_likes(row.count) }}</span>
         </p>
-        <p class="highlight-excerpt">{{ row.summary|safe }}</p>
+        <p class="highlight-excerpt">{{ row.summary }}</p>
         <a class="highlight-permalink" href="{{ crate::site::href(row.href) }}" hx-boost="false">#{{ row.position }} · {{ p.t.topic_highlight_view() }}</a>
       </div>
     </li>

@@ -365,12 +365,18 @@ pub fn summary(source: &str, members: &BTreeMap<i64, String>) -> String {
 /// whitespace collapsed to a single space.
 /// The result is still escaped HTML text.
 fn plain_text(rendered: &str) -> String {
+    // Table cells are separate values: without a space, `<td>Green</td><td>2304</td>` would read `Green2304`. The
+    // sanitizer writes `</td>` only as an end tag (text escapes `<`); one inside an attribute value goes with the
+    // attribute.
+    let spaced = rendered
+        .replace("</td>", "</td> ")
+        .replace("</th>", "</th> ");
     ammonia::Builder::default()
         .tags(std::collections::HashSet::new())
         // Spoilers are dropped together with their content; YouTube placeholders (figure) and thread cards (aside) are added
         // by the renderer and are not this post's text, so they are dropped too.
         .add_clean_content_tags(&["details", "figure", "aside"])
-        .clean(rendered)
+        .clean(&spaced)
         .to_string()
         .split_whitespace()
         .collect::<Vec<_>>()
@@ -828,10 +834,17 @@ fn render_media(
             continue;
         }
         match event {
-            Event::Html(value) | Event::InlineHtml(value)
-                if value.to_ascii_lowercase().contains("<img") =>
-            {
-                // Only Markdown attachment images may become live image elements.
+            // Only Markdown attachment images may become live image elements: image tags are cut out of hand-written
+            // HTML and the rest of the piece is kept.
+            Event::Html(value) if image_tag(&value) => {
+                if let Some(kept) = without_images(&value) {
+                    events.push(Event::Html(kept.into()));
+                }
+            }
+            Event::InlineHtml(value) if image_tag(&value) => {
+                if let Some(kept) = without_images(&value) {
+                    events.push(Event::InlineHtml(kept.into()));
+                }
             }
             Event::Start(Tag::Link {
                 link_type,
@@ -971,6 +984,150 @@ fn render_media(
     }
     Rendered { html, cards }
 }
+/// Whether a piece of raw HTML may hold an image tag: `<img`, or `<image`, which the HTML parser reads as `img`, in
+/// any case.
+fn image_tag(html: &str) -> bool {
+    let lower = html.to_ascii_lowercase();
+    lower.contains("<img") || lower.contains("<image")
+}
+
+/// A piece of raw HTML with its image start tags cut out, or `None` when nothing or an image tag is left.
+///
+/// The piece is read the way the HTML tokenizer reads it from outside any tag: other tags and comments are copied
+/// whole, with their quoted attribute values, and a tag still open at the end of the piece runs to its end. The
+/// browser reads the piece within the whole body, which may start it inside a tag or comment left open earlier and
+/// so read the tags differently; whenever [`image_tag`] still finds one in the result, the piece is dropped whole, as
+/// before, so no piece of raw HTML that reaches the sanitizer holds an image tag either way. A cut that reaches the
+/// end of the piece leaves a line break there: raw HTML ends at a `>` or a line break, and the text left before the
+/// cut (`<div><` of `<div><<img`) must not run into what follows (`img src=…>` on the next line).
+fn without_images(html: &str) -> Option<String> {
+    let bytes = html.as_bytes();
+    let mut kept = String::with_capacity(html.len());
+    let (mut copied, mut index) = (0, 0);
+    while index < bytes.len() {
+        if bytes[index] != b'<' {
+            index += 1;
+            continue;
+        }
+        let start = index;
+        let next = bytes.get(index + 1).copied();
+        index = match next {
+            Some(b'!') if bytes[index..].starts_with(b"<!--") => comment_end(bytes, index + 4),
+            Some(b'!' | b'?') => until_gt(bytes, index + 2),
+            Some(b'/') if bytes.get(index + 2).is_some_and(u8::is_ascii_alphabetic) => {
+                tag_end(bytes, tag_name_end(bytes, index + 2))
+            }
+            Some(b'/') => until_gt(bytes, index + 2),
+            Some(byte) if byte.is_ascii_alphabetic() => {
+                let name_end = tag_name_end(bytes, index + 1);
+                let end = tag_end(bytes, name_end);
+                let name = &html[index + 1..name_end];
+                if name.eq_ignore_ascii_case("img") || name.eq_ignore_ascii_case("image") {
+                    kept.push_str(&html[copied..start]);
+                    copied = end;
+                }
+                end
+            }
+            _ => index + 1,
+        };
+    }
+    if copied == bytes.len() {
+        kept.push('\n');
+    } else {
+        kept.push_str(&html[copied..]);
+    }
+    (!kept.trim().is_empty() && !image_tag(&kept)).then_some(kept)
+}
+
+/// After `<!--`: past the `-->` or `--!>` that closes the comment (`<!-->` and `<!--->` close at once), or the end of
+/// the piece.
+fn comment_end(bytes: &[u8], from: usize) -> usize {
+    for abrupt in [&b">"[..], b"->"] {
+        if bytes[from..].starts_with(abrupt) {
+            return from + abrupt.len();
+        }
+    }
+    (from..bytes.len())
+        .find_map(|at| {
+            [&b"-->"[..], b"--!>"]
+                .into_iter()
+                .find(|close| bytes[at..].starts_with(close))
+                .map(|close| at + close.len())
+        })
+        .unwrap_or(bytes.len())
+}
+
+/// Past the next `>`, or the end of the piece: how a bogus comment (`<!…>`, `<?…>`, `</…>` without a name) ends.
+fn until_gt(bytes: &[u8], from: usize) -> usize {
+    bytes[from.min(bytes.len())..]
+        .iter()
+        .position(|byte| *byte == b'>')
+        .map_or(bytes.len(), |offset| from + offset + 1)
+}
+
+/// Where a tag name starting at `from` ends: at whitespace, `/`, `>` or the end of the piece.
+fn tag_name_end(bytes: &[u8], from: usize) -> usize {
+    bytes[from..]
+        .iter()
+        .position(|byte| byte.is_ascii_whitespace() || matches!(byte, b'/' | b'>'))
+        .map_or(bytes.len(), |offset| from + offset)
+}
+
+/// Past the `>` that ends a tag whose name ends at `from`, following the tokenizer's attribute states, so a `>` in a
+/// quoted value does not end it; the end of the piece when the tag is still open there.
+fn tag_end(bytes: &[u8], from: usize) -> usize {
+    #[derive(Clone, Copy)]
+    enum State {
+        BeforeName,
+        Name,
+        AfterName,
+        BeforeValue,
+        Quoted(u8),
+        Unquoted,
+        AfterQuoted,
+        SelfClosing,
+    }
+    let mut state = State::BeforeName;
+    let mut index = from;
+    while let Some(&byte) = bytes.get(index) {
+        let space = byte.is_ascii_whitespace();
+        // `consume` false reads the same byte again in the new state.
+        let (next, consume) = match state {
+            State::BeforeName if space => (state, true),
+            State::BeforeName if matches!(byte, b'/' | b'>') => (State::AfterName, false),
+            State::BeforeName => (State::Name, byte == b'='),
+            State::Name if space || matches!(byte, b'/' | b'>') => (State::AfterName, false),
+            State::Name if byte == b'=' => (State::BeforeValue, true),
+            State::Name => (state, true),
+            State::AfterName if space => (state, true),
+            State::AfterName if byte == b'/' => (State::SelfClosing, true),
+            State::AfterName if byte == b'=' => (State::BeforeValue, true),
+            State::AfterName if byte == b'>' => return index + 1,
+            State::AfterName => (State::Name, false),
+            State::BeforeValue if space => (state, true),
+            State::BeforeValue if matches!(byte, b'"' | b'\'') => (State::Quoted(byte), true),
+            State::BeforeValue if byte == b'>' => return index + 1,
+            State::BeforeValue => (State::Unquoted, false),
+            State::Quoted(quote) if byte == quote => (State::AfterQuoted, true),
+            State::Quoted(_) => (state, true),
+            State::Unquoted if space => (State::BeforeName, true),
+            State::Unquoted if byte == b'>' => return index + 1,
+            State::Unquoted => (state, true),
+            State::AfterQuoted if space => (State::BeforeName, true),
+            State::AfterQuoted if byte == b'/' => (State::SelfClosing, true),
+            State::AfterQuoted if byte == b'>' => return index + 1,
+            State::AfterQuoted => (State::BeforeName, false),
+            State::SelfClosing if byte == b'>' => return index + 1,
+            State::SelfClosing => (State::BeforeName, false),
+        };
+        state = next;
+        if consume {
+            index += 1;
+        }
+    }
+    bytes.len()
+}
+
 fn media_path(aid: i64, pid: Option<i64>) -> String {
     pid.map(|pid| format!("/media/{aid}?pid={pid}"))
         .unwrap_or_else(|| format!("/media/{aid}"))
@@ -1740,5 +1897,97 @@ mod tests {
                 }
             });
         }
+    }
+
+    /// Hand-written HTML loses its image tags, not the text around them; the image never becomes an element.
+    #[test]
+    fn raw_html_keeps_its_text_when_its_images_are_removed() {
+        let members = BTreeMap::new();
+        let source = "<div>Orders close Friday. <img src=\"https://example.com/poster.png\" width=\"4000\" alt=\"poster\"> Write to sales@example.com to order.</div>";
+        let html = render(source, &members, Some(7));
+        assert!(html.contains("Orders close Friday."), "{html}");
+        assert!(html.contains("to order."), "{html}");
+        assert!(!html.contains("<img") && !html.contains("poster"), "{html}");
+        assert_eq!(
+            excerpt(source, &members, 200),
+            "Orders close Friday. Write to sales@example.com to order."
+        );
+        // Over several lines of one HTML block, with an attribute value holding `>`.
+        let html = render(
+            "<div>\nBefore <IMG alt=\"a > b\" src=\"/media/12?pid=7\"> after\n<p>Next <img/src=x>line</p>\n</div>",
+            &members,
+            Some(7),
+        );
+        assert!(html.contains("Before  after"), "{html}");
+        assert!(html.contains("Next line"), "{html}");
+        assert!(
+            !html.contains("<img") && !html.contains("/media/12"),
+            "{html}"
+        );
+        // A tag left open at the end of its line is cut to there; the next line was never part of a tag that
+        // reached the sanitizer, and stays text.
+        let html = render(
+            "<div>\nBefore <img alt=\"x\"\nsrc=\"/media/12?pid=7\"> after\n</div>",
+            &members,
+            Some(7),
+        );
+        assert!(html.contains("Before"), "{html}");
+        assert!(!html.contains("<img"), "{html}");
+        // The parser reads `<image>` as `<img>`: it is removed the same way.
+        let html = render(
+            "Inline <image src=\"/media/12?pid=7\"> text",
+            &members,
+            Some(7),
+        );
+        assert!(html.contains("Inline") && html.contains("text"), "{html}");
+        assert!(
+            !html.contains("<img") && !html.contains("/media/12"),
+            "{html}"
+        );
+        // A piece whose image tag hides where this cut does not look (inside a comment that closes earlier for the
+        // parser) is still dropped whole.
+        let html = render(
+            "<p><!-- <b title=\" --><img src=\"/media/12?pid=7\">\"> kept</p>",
+            &members,
+            Some(7),
+        );
+        assert!(
+            !html.contains("<img") && !html.contains("/media/12"),
+            "{html}"
+        );
+        // What is left before a cut that runs to the end of the line does not join the next line into an image tag.
+        for source in [
+            "<div><<img x\nimg src=\"/media/12?pid=7\">\n</div>",
+            "<div><<img>\nimg src=\"/media/12?pid=7\">\n</div>",
+            "<div><<img x\nimage src=\"/media/12?pid=7\">\n</div>",
+        ] {
+            let html = render(source, &members, Some(7));
+            assert!(!html.contains("<img"), "{source}: {html}");
+        }
+        // Markdown attachment images are unaffected.
+        let html = render("![picture](attachment:12) <b>bold</b>", &members, Some(7));
+        assert!(
+            html.contains("<img src=\"/media/12?pid=7\" alt=\"picture\" loading=\"lazy\">"),
+            "{html}"
+        );
+        assert!(html.contains("<b>bold</b>"), "{html}");
+    }
+
+    /// Plain text keeps table cells apart.
+    #[test]
+    fn plain_text_separates_table_cells() {
+        let members = BTreeMap::new();
+        let source = "| Product | SKU |\n| --- | --- |\n| Green | 2304 |";
+        assert_eq!(excerpt(source, &members, 200), "Product SKU Green 2304");
+        assert_eq!(summary(source, &members), "Product SKU Green 2304");
+        assert_eq!(
+            excerpt(
+                "<table><tr><td>Green</td><td>2304</td></tr></table>",
+                &members,
+                200
+            ),
+            "Green 2304"
+        );
+        assert_eq!(card_excerpt(source, 100), "Product SKU Green 2304");
     }
 }
