@@ -40,11 +40,11 @@ pub struct FeedItem {
     pub summary: String,
 }
 
-/// Pin levels only range from 0 to 3 (the pin action in `content/edits.rs`); negative means not listed (migration
-/// 0009). Sorting by publish time descending across pin levels, with `displayorder` ahead of `dateline` in the
-/// `*_created` indexes, would need a range condition and a full filesort. So it is split into two segments: normal
-/// threads `= 0` take the first N in index order; pinned threads `> 0` are only a handful, and only they get
-/// filesorted. The code then merges the two segments and takes the first N (two queries, not a UNION).
+/// Pin levels only range from 0 to 3 (the pin action in `content/edits.rs`); negative means not listed. Sorting by
+/// publish time descending across pin levels, with `displayorder` ahead of `dateline` in the `*_created` indexes,
+/// would need a range condition and a full filesort. So it is split into two segments: normal threads `= 0` take the
+/// first N in index order; pinned threads `> 0` are only a handful, and only they get filesorted. The code then
+/// merges the two segments and takes the first N (two queries, not a UNION).
 ///
 /// `segment` is the scope's index and forum condition ([`segment`]); `filter` holds the extra conditions on readable
 /// forums, thread visibility and blocking. The author comes from the copy on the thread row, written as "Deleted user"
