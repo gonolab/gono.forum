@@ -223,6 +223,7 @@ maintenance-updates-last-switched = 上次升级：用 forum.install.sh rollback
 maintenance-updates-last-rolled-back = 上次升级：从 { $from } 升到 { $to } 失败，新版本没能启动，已自动换回 { $from }
 maintenance-updates-last-upgraded = 上次升级：已从 { $from } 升到 { $to }
 maintenance-updates-last-incomplete = 上次升级：已从 { $from } 升到 { $to }，但 gono-forum-cli 报告的不是 { $to }。请在服务器上执行 { $command_html }，把两个程序都换好。
+maintenance-updates-last-interrupted = 上次升级：从 { $from } 升到 { $to } 时，新版本还没换上就中断了（服务器停机或断电），仍在运行 { $from }。再升级一次即可装上 { $to }。
 maintenance-updates-check = 检测更新
 maintenance-updates-never-checked = 还没有检测过。检测只读一次升级来源的 checksums.txt，不下载程序、不改任何东西。
 maintenance-updates-check-failed = { $time } 检测失败：{ $error }

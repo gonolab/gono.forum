@@ -14,7 +14,9 @@
 //! each current binary as `*.previous`, moves the new one in and asks the process to exit: systemd (`Restart=always`)
 //! starts the new version. `data/upgrade/pending` marks the switch; the new version finishes a switch that was cut
 //! short and removes the marker once it is serving ([`confirm`]), and the start guard forum.install.sh puts in the
-//! unit (`ExecStartPre`) moves the previous binaries back when the new version fails to start twice. Database
+//! unit (`ExecStartPre`) moves the previous binaries back when the new version fails to start twice. An upgrade cut
+//! short before the new web binary moved in leaves the old version running with the marker; that version gives the
+//! upgrade up when it starts, so that the guard does not take its starts for the new version's. Database
 //! migrations get no special treatment and the upgrade takes no backup: if the new version migrated before failing,
 //! the old one may refuse the database until it is restored from a backup.
 use std::{
@@ -559,10 +561,11 @@ pub async fn install(paths: &Paths, release: &Release, unpacked: Unpacked) -> Re
     let _ = std::fs::remove_file(paths.state().join("attempts"));
     // The web binary goes first, then the command-line tool, each in two steps that never leave its name missing: the
     // current binary is linked as `*.previous`, then the new one is renamed over it. An upgrade cut short between the
-    // two binaries leaves the tool's `.new`, which the new web binary moves in when it starts ([`confirm`]). When a
-    // step fails, the steps already done are undone, last first, so that the binaries on disk are again the running
-    // version and not a new web binary next to the old command-line tool. The marker goes only once that worked;
-    // otherwise the start guard and the new version still have it.
+    // two binaries leaves the tool's `.new`, which the new web binary moves in when it starts ([`confirm`]); one cut
+    // short before the web binary moved in leaves both, and this version gives it up when it starts again
+    // ([`give_up_interrupted`]). When a step fails, the steps already done are undone, last first, so that the
+    // binaries on disk are again the running version and not a new web binary next to the old command-line tool. The
+    // marker goes only once that worked; otherwise the start guard and the new version still have it.
     let mut done: Vec<(&(PathBuf, PathBuf, PathBuf), bool)> = Vec::new();
     for binary in &staged {
         let (new, current, previous) = binary;
@@ -696,8 +699,11 @@ async fn run_version(binary: &Path) -> Option<String> {
         .map(|line| line.trim().to_owned())
 }
 
-/// `key=value` lines, the format the start guard (POSIX shell) also reads and writes.
+/// `key=value` lines, the format the start guard (POSIX shell) also reads and writes. The file is written to disk
+/// before it is renamed into place and the directory after, so that after a power cut the record is either the old one
+/// or the whole new one, and a marker written before the binaries are switched is on disk before they are.
 fn write_record(path: &Path, fields: &[(&str, &str)]) -> Result<()> {
+    use std::io::Write;
     let mut text = String::new();
     for (key, value) in fields {
         ensure!(
@@ -707,8 +713,14 @@ fn write_record(path: &Path, fields: &[(&str, &str)]) -> Result<()> {
         text.push_str(&format!("{key}={value}\n"));
     }
     let temporary = path.with_extension("tmp");
-    std::fs::write(&temporary, text)?;
+    let mut file = std::fs::File::create(&temporary)?;
+    file.write_all(text.as_bytes())?;
+    file.sync_all()?;
+    drop(file);
     std::fs::rename(&temporary, path)?;
+    if let Some(directory) = path.parent() {
+        sync_directory(directory);
+    }
     Ok(())
 }
 
@@ -728,7 +740,8 @@ pub struct Outcome {
     pub from: String,
     pub to: String,
     /// `upgraded`, `incomplete` (the new web binary serves, but the command-line tool does not report its version),
-    /// `rolled_back` (the new version did not start) or `switched` (`forum.install.sh rollback`).
+    /// `interrupted` (cut short before the new web binary moved in, and given up by the old version), `rolled_back`
+    /// (the new version did not start) or `switched` (`forum.install.sh rollback`).
     pub result: String,
     pub at: i64,
 }
@@ -754,8 +767,9 @@ pub fn last(paths: &Paths) -> Option<Outcome> {
     })
 }
 
-/// Called by the new version once it is serving: the upgrade marked pending succeeded. Finishes a switch that was cut
-/// short, records the outcome and returns it.
+/// Called once the process is serving. For the new version, the upgrade marked pending succeeded: finishes a switch
+/// that was cut short, records the outcome and returns it. For the version upgraded from, an upgrade cut short before
+/// the new web binary moved in is given up ([`give_up_interrupted`]) and that outcome returned.
 pub async fn confirm(paths: &Paths) -> Option<Outcome> {
     let fields = read_record(&paths.pending())?;
     let get = |key: &str| {
@@ -765,6 +779,19 @@ pub async fn confirm(paths: &Paths) -> Option<Outcome> {
             .map(|(_, value)| value.as_str())
             .unwrap_or_default()
     };
+    // The marker of an upgrade from this version, with the new web binary still `.new`: the switch stopped before this
+    // binary was replaced, so this is still the installed version and nothing was upgraded.
+    if get("from") == crate::VERSION
+        && get("to") != crate::VERSION
+        && paths.with_suffix(BINARIES[0], ".new").is_file()
+    {
+        return Some(give_up_interrupted(
+            paths,
+            get("from"),
+            get("to"),
+            get("at"),
+        ));
+    }
     // A marker for another version (the guard already rolled back, or a manual swap) is not ours to confirm.
     if get("to") != crate::VERSION {
         return None;
@@ -812,6 +839,50 @@ pub async fn confirm(paths: &Paths) -> Option<Outcome> {
     }
     let _ = std::fs::remove_file(paths.state().join("attempts"));
     Some(outcome)
+}
+
+/// Gives up an upgrade from this version that was cut short (power lost, the process killed) after the marker was
+/// written and before the new web binary was renamed in. Both binaries are still those of this version, except that
+/// the web binary's `*.previous` may already be a link to it, and the new ones are still `.new`. Left alone, the marker
+/// would make the start guard count this version's starts as the new one's and, before the third, switch to the
+/// `*.previous` binaries: both to the version before this one, or only the command-line tool once the web binary's
+/// `*.previous` had been replaced. The administrator upgrades again instead.
+///
+/// The result is recorded first, then the marker, the start count and both `.new` files go, so that a start cut short
+/// here finds either the same state again or no marker. The marker goes even when the result cannot be written: the
+/// admin page then shows no outcome, which is better than the guard switching binaries.
+fn give_up_interrupted(paths: &Paths, from: &str, to: &str, at: &str) -> Outcome {
+    let finished = crate::identity::now();
+    tracing::warn!(
+        from,
+        to,
+        "an upgrade was cut short before the new binaries moved in; gave it up, this version keeps running"
+    );
+    if let Err(error) = write_record(
+        &paths.last(),
+        &[
+            ("from", from),
+            ("to", to),
+            ("at", at),
+            ("result", "interrupted"),
+            ("finished", &finished.to_string()),
+        ],
+    ) {
+        tracing::error!(%error, "could not record the interrupted upgrade");
+    }
+    let _ = std::fs::remove_file(paths.pending());
+    let _ = std::fs::remove_file(paths.state().join("attempts"));
+    sync_directory(&paths.state());
+    for name in BINARIES {
+        let _ = std::fs::remove_file(paths.with_suffix(name, ".new"));
+    }
+    sync_directory(&paths.root);
+    Outcome {
+        from: from.to_owned(),
+        to: to.to_owned(),
+        result: "interrupted".to_owned(),
+        at: finished,
+    }
 }
 
 /// Why this process cannot upgrade itself in place; empty when it can. Checking for updates works everywhere.
@@ -1395,6 +1466,101 @@ mod tests {
             assert_eq!(last(&paths).unwrap().result, "upgraded");
             let _ = std::fs::remove_dir_all(instance);
         }
+    }
+
+    /// The instance as an upgrade from the running version to 9.9.20 leaves it when cut short after the marker was
+    /// written and before the new web binary was renamed in: both binaries of this version with older `*.previous`,
+    /// both `.new` files, the marker and one start counted by the start guard. With `web_previous_replaced`, the cut
+    /// came between the two steps of the web binary, so its `*.previous` is already a link to it.
+    #[cfg(unix)]
+    fn cut_short_before_the_web_binary(
+        label: &str,
+        web_previous_replaced: bool,
+    ) -> (PathBuf, Paths) {
+        let instance = temp_dir(label);
+        let paths = Paths::new(&instance);
+        for name in BINARIES {
+            write_executable(&instance.join(name), &version_script(name, crate::VERSION)).unwrap();
+            std::fs::write(
+                instance.join(format!("{name}.previous")),
+                format!("older {name}"),
+            )
+            .unwrap();
+            write_executable(
+                &instance.join(format!("{name}.new")),
+                &version_script(name, "9.9.20"),
+            )
+            .unwrap();
+        }
+        if web_previous_replaced {
+            put(
+                &instance.join(BINARIES[0]),
+                &instance.join(format!("{}.previous", BINARIES[0])),
+            )
+            .unwrap();
+        }
+        std::fs::create_dir_all(paths.state()).unwrap();
+        write_record(
+            &paths.pending(),
+            &[("from", crate::VERSION), ("to", "9.9.20"), ("at", "1")],
+        )
+        .unwrap();
+        std::fs::write(paths.state().join("attempts"), "1\n").unwrap();
+        (instance, paths)
+    }
+
+    /// The running version gave the upgrade up: recorded as interrupted, the marker, the start count and both `.new`
+    /// files gone, its own binaries in place and the `*.previous` ones as they were.
+    #[cfg(unix)]
+    async fn assert_given_up(instance: &Path, paths: &Paths, web_previous: &str) {
+        let outcome = confirm(paths).await.unwrap();
+        assert_eq!(outcome.result, "interrupted");
+        assert_eq!(
+            (outcome.from.as_str(), outcome.to.as_str()),
+            (crate::VERSION, "9.9.20")
+        );
+        assert!(outcome.at > 0);
+        assert_eq!(last(paths), Some(outcome));
+        let record = std::fs::read_to_string(paths.last()).unwrap();
+        assert!(record.contains("at=1\n"), "{record}");
+        assert!(!paths.pending().exists());
+        assert!(!paths.state().join("attempts").exists());
+        for name in BINARIES {
+            assert!(!instance.join(format!("{name}.new")).exists(), "{name}.new");
+            assert_eq!(
+                run_version(&instance.join(name)).await,
+                Some(format!("{name} {}", crate::VERSION))
+            );
+        }
+        assert_eq!(
+            installed(instance, ".previous"),
+            [web_previous, "older gono-forum-cli"]
+        );
+        // Without the marker the start guard counts nothing, and later starts have nothing to confirm or give up.
+        assert!(confirm(paths).await.is_none());
+        assert_eq!(last(paths).unwrap().result, "interrupted");
+    }
+
+    /// Cut short before the web binary was linked as `*.previous`: without the give-up, the start guard would switch
+    /// both binaries to the version before this one.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_old_version_gives_up_an_upgrade_cut_short_before_the_switch() {
+        let (instance, paths) = cut_short_before_the_web_binary("cut-before-web", false);
+        assert_given_up(&instance, &paths, "older gono-forum-web").await;
+        let _ = std::fs::remove_dir_all(instance);
+    }
+
+    /// Cut short after the web binary was linked as `*.previous` and before the new one was renamed over it: without
+    /// the give-up, the start guard would switch the command-line tool alone to the version before this one. The web
+    /// binary's `*.previous` stays what it became, this version.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_old_version_gives_up_an_upgrade_cut_short_after_keeping_the_web_binary() {
+        let (instance, paths) = cut_short_before_the_web_binary("cut-inside-web", true);
+        let current = String::from_utf8(version_script("gono-forum-web", crate::VERSION)).unwrap();
+        assert_given_up(&instance, &paths, &current).await;
+        let _ = std::fs::remove_dir_all(instance);
     }
 
     /// A command-line tool that is not the new version, with no `.new` left to move in, makes the upgrade incomplete

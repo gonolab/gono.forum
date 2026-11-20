@@ -262,6 +262,8 @@ maintenance-updates-last-rolled-back = Last upgrade: from { $from } to { $to } f
 maintenance-updates-last-upgraded = Last upgrade: from { $from } to { $to }
 # $from and $to are versions; $command_html is the command that finishes the upgrade.
 maintenance-updates-last-incomplete = Last upgrade: from { $from } to { $to }, but gono-forum-cli does not report { $to }. Run { $command_html } on the server to put both programs in place.
+# $from and $to are versions.
+maintenance-updates-last-interrupted = Last upgrade: from { $from } to { $to } stopped before the new version was put in place (the server shut down or lost power), so { $from } is still running. Upgrade again to install { $to }.
 maintenance-updates-check = Check for updates
 maintenance-updates-never-checked = Not checked yet. A check reads the release source's checksums.txt once; it downloads no program and changes nothing.
 # $time is when the check ran, $error why it failed.

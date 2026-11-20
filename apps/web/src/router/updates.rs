@@ -41,6 +41,8 @@ struct LastUpgrade {
     rolled_back: bool,
     /// The web binary was upgraded but the command-line tool does not report its version.
     incomplete: bool,
+    /// Cut short before the new web binary moved in, and given up by the version upgraded from.
+    interrupted: bool,
     /// Switched by hand with `forum.install.sh rollback`.
     switched: bool,
     at: String,
@@ -59,6 +61,7 @@ fn show(state: &AppState, notice: &str, alert: &str, status: StatusCode) -> Resp
     let last = crate::updates::last(&state.instance).map(|outcome| LastUpgrade {
         rolled_back: outcome.result == "rolled_back",
         incomplete: outcome.result == "incomplete",
+        interrupted: outcome.result == "interrupted",
         switched: outcome.result == "switched",
         from: outcome.from,
         to: outcome.to,

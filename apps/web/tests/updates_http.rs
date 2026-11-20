@@ -216,3 +216,45 @@ async fn while_an_upgrade_runs_the_page_waits_for_the_new_version_and_forgets_th
     assert_eq!(body.matches("http-equiv").count(), 1, "{body}");
     fixture.f.cleanup().await.unwrap();
 }
+
+/// The outcome of the last upgrade, as `data/upgrade/last` records it, is shown in words; an upgrade the old version
+/// gave up after it was cut short before the switch says to upgrade again.
+#[tokio::test]
+async fn the_update_page_words_the_last_upgrade_outcome() {
+    let fixture = Fixture::new().await;
+    let t = gono_forum_web::i18n::current();
+    let state = fixture.f.root.join(updates::STATE_DIRECTORY);
+    std::fs::create_dir_all(&state).unwrap();
+    for (result, expected) in [
+        (
+            "upgraded",
+            t.maintenance_updates_last_upgraded("9.9.1", "9.9.2"),
+        ),
+        (
+            "interrupted",
+            t.maintenance_updates_last_interrupted("9.9.1", "9.9.2"),
+        ),
+        (
+            "rolled_back",
+            t.maintenance_updates_last_rolled_back("9.9.1", "9.9.2"),
+        ),
+        (
+            "switched",
+            t.maintenance_updates_last_switched("9.9.1", "9.9.2"),
+        ),
+    ] {
+        std::fs::write(
+            state.join("last"),
+            format!("from=9.9.1\nto=9.9.2\nat=1\nresult={result}\nfinished=2\n"),
+        )
+        .unwrap();
+        let (status, body) = fixture.send(&fixture.admin, "GET", "/manage/updates").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains(&expected), "{result}: {body}");
+    }
+    assert!(
+        t.maintenance_updates_last_interrupted("9.9.1", "9.9.2")
+            .contains("Upgrade again")
+    );
+    fixture.f.cleanup().await.unwrap();
+}

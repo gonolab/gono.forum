@@ -498,11 +498,12 @@ async fn main() -> Result<()> {
     let listener = tokio::net::TcpListener::from_std(listener)?;
     tracing::info!(url = %format!("http://{}", listener.local_addr()?), version = gono_forum_web::VERSION, "Gono Forum started");
     gono_forum_web::systemd::notify("READY=1\nSTATUS=Serving");
-    // Serving: an upgrade that switched to this version has succeeded, so the start guard must not roll it back.
+    // Serving: an upgrade that switched to this version has succeeded, so the start guard must not roll it back; one
+    // from this version that was cut short before the switch is given up, so the guard does not count these starts.
     if let Some(outcome) =
         gono_forum_web::updates::confirm(&gono_forum_web::updates::Paths::for_process(&root)).await
     {
-        tracing::info!(from = %outcome.from, to = %outcome.to, result = %outcome.result, "upgrade confirmed");
+        tracing::info!(from = %outcome.from, to = %outcome.to, result = %outcome.result, "upgrade outcome recorded");
     }
     axum::serve(
         listener,

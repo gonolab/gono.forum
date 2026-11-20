@@ -136,7 +136,7 @@ at again. The upgrade runs in the background and the page shows its progress:
 3. Write them next to the running binaries as `*.new` and run each with `--version`. Each must print exactly
    `<binary> <new version>` (`gono-forum-web 0.2.0`, `gono-forum-cli 0.2.0`) within 15 seconds, which proves it runs on
    this machine and belongs to the release; otherwise both `*.new` files are removed and nothing else changes.
-4. Write the marker `data/upgrade/pending` (from, to, time).
+4. Write the marker `data/upgrade/pending` (from, to, time) and flush it to disk before any binary changes.
 5. For the web binary and then the command-line tool: hard-link the current binary as `*.previous` (a copy where the
    file system has no hard links), then rename the new one over it. Each step is a single rename, so no binary is ever
    missing. If a step fails, the steps already done are undone, last first, so both binaries are the running version
@@ -151,6 +151,16 @@ the new version first moves it in the same way. It then runs `gono-forum-cli --v
 the admin page says to run `forum.install.sh upgrade --force`. Either way it removes the marker and the start count. When
 `last` cannot be written, it keeps the marker, removes only the start count and records the outcome at the next start.
 While migrations run, the process keeps extending systemd's start timeout (`EXTEND_TIMEOUT_USEC`).
+
+An upgrade cut short after step 4 and before the web binary was renamed in leaves the running version installed, with
+the marker and both `*.new` files. When that version starts again (once it serves, like the confirmation) and finds a
+marker of an upgrade from its own version to another with `gono-forum-web.new` still there, it gives the upgrade up:
+it writes `data/upgrade/last` with `result=interrupted`, then removes the marker, the start count and both `*.new`
+files, and the admin page says to upgrade again. It removes the marker even when `last` cannot be written. Otherwise
+the start guard would count the old version's starts as the new one's and switch to the `*.previous` binaries, which
+are the version before it (or, when the cut came after the web binary was linked as `*.previous`, the command-line
+tool's alone). Versions up to 0.2.0 do not give up; on a site upgraded from one of them, remove `data/upgrade/pending`
+before the service has started twice more.
 
 While the upgrade runs, the page reloads every 3 seconds to show the current step. Between step 6 and the new
 version's first answer there is a gap of at least `RestartSec=3` in which a reverse proxy answers 502, so `site.js`
