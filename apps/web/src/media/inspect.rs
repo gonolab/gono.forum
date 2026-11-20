@@ -106,11 +106,25 @@ fn output_io<T>(result: std::io::Result<T>) -> anyhow::Result<T> {
     result.map_err(|error| OutputError(error).into())
 }
 
+/// The inspection ran past `processing_timeout_seconds` ([`deadline`]): a slow machine as much as a slow file, so no
+/// verdict on it. The parent waits for the same time and usually loses the race; both count as an inspection without
+/// a verdict, retried before the file is rejected (`worker::verdict`, `worker::INSPECTION_ATTEMPTS`). It is a type of
+/// its own so that it is still recognized under any context added on the way up.
+#[derive(Debug)]
+pub(super) struct TimedOut;
+
+impl fmt::Display for TimedOut {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("file processing timed out")
+    }
+}
+
+impl std::error::Error for TimedOut {}
+
 fn deadline(started: Instant, config: &MediaConfig) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        started.elapsed().as_secs() < config.processing_timeout_seconds,
-        "file processing timed out"
-    );
+    if started.elapsed().as_secs() >= config.processing_timeout_seconds {
+        return Err(TimedOut.into());
+    }
     Ok(())
 }
 pub(super) fn limits(config: &MediaConfig) -> image::Limits {
@@ -621,6 +635,41 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.downcast_ref::<OutputError>().is_none(), "{error:#}");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Running out of time is told apart from a verdict on the image, under any context added on the way up: it is
+    /// a [`TimedOut`], which the subprocess reports as no verdict.
+    #[test]
+    fn running_out_of_time_is_not_a_verdict_on_the_image() {
+        let root =
+            std::env::temp_dir().join(format!("gonof-deadline-{}", identity::random_token()));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("photo.png");
+        image::RgbImage::from_pixel(4, 4, image::Rgb([1, 2, 3]))
+            .save(&source)
+            .unwrap();
+        let no_time = MediaConfig {
+            processing_timeout_seconds: 0,
+            ..MediaConfig::default()
+        };
+        let error = inspect(&source, &root.join("late"), "photo.png", &no_time).unwrap_err();
+        assert!(error.downcast_ref::<TimedOut>().is_some(), "{error:#}");
+        let error = error.context("inspecting the upload");
+        assert!(error.downcast_ref::<TimedOut>().is_some(), "{error:#}");
+        assert!(
+            inspect(
+                &source,
+                &root.join("in-time"),
+                "photo.png",
+                &MediaConfig::default()
+            )
+            .is_ok()
+        );
+        let broken = root.join("broken.png");
+        std::fs::write(&broken, b"not an image").unwrap();
+        let error = inspect(&broken, &root.join("out"), "broken.png", &no_time).unwrap_err();
+        assert!(error.downcast_ref::<TimedOut>().is_none(), "{error:#}");
         std::fs::remove_dir_all(root).unwrap();
     }
 

@@ -14,10 +14,10 @@ struct Claim {
 /// Maximum number of jobs claimed per batch.
 const BATCH_SIZE: usize = 8;
 
-/// When the inspection subprocess gives no verdict (timeout, killed by a signal, abnormal exit, unreadable result),
-/// the inspection at which the file is judged as failed. Earlier ones back off and retry as environment failures: a
-/// process under heavy load or killed by OOM should not get a legitimate file rejected permanently; but a file that
-/// hangs every time cannot be retried forever either.
+/// When the inspection subprocess gives no verdict (a timeout, its own or the parent's, killed by a signal, abnormal
+/// exit, unreadable result), the inspection at which the file is judged as failed. Earlier ones back off and retry as
+/// environment failures: a process under heavy load or killed by OOM should not get a legitimate file rejected
+/// permanently; but a file that hangs every time cannot be retried forever either.
 ///
 /// Only inspections without a verdict count, in the job's payload (`ProcessEvent::no_verdict`): claims that failed
 /// for other reasons (storage, the output disk) do not use up the file's allowance, and an administrator's retry
@@ -74,17 +74,23 @@ enum Inspected {
     Failed,
     /// Finished normally, but writing the output failed: the disk's fault, retried like a storage failure.
     Unavailable,
-    /// No verdict was given.
+    /// No verdict was given (a timeout on either side, a crash, no result or a broken one): retried up to
+    /// `INSPECTION_ATTEMPTS`.
     Abnormal(&'static str),
 }
 
 /// What the inspection subprocess writes as its result (see [`read_inspection`]): the inspection, `{"error":…}` for
-/// a verdict against the file, or `{"unavailable":…}` when the output could not be written.
+/// a verdict against the file, `{"unavailable":…}` when the output could not be written, or `{"timeout":…}` when the
+/// subprocess ran out of time itself ([`inspect::TimedOut`]). The parent waits as long, so this is usually how a
+/// timeout shows, and it gives no more of a verdict than the parent's own.
 fn verdict(result: anyhow::Result<inspect::Inspection>) -> anyhow::Result<serde_json::Value> {
     Ok(match result {
         Ok(result) => serde_json::to_value(result)?,
         Err(error) if error.downcast_ref::<inspect::OutputError>().is_some() => {
             serde_json::json!({"unavailable":"the processed output could not be written"})
+        }
+        Err(error) if error.downcast_ref::<inspect::TimedOut>().is_some() => {
+            serde_json::json!({"timeout":"file processing timed out"})
         }
         Err(_) => {
             serde_json::json!({"error":"the file failed the format, structure or resource check"})
@@ -94,7 +100,8 @@ fn verdict(result: anyhow::Result<inspect::Inspection>) -> anyhow::Result<serde_
 
 /// Determines the outcome from the subprocess exit status and the result file. When inspection fails the subprocess
 /// still exits with 0 and writes `{"error":…}`; a non-zero exit, being killed by a signal or an incomplete result
-/// file are not verdicts on the file, and neither is `{"unavailable":…}`.
+/// file are not verdicts on the file, and neither are `{"unavailable":…}` and `{"timeout":…}`. The subprocess's own
+/// timeout reads as the parent's.
 fn read_inspection(exited_cleanly: bool, result: Option<&[u8]>) -> Inspected {
     if !exited_cleanly {
         return Inspected::Abnormal(crate::i18n::current().media_check_crashed());
@@ -107,6 +114,9 @@ fn read_inspection(exited_cleanly: bool, result: Option<&[u8]>) -> Inspected {
     };
     if value.get("unavailable").is_some() {
         return Inspected::Unavailable;
+    }
+    if value.get("timeout").is_some() {
+        return Inspected::Abnormal(crate::i18n::current().media_check_timeout());
     }
     if value.get("error").is_some() {
         return Inspected::Failed;
@@ -789,8 +799,9 @@ impl Media {
         Ok(read_inspection(status.success(), result.as_deref()))
     }
 
-    /// In tests the inspection runs in this process, through the same result the subprocess would write.
-    /// [`tests::NO_VERDICT`] makes the next inspections time out instead.
+    /// In tests the inspection runs in this process, through the same result the subprocess would write, so its own
+    /// deadline (`processing_timeout_seconds`) acts as the subprocess's would. [`tests::NO_VERDICT`] makes the next
+    /// inspections time out in the parent instead.
     #[cfg(test)]
     async fn inspect_process(
         &self,
@@ -1678,6 +1689,88 @@ mod tests {
             inconclusive(INSPECTION_ATTEMPTS, "processing timed out"),
             MediaError::Validation(_)
         ));
+    }
+
+    // The subprocess's own timeout is no verdict, like the parent's: written as `{"timeout":…}`, also under context
+    // added on the way up, and read back as the timeout message. Other failures stay verdicts against the file.
+    #[test]
+    fn a_timeout_in_the_subprocess_is_no_verdict() {
+        let written =
+            |error: anyhow::Error| serde_json::to_vec(&verdict(Err(error)).unwrap()).unwrap();
+        for error in [
+            anyhow::Error::from(inspect::TimedOut),
+            anyhow::Error::from(inspect::TimedOut)
+                .context("encoding the animation")
+                .context("inspecting the upload"),
+        ] {
+            let bytes = written(error);
+            let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert!(value.get("timeout").is_some(), "{value}");
+            match read_inspection(true, Some(&bytes)) {
+                Inspected::Abnormal(message) => {
+                    assert_eq!(message, crate::i18n::current().media_check_timeout());
+                }
+                other => panic!("{other:?}"),
+            }
+        }
+        assert!(matches!(
+            read_inspection(
+                true,
+                Some(&written(anyhow::anyhow!("the image has too many pixels")))
+            ),
+            Inspected::Failed
+        ));
+    }
+
+    // The inspection running out of its own time is retried like the parent's timeout: the first two are retried and
+    // counted in the payload, and only the third rejects the file, with the timeout as the reason.
+    #[tokio::test]
+    async fn the_inspections_own_timeout_is_retried_before_it_rejects() {
+        // No time at all: the inspection's deadline trips at its first check, as the subprocess's would on a slow
+        // machine.
+        let fixture = Fixture::new(MediaConfig {
+            processing_timeout_seconds: 0,
+            ..MediaConfig::default()
+        })
+        .await;
+        let server = FakeS3::new(fixture.db.clone()).await;
+        fixture.configure(&server.endpoint).await;
+        let aid = fixture
+            .upload(&identity::random_token(), "photo.png", &png())
+            .await
+            .unwrap()
+            .aid;
+        let payload = || async {
+            crate::db::query_scalar::<String>(
+                "SELECT payload FROM gonof_common_outbox WHERE event_key=?",
+            )
+            .bind(format!("media.process:{aid}"))
+            .fetch_one(fixture.db.executor())
+            .await
+            .unwrap()
+        };
+        let mut now = identity::now();
+        for count in 1..INSPECTION_ATTEMPTS {
+            now += 7200;
+            fixture.media.process_pending(now).await.unwrap();
+            assert_eq!(lifecycle(&fixture, aid).await, "pending");
+            let payload = payload().await;
+            assert!(
+                payload.contains(&format!("\"no_verdict\":{count}")),
+                "{payload}"
+            );
+        }
+        now += 7200;
+        fixture.media.process_pending(now).await.unwrap();
+        assert_eq!(lifecycle(&fixture, aid).await, "rejected");
+        let detail: String =
+            crate::db::query_scalar("SELECT scan_detail FROM gonof_forum_attachment_0 WHERE aid=?")
+                .bind(aid)
+                .fetch_one(fixture.db.executor())
+                .await
+                .unwrap();
+        assert_eq!(detail, "timeout");
+        fixture._services.cleanup_ref().await.unwrap();
     }
 
     // A failure writing the processed output is the disk's, not the file's: the job retries it as a temporary
