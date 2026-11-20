@@ -4,6 +4,183 @@ What changed in each release of Gono Forum. A version's section is also the titl
 (see "Publishing a release" in [docs/releasing.md](docs/releasing.md)), so links in a section are absolute: the
 release page does not resolve relative ones.
 
+## 0.3.0 (early alpha)
+
+Three built-in skins, a retention period for site notifications, and close to two hundred fixes from a review of the
+whole code base. Five database migrations run when it first starts; read "Upgrading from 0.2.0" before you upgrade.
+
+### Added
+
+- **Built-in skins Atrium, Harbor and Ledger**, which any site can choose at Appearance › Skins (`/manage/skins`).
+  They are made only of what the skin layer offers (palettes, a stylesheet, the frame, behavior modules, a default
+  layout, board colors and glyphs), so they also show what a skin can do:
+  - `atrium`: a white page under a light grey header, the boards in side navigation, the board directory on the home
+    page, flat topic rows with the board as a badge and replies and views as stat boxes. Palettes `main`, `forest`,
+    `plum`, `teal` and `slate`.
+  - `harbor`: side navigation with the new-thread button, the page head as a banner, topic rows with the board as a
+    label in its color and a reply count column, a title band in the board's color over board and thread pages.
+    Palettes `main`, `contrast` and `colored`.
+  - `ledger`: flat white pages ruled into columns, topic lists as columns (title, poster, replies, views, activity),
+    flat posts with a round avatar, the thread's timeline beside it. Palettes `blue`, `teal`, `indigo` and `contrast`.
+
+  All three turn on the four behavior modules. See "Built-in skins" in
+  [docs/skins.md](https://github.com/gonolab/gono.forum/blob/v0.3.0/docs/skins.md).
+- **Notification retention**: two settings under Tools & maintenance › Maintenance, how long site notifications are
+  kept once read (30 days by default) and while unread (180 days by default, never shorter than the read period). See
+  "Changed" and "Notification retention" in
+  [docs/queries.md](https://github.com/gonolab/gono.forum/blob/v0.3.0/docs/queries.md).
+- Hooks for skins and scripts: the thread page's `article.thread` and the rows of the board directory (`/forums`)
+  carry their board's `data-board`, so `/boards.css` colors reach them; the page data block has `now`, the server's
+  time as it wrote the page; the replies section carries `data-last-position`, the thread's highest floor. See "Page
+  data" in [docs/skins.md](https://github.com/gonolab/gono.forum/blob/v0.3.0/docs/skins.md).
+- "Restore built-in text" on all six policy pages. Saving a policy with a blank title and body restores the built-in
+  text too, and the edit form shows that text as placeholders.
+- The member API sends `Retry-After` with a 429 for a posting quota (the seconds until the quota allows another post)
+  and with a 503 from inside a write.
+- `gono-forum-cli settle-due` prints how many campaigns it settled, how many are still paying out and how many
+  failed, and exits with a failing status when any failed. The command-line tool now prints its warnings on standard
+  error.
+
+### Changed
+
+- **Site notifications are deleted after their retention period** (see "Added"): read ones 30 days after they were
+  read, unread ones 180 days after they arrived, by default. The cleanup runs every minute, 1,000 members at a time,
+  and keeps the unread counts in step. The built-in privacy notice states both periods. The notification list stops
+  at 100 pages, and the lists of a member's personal space at 1,000.
+- **Cookie names follow the forum's path and port.** A forum under a path prefix or on a port other than the default
+  one now names every cookie after them (`gonof_session_forum`, `__Host-gonof_session__port8443`), so several
+  forums on one host no longer read and overwrite each other's sessions. A forum at the root on the default port keeps
+  the plain names. See "Reverse proxy" in
+  [docs/install.md](https://github.com/gonolab/gono.forum/blob/v0.3.0/docs/install.md).
+- The action log shows administrators every entry. More than seventy kinds of entry the forum wrote but did not list
+  (domains, friend links, honor groups, media, two-factor changes and others) now have their own labels.
+- A site has at most 400 top-level boards, checked when a board is created or promoted and by the content import. A
+  sub-site path on a host with a root site may not start with a board's address, and a new board address may not
+  match such a path.
+- Registration refuses an email address the mail library cannot send to (such as `first..last@example.test`),
+  instead of accepting it and failing every mail to it.
+- A new name for the site's points may not contain `|` or be a word the prize format reads as another prize type.
+  A site that already uses such a name keeps it.
+- Sanction, lift, expiry and appeal result mail carries the operator's reason, so it only goes to a verified address;
+  the appeal link only to an account with a password or a verified address. The notification on the site is
+  unchanged.
+- Images with an ICC profile other than sRGB (Display P3, for instance) are converted to sRGB when they are
+  re-encoded, thumbnails and animation frames included, instead of losing their colors with the profile. An animation
+  written as a GIF keeps the source's loop count.
+- A link to a whole thread (`/thread-N`) becomes a card; a link to one of its pages, a reading view or a reply stays
+  the link it was written as. Plain text (excerpts, feeds, page descriptions) puts a space after each table cell.
+- Likes, downvotes and favorites change their counters by one instead of counting the post's rows again, and the
+  all-time leaderboards read their first places from per-member totals instead of every post in history.
+- `gono-forum-cli set-password` checks the site's minimum password length instead of a fixed 12 characters.
+  `import-profiles` refuses a list without `uid=1` or with usernames that differ only in case. Imported posts get a
+  growth row without points; likes, highlights and accepted answers afterwards count as usual. See
+  [docs/content-import.md](https://github.com/gonolab/gono.forum/blob/v0.3.0/docs/content-import.md).
+- The daily upload quota is documented as a soft limit: an upload is admitted while its original size fits in what is
+  left, and then counts with the larger of its original and processed size.
+- `forum.install.sh` checks `/healthz` after an upgrade with wget or bash's `/dev/tcp` when curl is missing, instead
+  of reporting success unchecked, and stops before it stops the service when it cannot read the listen address. It
+  refuses to upgrade or roll back an instance without its unit or configuration, and `uninstall` removes nothing
+  while the service still runs.
+- The one-click upgrade keeps the current binaries as `*.previous` hard links before it renames the new ones in, so no
+  binary is ever missing, and requires both new binaries to report the release. It refuses with 409 when a check run
+  since found another release than the page showed. The admin page reports an upgrade whose command-line tool is not
+  the new version, and one that a power cut stopped before the new version was in place, which the old version then
+  gives up.
+
+### Fixed
+
+- **Accounts and sign-in**: read-only mode no longer holds back sign-in and phone verification codes; sends are
+  counted one at a time, so concurrent sends cannot go past the interval or the daily limits, and a code is only
+  valid once the provider took it. A third-party sign-in started in a newer tab is no longer cancelled by an older
+  one. Members who cannot post yet are sent to the requirement they miss, not always to email verification.
+  Registration forms record the versions of the terms they showed and ask again when the terms changed meanwhile.
+- **Privacy and data requests**: the personal export carries the member's poll options, news sources and lottery
+  conditions and prizes, and exports past 4 GiB no longer fail. Erasing a lottery's post erases its prizes and
+  conditions too. Erasure walks a member's posts along an index instead of scanning the site, and long erasures take
+  turns with other requests. Deleted authors' uids no longer show in lists.
+- **Mail**: a mail draft is only sent for the event it was written for. Every retention cleanup step runs even when
+  one fails, and temporary mail files left by an interrupted write are removed. Sanction mail is dated in the site's
+  time zone.
+- **Moderation and admin forms**: stale honor renewals, verification edits, friend link forms and layout editor
+  forms are refused with 409 instead of overwriting newer changes. A moderator whose hide is in effect is recused
+  from the restoration request. Viewing appeals no longer holds the database writer. Invite code filters match the
+  status the list shows. Friend link applications refuse every address of the forum itself.
+- **Boards**: overlapping board merges, and new child boards under a board being merged away, no longer strand
+  threads in a disabled board. A child board moved to the top level keeps its parent's domain links. Moving a thread
+  into an archive board returns to the move page; a refused move keeps the chosen board and reason.
+- **Activities**: cards update after an in-page reply and only offer what the member can do; check-in days follow the
+  site's current time zone; prize types can no longer be changed by the points name; large lotteries pay out over
+  several passes; an early draw fixes its winners in the draw itself; a campaign plan resumes after the site language
+  changed.
+- **Posting and the editor**: drafts are saved only after a change and restored where the page chose the forum or a
+  quote; Enter posts the thread; every board's posting guide shows without JavaScript; the code button picks a fence
+  longer than any it holds; Escape in a menu no longer closes the docked reply box.
+- **Attachments and storage**: checks that fail on the disk or run out of time are retried instead of rejecting the
+  upload; the editor stops waiting on a paused check; trash and purge actions are decided by the current state; brand
+  images and board icons answer 503 when storage is unavailable instead of 404; storage settings no longer add a
+  profile on every save.
+- **Reading pages**: the floor tracker follows the innermost nested floor; the timeline and progress modules follow
+  replies posted in place and a timeline of another thread opens that thread; unread marks take their starting point
+  from the server's clock; the page behind the phone drawer can no longer take focus; `lang` and `dir` follow a
+  boosted navigation; a change to a behavior module alone gets a new asset address, and during a rolling release only
+  the answering build's assets are cached for good.
+- **Rendering and lists**: the text around images in raw HTML is kept; mentions, quotes and attachments shown as plain
+  text past the nesting limit no longer notify or bind; guests see current link cards; title searches lower letters
+  the way MySQL does on both backends; a feed reads its pinned and other threads in one snapshot; weekly statistics
+  follow the site's local week; sitemaps list threads past id 250,000,000.
+- **Private messages and notifications**: message forms accept what the server accepts and keep the recipient they
+  were started for; a refused send cannot be delivered twice; reading a conversation no longer holds its lock while
+  it reads; follows count toward the interaction limits; "Mark all as read" only shows where it marks something.
+- **Imports and the command-line tool**: content imports run one at a time and count nested replies in one pass;
+  imported replies are never dated after the import; `enable-api-keys` keeps the old tokens when writing the new ones
+  fails; `import-content --members-out` checks its file first.
+- **Member API**: an edit returns, and a replay returns again, the version that edit wrote; publishing a thread
+  replays after its board's address or the site's time zone changed; a reused key on an ended activity is a 409.
+- **Setup and health checks**: the setup wizard leaves a database that already has its administrator alone, and
+  SQLite paths with `%`, `?` or `#` name the file as typed. `/healthz` answers on a host registered only with a
+  sub-path, and in time while the database pool is full.
+- **Performance**: the Outbox is indexed for its workers and for account deletion; reply counts, site statistics,
+  the daily report quota and member lists no longer grow with the data.
+
+### Upgrading from 0.2.0
+
+As with every upgrade during the alpha, back up the database and the instance directory first
+([docs/install.md](https://github.com/gonolab/gono.forum/blob/v0.3.0/docs/install.md), "Files to back up"). No
+configuration changes are needed.
+
+Five database migrations run when 0.3.0 first starts:
+
+- `0006_friend_link_version` and `0007_post_request_version` add a version column to friend links and to the request
+  records of posts. That takes no time on MySQL 8.4 and SQLite. MySQL 5.7 rebuilds both tables in place; the request
+  records are those of the last 30 days by default (Tools & maintenance › Maintenance, "Request key retention").
+- `0008_notification_retention` adds the two retention settings.
+- `0009_rank_member` creates `gonof_rank_member`, fills it from the posts and indexes the growth accounts. It takes
+  time in proportion to the posts: 2.6 to 3.4 seconds for 932,972 posts on MySQL 8.4 on a test machine.
+- `0010_outbox_indexes` adds two indexes to `gonof_common_outbox`. On MySQL they are built in place, but the build
+  waits for transactions already open on the table: do not upgrade while one is (a `mysqldump --single-transaction`
+  still running, for instance). 3 million rows took 2.9 seconds on MySQL 8.4 and 4.6 on 5.7.
+
+The forum does not answer until the migrations are done; both the one-click upgrade and `forum.install.sh upgrade`
+wait for them. To go back to 0.2.0 afterwards, restore the database from the backup, and empty `mail/prepared/` in
+`[identity] local_directory`: 0.2.0 refuses the mail drafts 0.3.0 writes.
+
+Also check before you upgrade:
+
+- **Notifications.** About a minute after the start, the cleanup begins deleting read notifications older than 30 days
+  and unread ones older than 180 days. To keep them longer, set both periods under Tools & maintenance › Maintenance
+  right after the upgrade; what is deleted before that is gone. A site that saved its own privacy policy keeps it as
+  it is, so it may want to state the periods.
+- **Sign-in.** On a forum under a path prefix or on a port other than the default one, the cookie names change: every
+  member is signed out once and pages left open must be reloaded before they can post.
+- **Skins with a built-in id.** An imported skin or a skin in the instance directory called `atrium`, `harbor` or
+  `ledger` is now shadowed by the built-in skin of that id, and a site that chose it shows the built-in one. The test
+  skins in `tests/fixtures/skins/` of 0.2.0 had two of these ids; they are now `frame` and `ruled`. Before upgrading,
+  give such a skin another id in its manifest, import it again (or rescan the instance directory) and choose it.
+- **Rendered posts** are cached under a new key, so posts are rendered again on their first view after the upgrade.
+- **The upgrade itself is run by 0.2.0**, so this release's fixes to it take effect from the next one. If a one-click
+  upgrade from 0.2.0 is cut short (power lost) before the new web binary is in place, 0.2.0 keeps running with
+  `data/upgrade/pending`: remove that file before the service has started twice more, then upgrade again.
+
 ## 0.2.0 (early alpha)
 
 A new minor version for two reasons: skins and layouts, which change a site's look and arrangement without building

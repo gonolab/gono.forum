@@ -229,8 +229,8 @@ proxy's error page; reload it by hand.
 
 ```bash
 sudo bash /usr/local/lib/gono-forum/forum.install.sh upgrade              # latest release
-sudo bash /usr/local/lib/gono-forum/forum.install.sh upgrade --version 0.2.0
-sudo bash /usr/local/lib/gono-forum/forum.install.sh upgrade --package gono-forum_0.2.0_linux_amd64.tar.gz   # checksums.txt next to it
+sudo bash /usr/local/lib/gono-forum/forum.install.sh upgrade --version 0.3.0
+sudo bash /usr/local/lib/gono-forum/forum.install.sh upgrade --package gono-forum_0.3.0_linux_amd64.tar.gz   # checksums.txt next to it
 sudo bash /usr/local/lib/gono-forum/forum.install.sh rollback             # swap back to *.previous (run again to undo)
 sudo bash /usr/local/lib/gono-forum/forum.install.sh status               # versions, service state, last upgrade
 ```
@@ -279,7 +279,7 @@ after them, and the script's 30-second health check begins only then ([releasing
 check and one-click upgrade").
 
 **Upgrades are not guaranteed during the alpha.** At the first release candidate the database migrations will be
-folded into a new baseline, and a site installed from a 0.1.x or 0.2.x release may not upgrade past that point and
+folded into a new baseline, and a site installed from a 0.1.x to 0.3.x release may not upgrade past that point and
 would have to be set up again (README, "Status").
 
 Several processes or machines: upgrade each one; a one-click upgrade only replaces the instance it runs in.
