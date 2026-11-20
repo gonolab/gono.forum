@@ -273,10 +273,10 @@ database from your backup. Back up before every upgrade.
 while they are built. The build does wait for transactions already open on the table, and later statements on the
 table wait behind it, so do not start the upgrade while such a transaction is open (a `mysqldump --single-transaction`
 still running, for instance). The new version answers once the build is done. On an SSD, 3 million rows (1.1 GB) took
-2.9 seconds on MySQL 8.4.11 and 4.6 seconds on 5.7.44. `forum.install.sh upgrade` waits 30 seconds for an answer
-and otherwise switches back to the old binaries, which refuse the migrated database. So check the size first
-(`SELECT COUNT(*) FROM gonof_common_outbox`). From about 15 million rows on, upgrade from the admin area, which waits
-for migrations.
+2.9 seconds on MySQL 8.4.11 and 4.6 seconds on 5.7.44. Both the one-click upgrade and `forum.install.sh upgrade` wait
+for it: while migrations run the new version keeps extending systemd's start timeout and only reports itself started
+after them, and the script's 30-second health check begins only then ([releasing.md](releasing.md), "In-app update
+check and one-click upgrade").
 
 **Upgrades are not guaranteed during the alpha.** At the first release candidate the database migrations will be
 folded into a new baseline, and a site installed from a 0.1.x or 0.2.x release may not upgrade past that point and
