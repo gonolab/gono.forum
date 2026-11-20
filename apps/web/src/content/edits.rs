@@ -246,7 +246,30 @@ impl ContentEditor {
     ) -> Result<EditablePost> {
         self.load_editable(actor, pid, timestamp, true).await
     }
+    /// Reads the post inside a write transaction, so that the form checks what saving will check. It takes the same
+    /// locks as saving (the member rows, then the board path and the thread) and can lose a deadlock in the same way,
+    /// so it retries the same way.
     async fn load_editable(
+        &self,
+        actor: Actor,
+        pid: i64,
+        timestamp: i64,
+        edit_form: bool,
+    ) -> Result<EditablePost> {
+        for attempt in 0..3 {
+            let result = self
+                .load_editable_inner(actor, pid, timestamp, edit_form)
+                .await;
+            match &result {
+                Err(error) if attempt < 2 && error.retryable() => {
+                    tokio::time::sleep(std::time::Duration::from_millis(20 * (attempt + 1))).await;
+                }
+                _ => return result,
+            }
+        }
+        unreachable!("bounded transaction retry returns its final result")
+    }
+    async fn load_editable_inner(
         &self,
         actor: Actor,
         pid: i64,

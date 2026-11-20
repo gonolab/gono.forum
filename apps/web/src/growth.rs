@@ -402,26 +402,42 @@ async fn target(
     Ok(total)
 }
 
-/// Creates and locks the growth accounts in uid order and returns the current balances.
+/// Locks the growth accounts in uid order, creating any that are missing, and returns the current balances.
+///
+/// An existing account is locked with a locking read, which locks the account row alone. An INSERT, even one that
+/// finds the account already there, checks the foreign key and so share-locks the member row. Likes and accepted
+/// answers get here after the board path and thread row without holding the author's member row, which edits,
+/// replies and moderation lock before them, so that lock could deadlock with them; only a member's first growth gets
+/// to the INSERT. Before it, the locking read of the missing row takes a gap lock on MySQL, which can deadlock with
+/// another member's first growth in the same gap: rare, and the callers retry deadlocks. The ledger entry written
+/// next ([`insert_ledger`]) checks the same foreign key, so a like still share-locks the author's member row there.
 async fn lock_accounts(
     db: &Database,
     tx: &mut Tx<'_>,
     uids: &BTreeSet<i64>,
 ) -> Result<BTreeMap<i64, i64>> {
+    const LOCK: &str = "SELECT growth FROM gonof_common_growth_account WHERE uid=? FOR UPDATE";
     let mut balances = BTreeMap::new();
     for &uid in uids {
-        crate::db::query(
-            "INSERT INTO gonof_common_growth_account(uid) VALUES(?) ON DUPLICATE KEY UPDATE uid=uid",
-        )
-        .bind(uid)
-        .execute(db.observe(&mut **tx))
-        .await?;
-        let growth: i64 = crate::db::query_scalar(
-            "SELECT growth FROM gonof_common_growth_account WHERE uid=? FOR UPDATE",
-        )
-        .bind(uid)
-        .fetch_one(db.observe(&mut **tx))
-        .await?;
+        let existing: Option<i64> = crate::db::query_scalar(LOCK)
+            .bind(uid)
+            .fetch_optional(db.observe(&mut **tx))
+            .await?;
+        let growth = match existing {
+            Some(growth) => growth,
+            None => {
+                crate::db::query(
+                    "INSERT INTO gonof_common_growth_account(uid) VALUES(?) ON DUPLICATE KEY UPDATE uid=uid",
+                )
+                .bind(uid)
+                .execute(db.observe(&mut **tx))
+                .await?;
+                crate::db::query_scalar(LOCK)
+                    .bind(uid)
+                    .fetch_one(db.observe(&mut **tx))
+                    .await?
+            }
+        };
         balances.insert(uid, growth);
     }
     Ok(balances)

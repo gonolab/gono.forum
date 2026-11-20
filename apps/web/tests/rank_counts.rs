@@ -527,11 +527,11 @@ where
 }
 
 /// Many members reply and like across each other's threads while the administrator hides and unhides the threads'
-/// first posts, which recounts whole threads (MySQL row locks). The write paths retry deadlocks themselves; their
-/// totals agree with the posts afterwards. Deadlocks that outlast the three built-in attempts are retried here and
-/// printed: they come from the growth-account upsert in likes (`growth::lock_accounts`, whose foreign-key check
-/// share-locks the author's member row after the board lock), which the same workload hits with the totals switched
-/// off.
+/// first posts, which recounts whole threads (MySQL row locks). The write paths, and the edit form's read the
+/// moderation starts from, retry deadlocks themselves; their totals agree with the posts afterwards. Deadlocks that
+/// outlast the three built-in attempts are retried here and printed: they come from the growth ledger entry a like
+/// or unlike writes for the post's author, whose foreign-key check share-locks the author's member row after the
+/// thread row and the author's totals, while replies and moderation lock member rows before them.
 #[tokio::test]
 async fn concurrent_writes_across_members_keep_the_totals() {
     gono_forum_web::mysql_only!();
@@ -609,38 +609,25 @@ async fn concurrent_writes_across_members_keep_the_totals() {
     }
     {
         let editor = f.editor.clone();
-        let db = f.db.clone();
         let admin = f.admin();
         let threads = threads.clone();
         let exhausted = exhausted.clone();
         tasks.spawn(async move {
             for round in 0..3 {
-                for (tid, pid) in &threads {
+                for (_, pid) in &threads {
                     for action in [ContentAction::Hide, ContentAction::Unhide] {
                         persist(&exhausted, || {
-                            let (editor, db) = (editor.clone(), db.clone());
+                            let editor = editor.clone();
                             async move {
-                                // The versions are read directly: the edit form's read (`editable`) does not retry.
-                                let versions = db::query(
-                                    "SELECT p.version AS post_version,t.version AS thread_version FROM gonof_forum_post p JOIN gonof_forum_thread t ON t.tid=p.tid WHERE p.pid=? AND t.tid=?",
-                                )
-                                .bind(*pid)
-                                .bind(*tid)
-                                .fetch_one(db.executor())
-                                .await
-                                .unwrap();
+                                let post = editor.editable(admin, *pid).await?;
                                 editor
                                     .change(
                                         admin,
                                         ChangeRequest {
                                             pid: *pid,
                                             action,
-                                            expected_post_version: versions
-                                                .try_get("post_version")
-                                                .unwrap(),
-                                            expected_thread_version: versions
-                                                .try_get("thread_version")
-                                                .unwrap(),
+                                            expected_post_version: post.version,
+                                            expected_thread_version: post.thread_version,
                                             request_key: identity::random_token(),
                                             reason: format!("busy moderation {round}"),
                                         },

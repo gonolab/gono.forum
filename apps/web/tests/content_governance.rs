@@ -1046,3 +1046,79 @@ async fn mysql_hide_counts_a_reply_committed_while_it_waited() {
     hide_waiting_behind_reply_contract(&services.db).await;
     services.cleanup().await.unwrap();
 }
+
+// The edit form reads the post in a write transaction that locks the member rows and then the board path and the
+// thread, as saving does, so it can lose a deadlock the same way; it then tries again, as saving does, instead of
+// failing. A heavier transaction (so that InnoDB picks the form as the victim) holds the thread row and, once the form
+// waits for it, asks for the editor's member row, which the form holds.
+async fn edit_form_losing_a_deadlock_contract(db: &Database) {
+    const THREAD_LOCK: &str = "SELECT fid,subject,version,deleted_at,closed,displayorder,digest,readperm,visibility,publication_state FROM gonof_forum_thread WHERE tid=? FOR UPDATE";
+    let fid = setup(db).await;
+    let e = editor(db);
+    let t = topic(db, fid).await;
+    let deadlocks = || {
+        scalar(
+            db,
+            "SELECT COUNT FROM information_schema.INNODB_METRICS WHERE NAME='lock_deadlocks'",
+        )
+    };
+    let deadlocks_before = deadlocks().await;
+    gono_forum_web::db::raw_sql("CREATE TABLE s19_ballast (id INT PRIMARY KEY)")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let mut holder = db.begin_write().await.unwrap();
+    let ballast = (1..=200)
+        .map(|n| format!("({n})"))
+        .collect::<Vec<_>>()
+        .join(",");
+    gono_forum_web::db::query(&format!("INSERT INTO s19_ballast(id) VALUES {ballast}"))
+        .execute(db.observe(&mut *holder))
+        .await
+        .unwrap();
+    gono_forum_web::db::query("SELECT tid FROM gonof_forum_thread WHERE tid=? FOR UPDATE")
+        .bind(t.tid)
+        .fetch_one(db.observe(&mut *holder))
+        .await
+        .unwrap();
+    let profile = Arc::new(RequestProfile::new());
+    let form = trace::scope(
+        profile.clone(),
+        Box::pin(e.edit_form_at(actor(105), t.pid, NOW + 20)),
+    );
+    let close = async move {
+        wait_blocked(&profile, THREAD_LOCK).await;
+        let locked =
+            gono_forum_web::db::query("SELECT uid FROM gonof_common_member WHERE uid=? FOR UPDATE")
+                .bind(105)
+                .fetch_one(db.observe(&mut *holder))
+                .await;
+        assert!(
+            locked.is_ok(),
+            "the form, not the heavier transaction, is the victim: {locked:?}"
+        );
+        holder.rollback().await.unwrap();
+    };
+    let (form, ()) =
+        tokio::time::timeout(Duration::from_secs(20), async { tokio::join!(form, close) })
+            .await
+            .expect("the edit form and the other transaction must both finish");
+    let form = form.expect("the edit form tries again after losing a deadlock");
+    assert_eq!(form.pid, t.pid);
+    assert!(deadlocks().await > deadlocks_before, "a deadlock happened");
+    gono_forum_web::db::raw_sql("DROP TABLE s19_ballast")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn mysql_an_edit_form_that_loses_a_deadlock_tries_again() {
+    // Only verifies the MySQL row-lock orchestration.
+    gono_forum_web::mysql_only!();
+    let services = gono_forum_web::test_support::TestFixture::new()
+        .await
+        .unwrap();
+    edit_form_losing_a_deadlock_contract(&services.db).await;
+    services.cleanup().await.unwrap();
+}
