@@ -129,6 +129,53 @@ pub async fn lock_actor(
     Ok(row.try_get("mute_until")?)
 }
 
+/// The author of `pid`, for [`lock_actor_and_author`]. It is read before the transaction begins: on MySQL the first
+/// plain read in a transaction fixes its snapshot, and the request-key check that follows the member locks has to see
+/// what a transaction with the same key committed while this one waited for them.
+async fn post_author(db: &Database, pid: i64) -> Result<Option<i64>> {
+    Ok(
+        crate::db::query_scalar::<Option<i64>>("SELECT authorid FROM gonof_forum_post WHERE pid=?")
+            .bind(pid)
+            .fetch_optional(db.executor())
+            .await?
+            .flatten(),
+    )
+}
+
+/// [`lock_actor`] for an interaction that moves the growth points of `author`, the post's author ([`post_author`]): a
+/// like, an unlike, or a downvote, which withdraws a like. Returns what [`lock_actor`] returns. The interaction writes
+/// the author's growth ledger entry and may create the author's growth account and leaderboard totals
+/// (`growth::sync_posts`, `ranks::counts::liked`); the foreign keys of those rows share-lock the author's member row
+/// when they are checked, after the board path and the thread row. Posting, replies, editing and moderation lock member
+/// rows before the board path, so a lock taken there can deadlock with them. The author's row is therefore share-locked
+/// here, with the actor's and in uid order, in the members-before-board order, and those checks find it held.
+///
+/// The author was read without a lock. Should it change before the post is locked (an erasure), only this lock is
+/// wasted; nothing reads the author through it. No lock is taken for the actor's own post or a post without an author.
+async fn lock_actor_and_author(
+    db: &Database,
+    tx: &mut Tx<'_>,
+    actor: Actor,
+    author: Option<i64>,
+) -> Result<i64> {
+    const AUTHOR_LOCK: &str = "SELECT uid FROM gonof_common_member WHERE uid=? LOCK IN SHARE MODE";
+    let author = author.filter(|author| *author != actor.uid);
+    if let Some(author) = author.filter(|author| *author < actor.uid) {
+        crate::db::query(AUTHOR_LOCK)
+            .bind(author)
+            .fetch_optional(db.observe(&mut **tx))
+            .await?;
+    }
+    let mute_until = lock_actor(db, tx, actor, true).await?;
+    if let Some(author) = author.filter(|author| *author > actor.uid) {
+        crate::db::query(AUTHOR_LOCK)
+            .bind(author)
+            .fetch_optional(db.observe(&mut **tx))
+            .await?;
+    }
+    Ok(mute_until)
+}
+
 /// Rejects while muted (docs/roles.md, "Mutes"): externally visible interactions such as likes and downvotes.
 pub(crate) fn reject_muted(mute_until: i64) -> Result<()> {
     if crate::moderation::muted(mute_until, crate::identity::now()) {
@@ -276,6 +323,11 @@ impl Interaction {
         let hash = identity::token_hash(
             &serde_json::json!({"operation":operation,"id":id,"desired":desired}).to_string(),
         );
+        let author = if favorite {
+            None
+        } else {
+            post_author(&self.db, id).await?
+        };
         let mut tx = self.db.begin_write().await?;
         // Read-only mode only blocks public content: like counts are publicly visible, so they are blocked; favorites
         // are only visible to the member, so the website allows them. The member API refuses every write in read-only
@@ -297,7 +349,13 @@ impl Interaction {
                     other => ContentWriteError::Internal(other.into()),
                 })?;
         }
-        let mute_until = lock_actor(&self.db, &mut tx, actor, true).await?;
+        // A favorite writes nothing for the thread's author; a like or unlike moves the author's growth points and
+        // likes total, so the author's member row is locked too.
+        let mute_until = if favorite {
+            lock_actor(&self.db, &mut tx, actor, true).await?
+        } else {
+            lock_actor_and_author(&self.db, &mut tx, actor, author).await?
+        };
         if !favorite {
             reject_muted(mute_until)?;
         }
@@ -388,8 +446,9 @@ impl Interaction {
 
     /// Explicitly sets the member's downvote on a thread. Only applies to the first post; mutually exclusive with
     /// likes, so downvoting withdraws the member's like on this floor in the same transaction. Thresholds, lock order
-    /// and idempotency follow likes: lock the member's own row first, then recheck readability with a shared lock on
-    /// the forum and exclusive locks on the thread and first post; request keys reuse `gonof_forum_post_request`.
+    /// and idempotency follow likes: lock the member's own row first (with the author's for a downvote, which moves the
+    /// author's growth points, [`lock_actor_and_author`]), then recheck readability with a shared lock on the forum and
+    /// exclusive locks on the thread and first post; request keys reuse `gonof_forum_post_request`.
     pub async fn set_downvote(
         &self,
         actor: Actor,
@@ -410,6 +469,11 @@ impl Interaction {
             &serde_json::json!({"operation":"interaction.downvote","id":pid,"desired":desired})
                 .to_string(),
         );
+        let author = if desired {
+            post_author(&self.db, pid).await?
+        } else {
+            None
+        };
         let mut tx = self.db.begin_write().await?;
         crate::runtime::guard_write(&self.db, &mut tx, false)
             .await
@@ -421,7 +485,14 @@ impl Interaction {
                 }
                 other => ContentWriteError::Internal(other.into()),
             })?;
-        reject_muted(lock_actor(&self.db, &mut tx, actor, true).await?)?;
+        // Taking a downvote back only removes the member's own mark; a downvote withdraws a like and so moves the
+        // author's growth points and likes total.
+        let mute_until = if desired {
+            lock_actor_and_author(&self.db, &mut tx, actor, author).await?
+        } else {
+            lock_actor(&self.db, &mut tx, actor, true).await?
+        };
+        reject_muted(mute_until)?;
         if let Some(row) = crate::db::query(
             "SELECT request_hash FROM gonof_forum_post_request WHERE uid=? AND request_key=?",
         )

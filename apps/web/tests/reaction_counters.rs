@@ -388,6 +388,69 @@ async fn mysql_a_like_that_loses_a_gap_lock_deadlock_is_retried() {
     fixture.cleanup().await.unwrap();
 }
 
+/// A like moves the author's growth points, and the foreign keys of the author's ledger entry and account share-lock
+/// the author's member row. The like takes that lock with the liker's, in uid order and before the board path, as
+/// posting and moderation lock member rows: while another transaction holds the author's row, the like waits there
+/// holding no board or thread lock, so that transaction can go on to lock the thread without a deadlock. Both orders
+/// are covered, an author below and above the liker.
+#[tokio::test]
+async fn mysql_a_like_waits_for_the_authors_member_row_before_the_board() {
+    gono_forum_web::mysql_only!();
+    const AUTHOR_LOCK: &str = "SELECT uid FROM gonof_common_member WHERE uid=? LOCK IN SHARE MODE";
+    let fixture = TestFixture::migrated().await.unwrap();
+    let db = &fixture.db;
+    let fid = site(db, 4).await;
+    for (author, liker) in [(2, 3), (4, 3)] {
+        let post = topic(db, fid, author).await;
+        // As moderation does: the author's member row first, then the thread.
+        let mut holder = db.begin_write().await.unwrap();
+        db::query("SELECT uid FROM gonof_common_member WHERE uid=? FOR UPDATE")
+            .bind(author)
+            .fetch_one(db.observe(&mut *holder))
+            .await
+            .unwrap();
+        let profile = Arc::new(RequestProfile::new());
+        let liking = {
+            let (db, profile) = (db.clone(), profile.clone());
+            tokio::spawn(trace::scope(profile, async move {
+                Interaction::new(db)
+                    .set_reaction(actor(liker), post.pid, true, &identity::random_token())
+                    .await
+            }))
+        };
+        // A statement sent and not answered yet is waiting for a lock.
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            while !profile.snapshot().iter().any(|record| {
+                record.source == QuerySource::Application
+                    && record.sql == AUTHOR_LOCK
+                    && record.rows_returned == 0
+                    && record.elapsed.is_zero()
+            }) {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("the like by {liker} never waited for author {author}"));
+        let thread = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            db::query("SELECT tid FROM gonof_forum_thread WHERE tid=? FOR UPDATE")
+                .bind(post.tid)
+                .fetch_one(db.observe(&mut *holder)),
+        )
+        .await;
+        assert!(
+            matches!(thread, Ok(Ok(_))),
+            "the waiting like holds no thread lock: {thread:?}"
+        );
+        holder.rollback().await.unwrap();
+        liking.await.unwrap().unwrap();
+        assert_eq!(post_counts(db, post.pid).await, (1, 0, 1));
+        let (credited, expected) = growth(db, post.pid).await;
+        assert_eq!(credited, expected);
+    }
+    fixture.cleanup().await.unwrap();
+}
+
 /// Members liking the first posts of several threads at once, each in a different order: every like that succeeds
 /// counts exactly once, and the counters and growth points end up matching the like rows.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

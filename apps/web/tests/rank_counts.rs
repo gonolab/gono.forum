@@ -529,9 +529,10 @@ where
 /// Many members reply and like across each other's threads while the administrator hides and unhides the threads'
 /// first posts, which recounts whole threads (MySQL row locks). The write paths, and the edit form's read the
 /// moderation starts from, retry deadlocks themselves; their totals agree with the posts afterwards. Deadlocks that
-/// outlast the three built-in attempts are retried here and printed: they come from the growth ledger entry a like
-/// or unlike writes for the post's author, whose foreign-key check share-locks the author's member row after the
-/// thread row and the author's totals, while replies and moderation lock member rows before them.
+/// outlast the three built-in attempts are retried here and printed. Likes share-lock the post's author's member row
+/// before the board path, which the foreign keys of the author's growth ledger entry and totals would otherwise take
+/// after it (`interaction::lock_actor_and_author`); what is left are the like rows' own gap locks
+/// (`counters::set_mark`), which the built-in attempts absorb.
 #[tokio::test]
 async fn concurrent_writes_across_members_keep_the_totals() {
     gono_forum_web::mysql_only!();
