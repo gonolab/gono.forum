@@ -526,6 +526,8 @@ async fn configure_stage_adds_the_sample_content_when_ticked() {
         count(&services, "SELECT COUNT(*) FROM gonof_forum_forum").await,
         5
     );
+    gono_forum_web::test_support::assert_boards_have_distinct_colors_and_glyphs(&services.db, 5)
+        .await;
     assert_eq!(
         count(&services, "SELECT COUNT(*) FROM gonof_forum_thread").await,
         100

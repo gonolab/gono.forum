@@ -17,6 +17,8 @@
       "name": "General",
       "description": "Introductions, everyday chat and anything that does not fit elsewhere",
       "guidance": "Say hello, share what you are up to and keep it friendly.",
+      "color": "#2f6fde",
+      "glyph": "chat",
       "threads": [
         {"title": "Welcome! A note about the sample content", "pinned": true, "body": "Hello and welcome. Everything you see here right now (the members, forums, threads and replies) is sample content that was added when this forum was installed.\n\nIt is here so you can see how lists, threads, replies and nested replies look before real conversations start. Browse around, try the search and the reading settings, and edit or remove it when you are ready."},
         {"title": "Introduce yourself", "body": "New here? Tell us a little about yourself: what you do, what you are working on and what brought you to the forum.\n\nI will start: I write backend services for a living and spend weekends hiking with a camera I barely know how to use."},
@@ -72,6 +74,8 @@
       "name": "Help",
       "description": "Ask how something works, get unstuck and share answers",
       "guidance": "Say what you tried, what you expected and what happened instead. When something solves it, say so.",
+      "color": "#2e9d57",
+      "glyph": "question",
       "threads": [
         {"title": "How to ask a good question here", "pinned": true, "featured": true, "body": "A few tips that get you an answer faster:\n\n- Say what you are trying to do, not only what is broken.\n- Include the exact error message and the steps that lead to it.\n- Mention versions: operating system, browser, the tool you are using.\n\nAnd when you solve it yourself, post the fix. Someone will search for it next year."},
         {"title": "Git: undo the last commit but keep my changes?", "body": "I committed to the wrong branch. I want to take the commit back but keep the edits in my working tree, so I can commit them on the right branch.\n\nIs `git reset --soft HEAD~1` the right tool here, or will it bite me later?"},
@@ -127,6 +131,8 @@
       "name": "Showcase",
       "description": "Projects, write-ups and things you made",
       "guidance": "Share what you built and how. Screenshots, source links and lessons learned are welcome.",
+      "color": "#e07a1f",
+      "glyph": "star",
       "threads": [
         {"title": "I built a tiny habit tracker that runs in the terminal", "featured": true, "body": "It is a single program that keeps everything in a text file. You mark a habit as done with one command, and it prints a little calendar of the last month.\n\nIt started as a weekend project and somehow I have used it every day for three months. Feedback welcome."},
         {"title": "My first mechanical keyboard build", "body": "I soldered every switch myself, broke two of them and learned a lot about patience.\n\nIt is a 60% layout with a few custom layers. Typing on it feels great, though my colleagues may disagree about the noise."},
@@ -182,6 +188,8 @@
       "name": "Technology",
       "description": "Software, hardware, the web and the tools we use",
       "guidance": "News, opinions and comparisons. Link to your sources and keep it civil.",
+      "color": "#8656d8",
+      "glyph": "code",
       "threads": [
         {"title": "What is in your everyday toolkit?", "body": "Editor, terminal, browser, note-taking app: what do you use every day, and what did you drop recently?\n\nI finally replaced three note apps with a folder of Markdown files."},
         {"title": "Are static sites making a comeback?", "body": "More and more projects I follow are moving their sites to plain generated HTML.\n\nIs this a real trend or just my corner of the internet? What do you use for small sites?"},
@@ -237,6 +245,8 @@
       "name": "Feedback",
       "description": "Suggestions and questions about this forum",
       "guidance": "One idea or question per thread. Say what you would like to change and why.",
+      "color": "#d6456f",
+      "glyph": "lightbulb",
       "threads": [
         {"title": "Suggestion: a weekly digest email", "body": "I do not visit every day, but I would love a short email on Sunday with the most active threads of the week.\n\nWould anyone else use this?"},
         {"title": "The dark theme is easy on the eyes", "body": "I just switched to the dark theme and wanted to say it is really comfortable for late-night reading.\n\nThanks to whoever worked on it."},

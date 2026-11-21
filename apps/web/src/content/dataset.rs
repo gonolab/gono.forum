@@ -73,6 +73,10 @@ struct BoardEntry {
     guidance: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     parent: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    color: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    glyph: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -396,15 +400,31 @@ fn check_boards(report: &mut Report, entries: Vec<BoardEntry>) -> Vec<NewForum> 
             report.error(&place, "name or slug is not accepted by the forum");
             valid = false;
         }
+        // The board form's checks: a color in upper case is kept in lower case.
+        let color = crate::organization::board_color(&entry.color);
+        if color.is_none() {
+            report.error(&place, "color is not written #rrggbb");
+            valid = false;
+        }
+        let glyph = crate::organization::board_glyph(&entry.glyph);
+        if glyph.is_none() {
+            report.error(
+                &place,
+                format!("glyph {} is not one of the built-in glyphs", entry.glyph),
+            );
+            valid = false;
+        }
         seen.entry(entry.slug.clone())
             .or_insert((position, entry.parent.is_some(), 0));
-        if valid {
+        if let (true, Some(color), Some(glyph)) = (valid, color, glyph) {
             boards.push(NewForum {
                 slug: entry.slug,
                 name: name.to_owned(),
                 description: entry.description,
                 guidance: entry.guidance,
                 parent: entry.parent,
+                color,
+                glyph,
             });
         }
     }
@@ -839,6 +859,8 @@ pub(crate) fn plan(dataset: &Dataset, now: i64) -> Result<Plan> {
             description: board.description.clone(),
             guidance: board.guidance.clone(),
             parent: board.parent.clone(),
+            color: board.color.clone(),
+            glyph: board.glyph.clone(),
         })
         .collect();
     Ok(Plan {
@@ -895,6 +917,8 @@ pub fn write_sample(dir: &Path, lang: crate::i18n::Lang) -> Result<usize> {
             description: forum.description.clone(),
             guidance: forum.guidance.clone(),
             parent: forum.parent.clone(),
+            color: forum.color.clone(),
+            glyph: forum.glyph.clone(),
         })
         .collect();
     write_file(
@@ -1015,12 +1039,12 @@ mod tests {
         scratch.write(MANIFEST_FILE, manifest());
         scratch.write(
             BOARDS_FILE,
-            r#"[
+            r##"[
   {"slug": "community", "name": "Community", "description": "Everything about us"},
   {"slug": "intros", "name": "Introductions", "description": "Say hello", "parent": "community"},
-  {"slug": "help", "name": "Help", "description": "Questions", "guidance": "Say what you tried."}
+  {"slug": "help", "name": "Help", "description": "Questions", "guidance": "Say what you tried.", "color": "#0F766E", "glyph": "question"}
 ]
-"#,
+"##,
         );
         scratch.write(
             USERS_FILE,
@@ -1065,6 +1089,15 @@ mod tests {
         );
         let plan = plan(checked.dataset.as_ref().unwrap(), NOW).unwrap();
         assert_eq!(plan.forums[1].parent.as_deref(), Some("community"));
+        // A color is kept in lower case, as the board form keeps it; a board without one has none.
+        assert_eq!(
+            (plan.forums[2].color.as_str(), plan.forums[2].glyph.as_str()),
+            ("#0f766e", "question")
+        );
+        assert_eq!(
+            (plan.forums[0].color.as_str(), plan.forums[0].glyph.as_str()),
+            ("", "")
+        );
         // Threads are numbered in time order; every thread's first post comes before its replies.
         let mut next_pid = 1;
         for (index, thread) in plan.threads.iter().enumerate() {
@@ -1199,7 +1232,9 @@ mod tests {
   {"slug": "child", "name": "Child", "description": "x", "parent": "later"},
   {"slug": "later", "name": "Later", "description": ""},
   {"slug": "ok", "name": "OK", "description": "Fine"},
-  {"slug": "ok", "name": "Other", "description": "Fine"}
+  {"slug": "ok", "name": "Other", "description": "Fine"},
+  {"slug": "teal", "name": "Teal", "description": "x", "color": "teal"},
+  {"slug": "kitten", "name": "Kitten", "description": "x", "glyph": "kitten"}
 ]
 "#,
         );
@@ -1244,6 +1279,8 @@ mod tests {
             "boards.json, board 4 (child): parent later is not a board listed before this one",
             "boards.json, board 5 (later): description is empty",
             "boards.json, board 7 (ok): slug is also used by board 6",
+            "boards.json, board 8 (teal): color is not written #rrggbb",
+            "boards.json, board 9 (kitten): glyph kitten is not one of the built-in glyphs",
             "users.jsonl:2: empty line",
             "users.jsonl:3 (NORA): username is the same as line 1",
             "users.jsonl:4 (has space): username must be 1-50 characters",
@@ -1413,6 +1450,8 @@ mod tests {
                 description: "Questions".into(),
                 guidance: String::new(),
                 parent: None,
+                color: String::new(),
+                glyph: String::new(),
             }],
             members: vec![("nora".into(), String::new())],
             threads: (0..count)

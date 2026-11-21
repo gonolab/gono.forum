@@ -3,7 +3,7 @@
 //!
 //! The text lives in `locales/<tag>/sample.json` (docs/translating.md, "Sample content"). The base language's file is
 //! complete; another language's file holds only text, matched to the base by member name, forum slug and position,
-//! so every language gets the same plan with its own words. [`plan`] turns the text into a fixed plan of who wrote
+//! so every language gets the same plan with its own words (and the base's forum colors and glyphs). [`plan`] turns the text into a fixed plan of who wrote
 //! what, when and in reply to whom. Only the timestamps depend on the moment of import (everything happened during
 //! the two months before it, so the site looks active); the authors, reply counts, bodies and nesting come out the
 //! same every time. The plan is written by `seed::import_sample`, which goes through the same insert code as the
@@ -63,6 +63,10 @@ struct SourceForum {
     name: String,
     description: String,
     guidance: String,
+    /// `#rrggbb` in lower case and a built-in glyph name (docs/skins.md, "Board colors and glyphs"); only in the base,
+    /// so every language shows the same colors.
+    color: String,
+    glyph: String,
     threads: Vec<SourceThread>,
     /// Top-level replies that fit any thread of this forum.
     replies: Vec<String>,
@@ -322,6 +326,8 @@ fn translate(base: Source, translation: Translation) -> Result<Source> {
                 name: texts.name,
                 description: texts.description,
                 guidance: texts.guidance,
+                color: forum.color,
+                glyph: forum.glyph,
                 threads: forum
                     .threads
                     .into_iter()
@@ -476,6 +482,8 @@ pub(crate) fn plan(now: i64, lang: Lang) -> Result<Plan> {
             description: forum.description,
             guidance: forum.guidance,
             parent: None,
+            color: forum.color,
+            glyph: forum.glyph,
         })
         .collect();
     Ok(Plan {
@@ -593,10 +601,35 @@ mod tests {
                 MEMBERS,
                 "{lang}: every member writes something"
             );
+            let mut colors = BTreeSet::new();
+            let mut glyphs = BTreeSet::new();
             for forum in &plan.forums {
                 assert!(
                     crate::organization::forum_fields(&forum.name, &forum.slug, "public", 1)
                         .is_some_and(|(_, slug)| slug == forum.slug),
+                    "{lang}: {}",
+                    forum.slug
+                );
+                // Every forum has a color and a glyph, stored as the board form stores them, and no two share one.
+                assert_eq!(
+                    crate::organization::board_color(&forum.color).as_deref(),
+                    Some(forum.color.as_str()),
+                    "{lang}: {}",
+                    forum.slug
+                );
+                assert_eq!(
+                    crate::organization::board_glyph(&forum.glyph).as_deref(),
+                    Some(forum.glyph.as_str()),
+                    "{lang}: {}",
+                    forum.slug
+                );
+                assert!(
+                    !forum.color.is_empty() && colors.insert(forum.color.as_str()),
+                    "{lang}: {}",
+                    forum.slug
+                );
+                assert!(
+                    !forum.glyph.is_empty() && glyphs.insert(forum.glyph.as_str()),
                     "{lang}: {}",
                     forum.slug
                 );
@@ -781,8 +814,11 @@ mod tests {
             for (a, b) in base.members.iter().zip(&translated.members) {
                 assert_eq!((a.avatar, a.regdate), (b.avatar, b.regdate), "{lang}");
             }
-            let slugs = |plan: &Plan| -> Vec<String> {
-                plan.forums.iter().map(|forum| forum.slug.clone()).collect()
+            let slugs = |plan: &Plan| -> Vec<(String, String, String)> {
+                plan.forums
+                    .iter()
+                    .map(|forum| (forum.slug.clone(), forum.color.clone(), forum.glyph.clone()))
+                    .collect()
             };
             assert_eq!(slugs(&base), slugs(&translated), "{lang}");
             for (a, b) in base.threads.iter().zip(&translated.threads) {
@@ -942,6 +978,13 @@ mod tests {
         let mut unknown = full.clone();
         unknown["forums"]["help"]["slug"] = "help".into();
         assert!(translated(&unknown).is_err(), "unknown fields are refused");
+
+        // Colors and glyphs are the base's structure, not text: a translation cannot set them.
+        for field in ["color", "glyph"] {
+            let mut look = full.clone();
+            look["forums"]["help"][field] = "chat".into();
+            assert!(translated(&look).is_err(), "{field} is refused");
+        }
 
         // Written twice, a member would silently lose one of the two translations.
         let twice = r#"{"members": {"nora": {"username": "a", "bio": ""}, "nora": {"username": "b", "bio": ""}}, "forums": {}, "replies": [], "follow_ups": []}"#;

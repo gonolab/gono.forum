@@ -8,49 +8,74 @@ use crate::db::Database;
 
 use super::{Post, Thread, fixtures};
 
-/// The 6 forums of the development and test fixtures: name, slug, description and posting guidance.
+/// A forum of the development and test fixtures.
+pub struct FixtureForum {
+    pub name: &'static str,
+    pub slug: &'static str,
+    pub description: &'static str,
+    pub guidance: &'static str,
+    /// `#rrggbb` in lower case, as the board form stores it (docs/skins.md, "Board colors and glyphs").
+    pub color: &'static str,
+    /// A built-in glyph name (`organization::glyphs`).
+    pub glyph: &'static str,
+}
+
+/// The 6 forums of the development and test fixtures, each with a color and a glyph so that skins which use them
+/// (docs/skins.md, "Built-in skins") show them.
 ///
 /// **Fixtures only** (tests and the development data imported by `gono-forum-cli seed-demo` attach threads to these
 /// slugs). A fresh install starts with no forums, and the administrator creates them by hand at `/manage/forums`,
 /// unless the optional sample content was chosen in the setup wizard ([`import_sample`]), which brings forums of its
 /// own.
-pub const FIXTURE_FORUMS: [(&str, &str, &str, &str); 6] = [
-    (
-        "Daily",
-        "daily",
-        "Everyday chat, work and light conversation",
-        "Check-ins, questions, notes from work and everyday life.",
-    ),
-    (
-        "Showcase",
-        "showcase",
-        "Projects, open source, gadgets and write-ups",
-        "Share what you built: open-source releases, launches and tinkering notes.",
-    ),
-    (
-        "AI",
-        "ai",
-        "Models, prompts, AI-assisted coding and agents",
-        "Model APIs, running models locally, prompting and workflow automation.",
-    ),
-    (
-        "Hosting",
-        "hosting",
-        "Servers, cloud, domains, networking and operations",
-        "Server reviews, containers, DNS, reverse proxies and operations practice.",
-    ),
-    (
-        "Releases",
-        "releases",
-        "Release notes and milestones of community projects",
-        "Release records, changelogs, milestones and major announcements.",
-    ),
-    (
-        "Meta",
-        "meta",
-        "Announcements, rules, bug reports and feature requests",
-        "Questions about the community, interface suggestions, rules and announcements.",
-    ),
+pub const FIXTURE_FORUMS: [FixtureForum; 6] = [
+    FixtureForum {
+        name: "Daily",
+        slug: "daily",
+        description: "Everyday chat, work and light conversation",
+        guidance: "Check-ins, questions, notes from work and everyday life.",
+        color: "#2f6fde",
+        glyph: "coffee",
+    },
+    FixtureForum {
+        name: "Showcase",
+        slug: "showcase",
+        description: "Projects, open source, gadgets and write-ups",
+        guidance: "Share what you built: open-source releases, launches and tinkering notes.",
+        color: "#e07a1f",
+        glyph: "star",
+    },
+    FixtureForum {
+        name: "AI",
+        slug: "ai",
+        description: "Models, prompts, AI-assisted coding and agents",
+        guidance: "Model APIs, running models locally, prompting and workflow automation.",
+        color: "#8656d8",
+        glyph: "lightbulb",
+    },
+    FixtureForum {
+        name: "Hosting",
+        slug: "hosting",
+        description: "Servers, cloud, domains, networking and operations",
+        guidance: "Server reviews, containers, DNS, reverse proxies and operations practice.",
+        color: "#1f9a9a",
+        glyph: "globe",
+    },
+    FixtureForum {
+        name: "Releases",
+        slug: "releases",
+        description: "Release notes and milestones of community projects",
+        guidance: "Release records, changelogs, milestones and major announcements.",
+        color: "#2e9d57",
+        glyph: "rocket",
+    },
+    FixtureForum {
+        name: "Meta",
+        slug: "meta",
+        description: "Announcements, rules, bug reports and feature requests",
+        guidance: "Questions about the community, interface suggestions, rules and announcements.",
+        color: "#d6456f",
+        glyph: "megaphone",
+    },
 ];
 
 /// For fixtures: creates [`FIXTURE_FORUMS`] only when the forum table is empty; does nothing if the table already has
@@ -69,22 +94,26 @@ pub async fn seed_forums(db: &Database) -> Result<()> {
     }
     let suffix = "ON DUPLICATE KEY UPDATE slug = slug";
     let sql = &format!(
-        "INSERT INTO gonof_forum_forum (slug, name, description, guidance, displayorder)
-         VALUES (?, ?, ?, ?, ?) {suffix}"
+        "INSERT INTO gonof_forum_forum (slug, name, description, guidance, displayorder, color, glyph)
+         VALUES (?, ?, ?, ?, ?, ?, ?) {suffix}"
     );
-    for (order, (name, slug, description, guidance)) in FIXTURE_FORUMS.iter().enumerate() {
+    for (order, forum) in FIXTURE_FORUMS.iter().enumerate() {
         // Row rules such as name length are checked in code (there is no validation trigger); they share one set of
         // checks with saving in the admin area.
         ensure!(
-            crate::organization::forum_fields(name, slug, "public", 1).is_some(),
-            "fixture forum name or address is wrong: {slug}"
+            crate::organization::forum_fields(forum.name, forum.slug, "public", 1).is_some(),
+            "fixture forum name or address is wrong: {}",
+            forum.slug
         );
+        let (color, glyph) = board_look(forum.color, forum.glyph, forum.slug)?;
         crate::db::query(sql)
-            .bind(slug)
-            .bind(name)
-            .bind(description)
-            .bind(guidance)
+            .bind(forum.slug)
+            .bind(forum.name)
+            .bind(forum.description)
+            .bind(forum.guidance)
             .bind(i64::try_from(order)?)
+            .bind(color)
+            .bind(glyph)
             .execute(db.observe(&mut *transaction))
             .await?;
     }
@@ -200,13 +229,26 @@ async fn ensure_no_content(db: &Database, transaction: &mut Tx<'static>, what: &
 }
 
 /// A forum for [`import_sample`] or [`import_dataset`]; `parent` is the slug of a top-level forum earlier in the same
-/// list.
+/// list. `color` and `glyph` may be empty (docs/skins.md, "Board colors and glyphs").
 pub(crate) struct NewForum {
     pub slug: String,
     pub name: String,
     pub description: String,
     pub guidance: String,
     pub parent: Option<String>,
+    pub color: String,
+    pub glyph: String,
+}
+
+/// A forum's color and glyph as the board form stores them, through the same checks (`organization::board_color`,
+/// `organization::board_glyph`): either may be empty, and a color is kept in lower case. Anything the form would refuse
+/// stops the import.
+fn board_look(color: &str, glyph: &str, slug: &str) -> Result<(String, String)> {
+    let color = crate::organization::board_color(color)
+        .with_context(|| format!("forum {slug}: the color {color:?} is not #rrggbb"))?;
+    let glyph = crate::organization::board_glyph(glyph)
+        .with_context(|| format!("forum {slug}: {glyph:?} is not a built-in glyph"))?;
+    Ok((color, glyph))
 }
 
 /// The username limit of `identity::rules::check_username`, in characters.
@@ -231,16 +273,16 @@ pub struct ImportedMember {
 }
 
 /// Creates `forums` in order, the list position as the display order. Organization rules the admin area enforces are
-/// checked here too (there is no validation trigger): the name and address, at most two levels, at most
-/// [`crate::organization::MAX_CHILD_FORUMS`] children per parent and at most
+/// checked here too (there is no validation trigger): the name and address, the color and glyph, at most two levels,
+/// at most [`crate::organization::MAX_CHILD_FORUMS`] children per parent and at most
 /// [`crate::organization::MAX_TOP_FORUMS`] top-level forums (the site has none before an import).
 async fn insert_forums(
     db: &Database,
     transaction: &mut Tx<'static>,
     forums: &[NewForum],
 ) -> Result<()> {
-    let sql = "INSERT INTO gonof_forum_forum (slug, name, description, guidance, displayorder, parent_fid)
-         VALUES (?, ?, ?, ?, ?, ?)";
+    let sql = "INSERT INTO gonof_forum_forum (slug, name, description, guidance, displayorder, parent_fid, color, glyph)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
     // slug -> (fid, whether it is top-level, children so far)
     let mut created: HashMap<&str, (i64, bool, i64)> = HashMap::new();
     let tops = forums.iter().filter(|forum| forum.parent.is_none()).count();
@@ -256,6 +298,7 @@ async fn insert_forums(
             "forum name or address is wrong: {}",
             forum.slug
         );
+        let (color, glyph) = board_look(&forum.color, &forum.glyph, &forum.slug)?;
         let parent = match &forum.parent {
             None => None,
             Some(parent) => {
@@ -283,6 +326,8 @@ async fn insert_forums(
             .bind(&forum.guidance)
             .bind(i64::try_from(order)?)
             .bind(parent)
+            .bind(color)
+            .bind(glyph)
             .execute(db.observe(&mut **transaction))
             .await?;
         let fid: i64 = crate::db::query_scalar("SELECT fid FROM gonof_forum_forum WHERE slug = ?")
@@ -694,6 +739,51 @@ mod tests {
         assert_eq!(counts.get(&70_000), Some(&1));
         assert_eq!(counts.get(&2), None, "a nested reply opens no floor");
         assert_eq!(counts.len(), 2);
+    }
+
+    /// The fixture forums carry a color and a glyph each, stored as the board form would store them and all
+    /// different, so a skin that uses them tells the boards apart.
+    #[test]
+    fn the_fixture_forums_have_distinct_colors_and_glyphs() {
+        let mut colors = std::collections::BTreeSet::new();
+        let mut glyphs = std::collections::BTreeSet::new();
+        for forum in &FIXTURE_FORUMS {
+            assert_eq!(
+                board_look(forum.color, forum.glyph, forum.slug).unwrap(),
+                (forum.color.to_owned(), forum.glyph.to_owned()),
+                "{}",
+                forum.slug
+            );
+            assert!(!forum.color.is_empty() && !forum.glyph.is_empty());
+            assert!(colors.insert(forum.color), "{}", forum.slug);
+            assert!(glyphs.insert(forum.glyph), "{}", forum.slug);
+        }
+    }
+
+    /// Imported forums go through the board form's checks for color and glyph.
+    #[test]
+    fn a_forum_look_is_checked_like_the_board_form() {
+        assert_eq!(
+            board_look("", "", "a").unwrap(),
+            (String::new(), String::new())
+        );
+        assert_eq!(
+            board_look(" #0F766E ", "chat", "a").unwrap(),
+            ("#0f766e".to_owned(), "chat".to_owned())
+        );
+        for (color, glyph) in [
+            ("0f766e", ""),
+            ("#0f766", ""),
+            ("#0f766g", ""),
+            ("teal", ""),
+            ("", "kitten"),
+            ("", "Chat"),
+        ] {
+            assert!(
+                board_look(color, glyph, "a").is_err(),
+                "{color:?} {glyph:?}"
+            );
+        }
     }
 
     /// A taken name with a number appended stays within the username limit.

@@ -69,6 +69,12 @@ below are errors, so a misspelt name is caught.
 | `description` | required | Not empty. |
 | `guidance` | optional | Shown when posting in the board. |
 | `parent` | optional | The slug of a top-level board listed earlier. At most two levels and 10 children per parent. |
+| `color` | optional | `#rrggbb`, kept in lower case, as the board form stores it. |
+| `glyph` | optional | One of the 32 built-in glyph names (`chat`, `question`, `code`, …). |
+
+`color` and `glyph` are the board's color and icon (see [skins.md](skins.md), "Board colors and glyphs"), checked as
+the board form checks them; the default look does not show them, skins that use them do. The sample's boards have
+both.
 
 The list order is the display order. A parent board can hold threads of its own and also lists its children's. A site
 has at most 400 top-level boards, the same limit the admin area keeps when a board is created or a child board is

@@ -11,7 +11,10 @@ use gono_forum_web::{
     db,
     i18n::Lang,
     identity::Identity,
-    test_support::{TestFixture, assert_identity_consistent, content_drift, detached_global},
+    test_support::{
+        TestFixture, assert_boards_have_distinct_colors_and_glyphs, assert_identity_consistent,
+        content_drift, detached_global,
+    },
 };
 use http_body_util::BodyExt;
 use tower::ServiceExt;
@@ -87,6 +90,8 @@ async fn assert_sample_written(f: &TestFixture, owner: i64, now: i64) {
         count(f, "SELECT COUNT(*) FROM gonof_forum_forum").await,
         i64::try_from(sample::FORUMS).unwrap()
     );
+    // The same colors and glyphs in every language, so skins that use them show them from the start.
+    assert_boards_have_distinct_colors_and_glyphs(&f.db, sample::FORUMS).await;
     assert_eq!(
         count(f, "SELECT COUNT(*) FROM gonof_forum_thread").await,
         threads
@@ -224,6 +229,10 @@ async fn sample_content_fills_an_empty_site_consistently() {
         body.contains("Welcome! A note about the sample content"),
         "{body}"
     );
+    assert!(
+        body.contains("data-board-style>"),
+        "pages link the board stylesheet: {body}"
+    );
     let (status, body) = get(&app, "/help").await;
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("How to ask a good question here"), "{body}");
@@ -249,6 +258,28 @@ async fn sample_content_fills_an_empty_site_consistently() {
     assert_eq!(
         count(&f, "SELECT COUNT(*) FROM gonof_common_member").await,
         members + 1
+    );
+    f.cleanup().await.unwrap();
+}
+
+/// The development fixture (`gono-forum-cli seed-demo`, the browser checks) gives its boards colors and glyphs too.
+#[tokio::test]
+async fn the_development_fixture_boards_have_colors_and_glyphs() {
+    let f = TestFixture::migrated().await.unwrap();
+    content::seed_fixture(&f.db).await.unwrap();
+    assert_boards_have_distinct_colors_and_glyphs(&f.db, 6).await;
+    let app = gono_forum_web::router::build_with_global(
+        f.config.clone(),
+        &f.root,
+        f.db.clone(),
+        f.cache.clone(),
+        f.global.clone(),
+    );
+    let (status, body) = get(&app, "/").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("data-board-style>"),
+        "pages link the board stylesheet: {body}"
     );
     f.cleanup().await.unwrap();
 }

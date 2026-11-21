@@ -35,7 +35,12 @@ async fn the_last_replier_uid_is_backfilled_from_the_last_reply() {
     let services = TestFixture::new().await.unwrap();
     let db = services.db.clone();
     db.migrate_until(3).await.unwrap();
-    content::seed_forums(&db).await.unwrap();
+    // One board with the columns of version 3 (`content::seed_forums` writes the later color and glyph columns).
+    execute(
+        &db,
+        "INSERT INTO gonof_forum_forum (slug, name, description, guidance, displayorder) VALUES ('daily', 'Daily', '', '', 0)",
+    )
+    .await;
     let fid: i64 = db::query_scalar("SELECT fid FROM gonof_forum_forum WHERE slug='daily'")
         .fetch_one(db.executor())
         .await

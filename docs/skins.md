@@ -264,7 +264,9 @@ skin that a page uses cannot be deleted.
 An administrator can give each board a color and one of 32 built-in glyphs in the board's form (Forums › Forums):
 "Give this forum a color" with a color picker, and a choice of icon. They are stored on the board row (`color`, empty
 or `#rrggbb` in lower case; `glyph`, empty or a glyph name, `organization/glyphs.rs`) and checked on every save. They
-do not change the default look: the core stylesheets do not use them; a skin does.
+do not change the default look: the core stylesheets do not use them; a skin does. The boards of the setup wizard's
+sample content, of `gono-forum-cli seed-demo` and of the example datasets (`examples/content/`) come with both, and a
+content dataset may set them ([content-import.md](content-import.md), "boards.json").
 
 - **Variables.** While at least one board has a color or a glyph, every page links the board stylesheet
   `/boards.css?k=<skin>&v=<hash>` after `forum.css` (`<link … data-board-style>`), compiled for the page's skin

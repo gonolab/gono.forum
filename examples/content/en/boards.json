@@ -3,30 +3,40 @@
     "slug": "general",
     "name": "General",
     "description": "Introductions, everyday chat and anything that does not fit elsewhere",
-    "guidance": "Say hello, share what you are up to and keep it friendly."
+    "guidance": "Say hello, share what you are up to and keep it friendly.",
+    "color": "#2f6fde",
+    "glyph": "chat"
   },
   {
     "slug": "help",
     "name": "Help",
     "description": "Ask how something works, get unstuck and share answers",
-    "guidance": "Say what you tried, what you expected and what happened instead. When something solves it, say so."
+    "guidance": "Say what you tried, what you expected and what happened instead. When something solves it, say so.",
+    "color": "#2e9d57",
+    "glyph": "question"
   },
   {
     "slug": "showcase",
     "name": "Showcase",
     "description": "Projects, write-ups and things you made",
-    "guidance": "Share what you built and how. Screenshots, source links and lessons learned are welcome."
+    "guidance": "Share what you built and how. Screenshots, source links and lessons learned are welcome.",
+    "color": "#e07a1f",
+    "glyph": "star"
   },
   {
     "slug": "tech",
     "name": "Technology",
     "description": "Software, hardware, the web and the tools we use",
-    "guidance": "News, opinions and comparisons. Link to your sources and keep it civil."
+    "guidance": "News, opinions and comparisons. Link to your sources and keep it civil.",
+    "color": "#8656d8",
+    "glyph": "code"
   },
   {
     "slug": "feedback",
     "name": "Feedback",
     "description": "Suggestions and questions about this forum",
-    "guidance": "One idea or question per thread. Say what you would like to change and why."
+    "guidance": "One idea or question per thread. Say what you would like to change and why.",
+    "color": "#d6456f",
+    "glyph": "lightbulb"
   }
 ]

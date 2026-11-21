@@ -12,7 +12,10 @@ use gono_forum_web::{
     content::{self, dataset},
     db,
     identity::Identity,
-    test_support::{TestFixture, assert_identity_consistent, content_drift, detached_global},
+    test_support::{
+        TestFixture, assert_boards_have_distinct_colors_and_glyphs, assert_identity_consistent,
+        content_drift, detached_global,
+    },
 };
 use http_body_util::BodyExt;
 use tower::ServiceExt;
@@ -49,12 +52,12 @@ fn write_dataset(dir: &Path) {
     .unwrap();
     std::fs::write(
         dir.join("boards.json"),
-        r#"[
+        r##"[
   {"slug": "community", "name": "Community", "description": "Everything about us"},
   {"slug": "intros", "name": "Introductions", "description": "Say hello", "parent": "community"},
-  {"slug": "help", "name": "Help", "description": "Questions and answers", "guidance": "Say what you tried."}
+  {"slug": "help", "name": "Help", "description": "Questions and answers", "guidance": "Say what you tried.", "color": "#0F766E", "glyph": "question"}
 ]
-"#,
+"##,
     )
     .unwrap();
     std::fs::write(
@@ -212,6 +215,29 @@ async fn a_dataset_is_imported_in_batches_with_consistent_copies() {
         .await,
         0
     );
+    // Colors and glyphs: stored as the board form stores them, the color in lower case; a board without them has none.
+    let looks: Vec<(String, String, String)> =
+        db::query("SELECT slug, color, glyph FROM gonof_forum_forum ORDER BY fid")
+            .fetch_all(f.db.executor())
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| {
+                (
+                    db::text(row, "slug").unwrap(),
+                    db::text(row, "color").unwrap(),
+                    db::text(row, "glyph").unwrap(),
+                )
+            })
+            .collect();
+    assert_eq!(
+        looks,
+        [
+            ("community".into(), String::new(), String::new()),
+            ("intros".into(), String::new(), String::new()),
+            ("help".into(), "#0f766e".into(), "question".into()),
+        ]
+    );
     // Threads and posts.
     let threads = i64::try_from(THREADS).unwrap();
     let replies = 4 + 2 * (threads - 2);
@@ -338,6 +364,7 @@ async fn the_committed_examples_import_like_the_wizard_samples() {
             count(&f, "SELECT COUNT(*) FROM gonof_common_member").await,
             i64::try_from(content::sample::MEMBERS).unwrap()
         );
+        assert_boards_have_distinct_colors_and_glyphs(&f.db, content::sample::FORUMS).await;
         assert_consistent(&f).await;
         f.cleanup().await.unwrap();
     }

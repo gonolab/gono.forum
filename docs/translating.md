@@ -117,8 +117,8 @@ The setup wizard can fill a new site with sample content (see "Setup wizard" in 
 without the file offers no sample, and the wizard and the commands list only the languages that have one. The
 sample's language is chosen on its own; it does not change the site language.
 
-`en/sample.json` is complete: the members, the boards with their threads, and the pools that replies are drawn from.
-A translation keeps that structure and holds only text:
+`en/sample.json` is complete: the members, the boards with their colors, glyphs and threads, and the pools that
+replies are drawn from. A translation keeps that structure and holds only text:
 
 ```json
 {
@@ -139,7 +139,8 @@ A translation keeps that structure and holds only text:
 
 - Members are keyed by their English username and boards by slug: every one must be there, and no others. Threads
   and replies are matched by position, so each list has exactly as many entries as in English, in the same order.
-  Pins, features, authors, times and who answers whom come from English and are the same in every language.
+  Pins, features, authors, times and who answers whom come from English and are the same in every language, and so
+  do the boards' colors and glyphs (`color`, `glyph`; a translation that sets them is refused).
 - Usernames may be translated. Write them the way they are stored: lowercase, without spaces, `@`, `/` or `\`, at
   most 50 characters, all different. Board slugs stay as they are.
 - Translate freely rather than word for word, so the sample reads like people writing in your language, but keep

@@ -65,7 +65,14 @@ fn linked(html: &str) -> Option<String> {
 
 #[tokio::test]
 async fn a_board_color_and_glyph_reach_the_board_stylesheet() {
-    let site = Site::new(false).await;
+    // The fixture boards come with colors and glyphs; this starts from a site whose boards have none.
+    let site = Site::prepared(false, |db| async move {
+        gono_forum_web::db::query("UPDATE gonof_forum_forum SET color = '', glyph = ''")
+            .execute(db.executor())
+            .await
+            .unwrap();
+    })
+    .await;
     let daily = site.fid("daily").await;
     let home = site.get("/", None).await;
     assert_eq!(

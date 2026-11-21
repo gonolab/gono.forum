@@ -885,6 +885,34 @@ pub async fn assert_identity_consistent(db: &Database) {
     assert_consistent(db, "identity.sql").await;
 }
 
+/// The site has `boards` boards, each with a color and a glyph stored as the board form stores them
+/// (`organization::board_color`, `organization::board_glyph`), and no two share a color or a glyph: what the setup
+/// wizard's sample, `seed-demo` and the committed example datasets bring (docs/skins.md, "Board colors and glyphs").
+pub async fn assert_boards_have_distinct_colors_and_glyphs(db: &Database, boards: usize) {
+    let rows = crate::db::query("SELECT slug, color, glyph FROM gonof_forum_forum ORDER BY fid")
+        .fetch_all(db.executor())
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), boards, "boards");
+    let mut colors = std::collections::BTreeSet::new();
+    let mut glyphs = std::collections::BTreeSet::new();
+    for row in &rows {
+        let slug = crate::db::text(row, "slug").unwrap();
+        let color = crate::db::text(row, "color").unwrap();
+        let glyph = crate::db::text(row, "glyph").unwrap();
+        assert!(
+            !color.is_empty() && crate::organization::board_color(&color).as_ref() == Some(&color),
+            "board {slug} has the color {color:?}"
+        );
+        assert!(
+            !glyph.is_empty() && crate::organization::board_glyph(&glyph).as_ref() == Some(&glyph),
+            "board {slug} has the glyph {glyph:?}"
+        );
+        assert!(colors.insert(color), "board {slug} repeats a color");
+        assert!(glyphs.insert(glyph), "board {slug} repeats a glyph");
+    }
+}
+
 /// Same as [`assert_identity_rejected_or_flagged`], using the messaging consistency check
 /// `apps/web/tests/consistency/messaging.sql` (private messages, follows, blocks, favorites, likes, requests,
 /// revisions, attachments).

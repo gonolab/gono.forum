@@ -100,7 +100,9 @@ reverse proxy (or an SSH tunnel to the listen port) and enter the token. Then:
 5. **Administrator**: username, optional email (counted as verified) and password.
 6. **Sample content** (optional, off by default): 10 members, 5 boards, 100 threads and 1,000 replies, dated over the
    two months before the install, in the language you pick below the box: English or Simplified Chinese. Both have
-   the same threads, authors and nesting; only the words differ. The choice only affects the sample: the interface
+   the same threads, authors and nesting; only the words differ. Each board has its own color and icon, which the
+   built-in skins Atrium, Harbor and Ledger show (the default look does not); change them in the board's form
+   (Forums › Forums). The choice only affects the sample: the interface
    language is set afterwards in the admin area (`/manage/languages`). The sample shows what lists, threads and nested
    replies look like before real members arrive. The sample members have no password or email, so nobody can sign in
    as them. It needs a database without boards, threads or posts (the wizard says so otherwise); leave it off for a
