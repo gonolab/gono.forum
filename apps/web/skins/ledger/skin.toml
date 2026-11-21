@@ -22,9 +22,10 @@ avatar_shape = "circle"
 page_head = "column"
 home = "threads"
 
-# The side column holds the board tree and the header's navigation entries (which the header leaves out here); the
-# lists keep an aside with the member card, hot threads and statistics; thread pages put the timeline under the
-# member card. The other places follow the core default (the board head on board pages, nothing in the footer).
+# The side column holds the board tree and the header's navigation entries (which the header leaves out here; while
+# the site has no navigation document they would be the boards again, and nav-links shows nothing); the lists keep
+# an aside with the member card, hot threads and statistics; thread pages put the timeline under the member card. The
+# other places follow the core default (the board head on board pages, nothing in the footer).
 [layout]
 "side.nav" = [
   { id = "side-boards", source = "nav-boards" },

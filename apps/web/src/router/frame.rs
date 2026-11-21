@@ -44,6 +44,10 @@ pub(super) struct SiteFrame {
     pub scope: Option<Scope>,
     pub brands: Arc<Vec<BrandAsset>>,
     pub navigation: Vec<NavigationLink>,
+    /// Whether [`Self::navigation`] comes from the navigation document (`/manage/navigation`); false while it is the
+    /// default list of top-level forums (no document, or one that no longer parses), which the `nav-links` block then
+    /// leaves to `nav-boards` (docs/skins.md, "Core blocks").
+    pub navigation_custom: bool,
     /// "All forums" (`/forums`) at the end of the header navigation, lowest priority, see
     /// [`super::nav_fit::fit_tail`].
     pub directory: NavigationLink,
@@ -105,6 +109,7 @@ impl Default for SiteFrame {
             scope: None,
             brands: Arc::default(),
             navigation: Vec::new(),
+            navigation_custom: false,
             directory: directory_link(),
             side_navigation: None,
             forum_filters: ForumFilters::default(),
@@ -347,6 +352,7 @@ impl SiteFrame {
             scope,
             brands,
             navigation,
+            navigation_custom: block.navigation_entries.is_some(),
             directory,
             side_navigation,
             forum_filters,

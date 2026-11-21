@@ -391,7 +391,14 @@ pub(super) fn shows_side_nav(state: &AppState, skin: &crate::skins::Skin, path: 
         && !(path == "/manage" || path.starts_with("/manage/"))
         && side_blocks(&state.frame, skin)
             .iter()
-            .any(|block| block.show.shows(signed_in))
+            .any(|block| block.show.shows(signed_in) && !empty_nav_links(&state.frame, block))
+}
+
+/// A `nav-links` block while the header navigation is only the default list of top-level boards: that list is what
+/// `nav-boards` shows, so the block shows nothing rather than the boards a second time (docs/skins.md, "Core
+/// blocks"). A side column left with no other block falls back to the top navigation like an empty one.
+fn empty_nav_links(frame: &super::frame::SiteFrame, block: &Block) -> bool {
+    block.kind == Kind::Core(Core::NavLinks) && !frame.navigation_custom
 }
 
 /// The blocks of `side.nav` for `skin`: the draft or documents, then the skin's own layout.
@@ -419,6 +426,8 @@ pub(super) fn side_nav(p: &PageMeta<'_>) -> Vec<String> {
         let started = Instant::now();
         let body = if !block.show.shows(p.authenticated) {
             Err(LayoutSkip::Audience)
+        } else if empty_nav_links(p.frame, block) {
+            Err(LayoutSkip::Empty)
         } else {
             match block.kind {
                 Kind::Core(Core::NavBoards) => Ok(Body::NavBoards(BoardsData {
@@ -633,9 +642,17 @@ async fn read(
                 Err(error) => return Err(fetch_skip(block, error)),
             }
         }
-        Kind::Core(Core::NavLinks) => Body::NavLinks(NavLinksData {
-            links: super::highlighted(state, page.board.map_or("", |board| board.slug.as_str())),
-        }),
+        Kind::Core(Core::NavLinks) => {
+            if empty_nav_links(&state.frame, block) {
+                return Err(Skip::Kind(LayoutSkip::Empty));
+            }
+            Body::NavLinks(NavLinksData {
+                links: super::highlighted(
+                    state,
+                    page.board.map_or("", |board| board.slug.as_str()),
+                ),
+            })
+        }
         Kind::Core(Core::Markdown) => {
             let source = block.body.as_ref().map_or("", |body| body.get(t.tag()));
             Body::Markdown(MarkdownData {

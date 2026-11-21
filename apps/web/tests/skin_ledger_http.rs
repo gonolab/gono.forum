@@ -61,15 +61,16 @@ async fn ledger_brings_its_frame_layout_and_behavior_modules() {
         "{tag}"
     );
     assert!(tag.contains("data-avatar-shape=\"circle\""), "{tag}");
-    // The side column with the board tree and the header's entries; the header leaves its boards out.
-    has_blocks(
-        part(
-            &home.body,
-            "<div class=\"side-nav\" data-side-nav>",
-            "<main ",
-        ),
-        &["side-boards", "side-links"],
+    // The side column with the board tree; the header leaves its boards out. Without a navigation document the
+    // header's entries are the same boards, so they are not listed a second time.
+    let side = part(
+        &home.body,
+        "<div class=\"side-nav\" data-side-nav>",
+        "<main ",
     );
+    has_blocks(side, &["side-boards"]);
+    assert!(!side.contains("data-block=\"side-links\""), "{side}");
+    assert_eq!(side.matches("href=\"/showcase\"").count(), 1, "{side}");
     assert!(!home.body.contains("class=\"masthead__boards"));
     has_blocks(
         part(&home.body, "<aside class=\"layout__aside\"", "</aside>"),
@@ -127,6 +128,36 @@ async fn ledger_brings_its_frame_layout_and_behavior_modules() {
         );
     }
     assert!(css.body.contains(".rows--topics > .rows__item {"));
+    site.services.cleanup().await.unwrap();
+}
+
+#[tokio::test]
+async fn ledger_lists_the_navigation_document_under_the_board_tree() {
+    let site = Site::new(true).await;
+    use_ledger(&site, None).await;
+    let showcase = site.fid("showcase").await;
+    test_support::set_setting(
+        site.db(),
+        "settings.navigation.body",
+        &format!("Projects | forum:{showcase}\nRules | /rules"),
+    )
+    .await
+    .unwrap();
+    site.services.global.refresh_all().await.unwrap();
+    let board = site.get("/showcase", None).await;
+    assert_eq!(board.status, StatusCode::OK);
+    let side = part(
+        &board.body,
+        "<div class=\"side-nav\" data-side-nav>",
+        "<main ",
+    );
+    has_blocks(side, &["side-boards", "side-links"]);
+    let links = part(side, "data-block=\"side-links\"", "</nav>");
+    assert!(
+        links.contains("href=\"/showcase\" aria-current=\"page\">Projects</a>"),
+        "{links}"
+    );
+    assert!(links.contains("href=\"/rules\">Rules</a>"), "{links}");
     site.services.cleanup().await.unwrap();
 }
 

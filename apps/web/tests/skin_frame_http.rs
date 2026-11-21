@@ -66,6 +66,15 @@ fn side_nav(html: &str) -> &str {
 #[tokio::test]
 async fn side_navigation_shows_its_blocks_on_every_front_page() {
     let site = Site::new(true).await;
+    // With a navigation document, so that nav-links has entries of its own to show.
+    let showcase = site.fid("showcase").await;
+    test_support::set_setting(
+        site.db(),
+        "settings.navigation.body",
+        &format!("Showcase | forum:{showcase}\nRules | /rules"),
+    )
+    .await
+    .unwrap();
     use_skin(&site, "rail", SIDE).await;
     for path in [
         "/",
@@ -125,6 +134,54 @@ async fn side_navigation_shows_its_blocks_on_every_front_page() {
     );
     assert!(!manage.body.contains("data-side-nav"));
     assert!(manage.body.contains("class=\"masthead__boards\""));
+    site.services.cleanup().await.unwrap();
+}
+
+/// Without a navigation document the header's entries are the top-level boards, which `nav-boards` already lists:
+/// `nav-links` shows nothing then, and a side column with nothing else falls back to the top navigation.
+#[tokio::test]
+async fn nav_links_leaves_the_default_board_list_to_the_board_tree() {
+    let site = Site::new(true).await;
+    use_skin(&site, "rail", SIDE).await;
+    let home = site.get("/", None).await;
+    let side = side_nav(&home.body);
+    assert!(side.contains("data-block=\"side-boards\""), "{side}");
+    assert!(!side.contains("data-block=\"side-links\""), "{side}");
+    assert_eq!(side.matches("href=\"/showcase\"").count(), 1, "{side}");
+    // A layout that puts nav-links in an aside shows nothing there either.
+    test_support::set_setting(
+        site.db(),
+        "settings.layout.body",
+        &json!({"v": 1, "skin": "rail", "places": {
+            "side.nav": [{"id": "links", "source": "nav-links"}],
+            "home.aside": [{"id": "aside-links", "source": "nav-links"}],
+        }})
+        .to_string(),
+    )
+    .await
+    .unwrap();
+    site.changed();
+    let home = site.get("/", None).await;
+    assert!(
+        home.body
+            .contains(" data-nav=\"top\" data-header-boards=\"true\""),
+        "only nav-links in side.nav: the top navigation with the header's boards"
+    );
+    assert!(!home.body.contains("data-side-nav"));
+    assert!(home.body.contains("class=\"masthead__boards\""));
+    assert!(!home.body.contains("data-block=\"aside-links\""));
+    // Once the site has a navigation document, both show its entries.
+    test_support::set_setting(site.db(), "settings.navigation.body", "Rules | /rules")
+        .await
+        .unwrap();
+    site.changed();
+    let home = site.get("/", None).await;
+    assert!(home.body.contains(" data-nav=\"side\""));
+    for id in ["links", "aside-links"] {
+        let block = &home.body[home.body.find(&format!("data-block=\"{id}\"")).unwrap()..];
+        let block = &block[..block.find("</nav>").unwrap()];
+        assert!(block.contains("href=\"/rules\">Rules</a>"), "{id}: {block}");
+    }
     site.services.cleanup().await.unwrap();
 }
 
