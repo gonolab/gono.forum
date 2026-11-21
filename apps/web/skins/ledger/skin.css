@@ -639,6 +639,18 @@ html:not([data-composer-dock="open"]) .reply-box {
     grid-column: 2 / 6;
   }
 
+  /* The count of new replies does not fit beside the board badge, the labels and the time on a phone: it takes a
+     line of its own under them, and the thumbnails move below it. Rows without the count keep their two lines. */
+  .rows--topics .rows__item.is-unread[data-unread] .row-unread {
+    grid-column: 2 / -1;
+    grid-row: 3;
+    margin-inline-start: 4px;
+  }
+
+  .rows--topics > .rows__item.is-unread[data-unread] .row-thumbs {
+    grid-row: 4;
+  }
+
   .rows--topics .row-meta__replies,
   .rows--topics .row-meta__time {
     justify-content: flex-end;
